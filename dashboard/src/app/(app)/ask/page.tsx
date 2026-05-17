@@ -1,0 +1,352 @@
+"use client";
+
+import {
+  ArrowRight,
+  Brain,
+  Code2,
+  Database,
+  MessageSquareText,
+  Sparkles,
+} from "lucide-react";
+import { useState } from "react";
+
+import { Button } from "@/components/ui/Button";
+import { Panel } from "@/components/ui/Panel";
+import { Pill } from "@/components/ui/Pill";
+import { answers, findAnswer, suggestedQueries } from "@/lib/mock/ask-answers";
+import { cn } from "@/lib/utils";
+
+interface ConversationTurn {
+  q: string;
+  answer: ReturnType<typeof findAnswer>;
+  thinking?: boolean;
+}
+
+export default function AskPage() {
+  const [q, setQ] = useState("");
+  const [turns, setTurns] = useState<ConversationTurn[]>([
+    { q: answers[1].query, answer: answers[1] }, // longest dwell, pre-populated
+  ]);
+
+  function ask(query: string) {
+    if (!query.trim()) return;
+    const found = findAnswer(query) ?? answers[0];
+    setTurns((cur) => [...cur, { q: query, answer: { ...found, query } }]);
+    setQ("");
+  }
+
+  return (
+    <div className="p-5 max-w-[1400px] mx-auto grid grid-cols-12 gap-5">
+      {/* Main column */}
+      <div className="col-span-12 lg:col-span-8 space-y-5">
+        <div>
+          <Pill variant="info" className="mb-2">
+            <Brain size={11} />
+            Ask the Room · powered by Claude
+          </Pill>
+          <h1 className="text-3xl font-semibold tracking-tight">
+            Plain English. Real answers.
+          </h1>
+          <p className="text-sm text-text-secondary mt-1.5 max-w-xl">
+            Your question is translated to a Cypher query against the spatial graph,
+            executed, and the result is summarised for the client. No SQL. No
+            analyst.
+          </p>
+        </div>
+
+        {/* Conversation */}
+        <div className="space-y-5">
+          {turns.map((t, i) => (
+            <AnswerCard key={i} turn={t} />
+          ))}
+        </div>
+
+        {/* Input */}
+        <div className="panel-elevated p-4 sticky bottom-4 z-10">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              ask(q);
+            }}
+            className="flex items-center gap-3"
+          >
+            <MessageSquareText size={18} className="text-accent-blue shrink-0 ml-1" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Ask the room…  (e.g. how long was P-216 in the lounge?)"
+              className="flex-1 bg-transparent outline-none text-base placeholder:text-text-muted py-2"
+              autoFocus
+            />
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              iconAfter={<ArrowRight size={14} />}
+              disabled={!q.trim()}
+            >
+              Ask
+            </Button>
+          </form>
+        </div>
+      </div>
+
+      {/* Sidebar */}
+      <div className="col-span-12 lg:col-span-4 space-y-5">
+        <Panel
+          title="Suggested questions"
+          subtitle="Click to ask"
+          action={<Sparkles size={14} className="text-accent-violet" />}
+        >
+          <ul className="space-y-1.5">
+            {suggestedQueries.map((s) => (
+              <li key={s}>
+                <button
+                  onClick={() => ask(s)}
+                  className="w-full text-left text-sm px-3 py-2.5 rounded-md hover:bg-bg-elevated transition-colors text-text-secondary hover:text-text-primary border border-transparent hover:border-border-subtle"
+                >
+                  {s}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+
+        <Panel title="Schema in context" subtitle="What the LLM can query">
+          <div className="space-y-3 text-xs">
+            <SchemaGroup
+              title="Nodes"
+              items={["Person", "Zone", "Object", "Event", "Surface", "Insight"]}
+            />
+            <SchemaGroup
+              title="Relationships"
+              items={[
+                "ENTERED",
+                "LEFT",
+                "DWELLED_IN",
+                "LOOKED_AT",
+                "NEAR",
+                "INTERACTED_WITH",
+                "CO_OCCURRED_WITH",
+              ]}
+            />
+          </div>
+        </Panel>
+
+        <Panel title="Stack" subtitle="What runs your question">
+          <ul className="space-y-2 text-xs text-text-secondary">
+            <StackRow
+              icon={<MessageSquareText size={12} />}
+              label="LLM · Claude 3.5 Sonnet"
+              ms={420}
+            />
+            <StackRow
+              icon={<Code2 size={12} />}
+              label="Cypher generation"
+              ms={180}
+            />
+            <StackRow icon={<Database size={12} />} label="Neo4j execution" ms={92} />
+            <StackRow icon={<Brain size={12} />} label="Result formatting" ms={210} />
+          </ul>
+          <div className="mt-3 pt-3 border-t border-border-hairline flex justify-between text-xs">
+            <span className="text-text-muted">Total</span>
+            <span className="tabular text-accent-green font-medium">902 ms</span>
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function StackRow({
+  icon,
+  label,
+  ms,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  ms: number;
+}) {
+  return (
+    <li className="flex items-center justify-between gap-3">
+      <span className="flex items-center gap-2 text-text-secondary">
+        <span className="text-text-muted">{icon}</span>
+        {label}
+      </span>
+      <span className="tabular text-text-muted">{ms} ms</span>
+    </li>
+  );
+}
+
+function SchemaGroup({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted mb-1.5">
+        {title}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {items.map((i) => (
+          <span
+            key={i}
+            className="text-[10px] tabular bg-bg-elevated border border-border-subtle px-2 py-1 rounded-md text-text-secondary font-mono"
+          >
+            {i}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AnswerCard({ turn }: { turn: ConversationTurn }) {
+  if (!turn.answer) return null;
+  const { natural, cypher, chartType, data, insights } = turn.answer;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-3">
+        <div className="w-7 h-7 rounded-full bg-bg-elevated border border-border-subtle flex items-center justify-center shrink-0 text-text-secondary">
+          <MessageSquareText size={13} />
+        </div>
+        <div className="flex-1 panel-elevated px-4 py-3">
+          <div className="text-sm font-medium">{turn.q}</div>
+        </div>
+      </div>
+
+      <div className="flex items-start gap-3">
+        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-accent-blue to-accent-cyan flex items-center justify-center shrink-0">
+          <Brain size={13} className="text-white" />
+        </div>
+        <div className="flex-1 panel p-5 space-y-4">
+          <p className="text-base leading-relaxed">{natural}</p>
+
+          <AnswerVisualization chartType={chartType} data={data} />
+
+          {insights && insights.length > 0 && (
+            <div className="pt-3 border-t border-border-hairline space-y-2">
+              {insights.map((i) => (
+                <div key={i} className="flex gap-2 text-xs text-text-secondary">
+                  <Sparkles
+                    size={12}
+                    className="text-accent-violet shrink-0 mt-0.5"
+                  />
+                  {i}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <details className="text-xs">
+            <summary className="cursor-pointer text-text-muted hover:text-text-secondary inline-flex items-center gap-1.5">
+              <Code2 size={11} />
+              View Cypher
+            </summary>
+            <pre className="mt-2 font-mono text-[11px] text-text-secondary bg-bg-canvas border border-border-hairline rounded-md p-3 overflow-x-auto whitespace-pre-wrap">
+              {cypher}
+            </pre>
+          </details>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnswerVisualization({
+  chartType,
+  data,
+}: {
+  chartType: string;
+  data: unknown;
+}) {
+  if (chartType === "number") {
+    const d = data as { value: number; unit?: string; delta?: string };
+    return (
+      <div className="flex items-baseline gap-3 py-2">
+        <span className="text-6xl font-semibold tabular tracking-tight text-accent-cyan">
+          {d.value.toLocaleString()}
+        </span>
+        {d.unit && <span className="text-text-muted">{d.unit}</span>}
+        {d.delta && (
+          <span className="text-accent-green text-sm tabular ml-2">
+            ▲ {d.delta}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  if (chartType === "bar" || chartType === "rank") {
+    const items = data as { label: string; value: number; unit?: string }[];
+    const max = Math.max(...items.map((i) => i.value));
+    return (
+      <div className="space-y-2 py-1">
+        {items.map((it, idx) => (
+          <div key={idx} className="space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-text-secondary">{it.label}</span>
+              <span className="tabular text-text-primary font-medium">
+                {it.value.toLocaleString()}
+                {it.unit && (
+                  <span className="text-text-muted ml-1">{it.unit}</span>
+                )}
+              </span>
+            </div>
+            <div className="h-1.5 rounded-full bg-bg-elevated overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all",
+                  idx === 0
+                    ? "bg-gradient-to-r from-accent-blue to-accent-cyan"
+                    : "bg-border-strong"
+                )}
+                style={{ width: `${(it.value / max) * 100}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (chartType === "line") {
+    const d = data as { label: string; series: { t: string; v: number }[] };
+    const max = Math.max(...d.series.map((p) => p.v));
+    const step = 100 / (d.series.length - 1);
+    const path = d.series
+      .map(
+        (p, i) => `${i === 0 ? "M" : "L"} ${i * step} ${100 - (p.v / max) * 90}`
+      )
+      .join(" ");
+    return (
+      <div>
+        <div className="text-xs text-text-muted mb-2">{d.label}</div>
+        <svg
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          className="w-full h-32"
+        >
+          <path d={`${path} L 100 100 L 0 100 Z`} fill="rgba(0,212,255,0.12)" />
+          <path d={path} stroke="#00d4ff" strokeWidth="0.7" fill="none" />
+          {d.series.map((p, i) => (
+            <circle
+              key={i}
+              cx={i * step}
+              cy={100 - (p.v / max) * 90}
+              r="0.9"
+              fill="#00d4ff"
+            />
+          ))}
+        </svg>
+        <div className="flex justify-between text-[10px] tabular text-text-muted mt-1">
+          {d.series
+            .filter((_, i) => i % 2 === 0)
+            .map((p) => (
+              <span key={p.t}>{p.t}</span>
+            ))}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}

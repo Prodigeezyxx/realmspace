@@ -1,0 +1,76 @@
+"use client";
+
+/**
+ * Heatmap: aggregated positions across the session, rendered as a soft glow
+ * overlay on the booth floor plan.
+ */
+
+import { useMemo } from "react";
+
+import { peopleTracks } from "@/lib/mock/people";
+
+export function Heatmap({ height = 200 }: { height?: number }) {
+  // Aggregate every waypoint into a coarse 24x14 grid
+  const grid = useMemo(() => {
+    const W = 32;
+    const H = 18;
+    const cells = Array.from({ length: H }, () => new Array(W).fill(0));
+    peopleTracks.forEach((p) => {
+      p.waypoints.forEach(([x, y, t], i) => {
+        if (i === 0) return;
+        const dwell = t - p.waypoints[i - 1][2];
+        const cx = Math.floor(x * (W - 1));
+        const cy = Math.floor(y * (H - 1));
+        cells[cy][cx] += Math.min(60, dwell);
+      });
+    });
+    return { cells, W, H };
+  }, []);
+
+  const max = Math.max(1, ...grid.cells.flat());
+
+  return (
+    <div
+      className="relative w-full rounded-lg overflow-hidden bg-bg-canvas map-grid"
+      style={{ height }}
+    >
+      <svg
+        viewBox={`0 0 ${grid.W * 10} ${grid.H * 10}`}
+        className="absolute inset-0 w-full h-full"
+        preserveAspectRatio="none"
+      >
+        {grid.cells.map((row, y) =>
+          row.map((v, x) => {
+            if (v <= 0) return null;
+            const intensity = v / max;
+            return (
+              <circle
+                key={`${x}_${y}`}
+                cx={x * 10 + 5}
+                cy={y * 10 + 5}
+                r={3 + intensity * 14}
+                fill="url(#heat)"
+                opacity={0.18 + intensity * 0.7}
+              />
+            );
+          })
+        )}
+        <defs>
+          <radialGradient id="heat">
+            <stop offset="0%" stopColor="#ff453a" stopOpacity="0.85" />
+            <stop offset="40%" stopColor="#ffd60a" stopOpacity="0.45" />
+            <stop offset="100%" stopColor="#3e83f7" stopOpacity="0" />
+          </radialGradient>
+        </defs>
+      </svg>
+
+      <div className="absolute top-2 left-2 text-[10px] tabular uppercase tracking-[0.18em] text-text-muted">
+        attention density · session-to-date
+      </div>
+      <div className="absolute bottom-2 right-2 flex items-center gap-2 text-[10px] tabular text-text-muted">
+        <div className="h-1.5 w-24 rounded-full bg-gradient-to-r from-accent-blue via-accent-amber to-accent-red" />
+        <span>cold → hot</span>
+      </div>
+    </div>
+  );
+}
