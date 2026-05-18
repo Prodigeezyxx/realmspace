@@ -139,6 +139,9 @@ export interface Session {
 
   // ── Setup
   cameras: Camera[];
+  /** Venue prefab chosen during onboarding (zones + booth footprint). */
+  prefabId?: string;
+  boothSize?: { width: number; depth: number };
   zones: Zone[];
   touchpoints: Touchpoint[];
 

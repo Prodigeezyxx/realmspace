@@ -22,6 +22,11 @@ Swap registry implementation later; skills and UI stay the same.
 
 ## Live session (background)
 
-- **Preload** — `lib/live-session/model-cache.ts` downloads COCO-SSD on app load.
-- **Store** — `lib/live-session/store.ts` holds stats, events, agent ticks (survives route changes).
-- **Provider** — `LiveSessionProvider` keeps one hidden `WebcamDetector`; `/live` mirrors the stream.
+- **Runtime** — `lib/live-session/detector-runtime.ts` module singleton; inference survives route changes.
+- **Store** — `lib/live-session/store.ts` holds stats, twin avatars, heatmap (synced with feed).
+- **Provider** — `LiveSessionProvider` hosts hidden sensor video; `/live` mirrors stream + overlay.
+
+## Onboarding
+
+- **Prefabs** — Step 3 of `/sessions/new`: `PrefabPicker` → `prefabId` + `boothSize` + zone polygons on the session.
+- **Apply** — `lib/prefabs/apply.ts` maps templates into session zones for twin + agents.

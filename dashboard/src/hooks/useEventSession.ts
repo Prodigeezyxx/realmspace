@@ -21,7 +21,7 @@ export function useEventSession() {
 
     setEventContextFromSession(
       { ...active, zones },
-      demoMeta.boothSize
+      active.boothSize ?? demoMeta.boothSize
     );
   }, [active]);
 }

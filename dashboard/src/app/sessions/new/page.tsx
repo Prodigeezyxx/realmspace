@@ -6,6 +6,7 @@ import {
   CalendarClock,
   Camera as CameraIcon,
   Check,
+  Layers,
   Lock,
   MapPin,
   Plus,
@@ -17,6 +18,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { PrefabPicker } from "@/components/sessions/PrefabPicker";
 import { TouchpointEditor } from "@/components/sessions/TouchpointEditor";
 import { TypeCard } from "@/components/sessions/TypeCard";
 import {
@@ -38,6 +40,10 @@ import {
   SESSION_TYPES,
   getTypeMeta,
 } from "@/lib/session/presets";
+import { dispatchTrigger } from "@/lib/agent-engine";
+import { setActivePrefabId } from "@/lib/prefab-store";
+import { applyPrefabToDraft } from "@/lib/prefabs/apply";
+import { getPrefab } from "@/lib/prefabs";
 import { sessionActions } from "@/lib/session/store";
 import type {
   Camera,
@@ -104,7 +110,11 @@ export default function NewSessionPage() {
     { id: uid("cam"), name: "Camera 1", placement: "Ceiling — central", device: "" },
   ]);
 
-  // ── Step 3: zones
+  // ── Step 3: space template + zones
+  const [prefabId, setPrefabId] = useState<string | null>(null);
+  const [boothSize, setBoothSize] = useState<
+    { width: number; depth: number } | undefined
+  >();
   const [zones, setZones] = useState<Zone[]>([]);
 
   // ── Step 4: touchpoints
@@ -146,10 +156,28 @@ export default function NewSessionPage() {
   const canAdvance = useMemo(() => {
     if (step === 1) return Boolean(type && name.trim());
     if (step === 2) return Boolean(venue.trim() && startAtLocal);
-    if (step === 3) return zones.length > 0 && zones.every((z) => z.name.trim());
+    if (step === 3)
+      return (
+        Boolean(prefabId) &&
+        zones.length > 0 &&
+        zones.every((z) => z.name.trim())
+      );
     if (step === 4) return touchpoints.every((t) => t.name.trim());
     return true;
-  }, [step, type, name, venue, startAtLocal, zones, touchpoints]);
+  }, [step, type, name, venue, startAtLocal, prefabId, zones, touchpoints]);
+
+  function selectPrefab(id: string) {
+    const applied = applyPrefabToDraft(id, {
+      newId: uid,
+      prevZones: zones,
+      touchpoints,
+    });
+    if (!applied) return;
+    setPrefabId(applied.prefabId);
+    setBoothSize(applied.boothSize);
+    setZones(applied.zones);
+    setTouchpoints(applied.touchpoints);
+  }
 
   function back() {
     if (step > 1) setStep(step - 1);
@@ -178,6 +206,8 @@ export default function NewSessionPage() {
           ? expectedDailyFootfall
           : undefined,
       cameras,
+      prefabId: prefabId ?? undefined,
+      boothSize,
       zones,
       touchpoints,
       goals: {
@@ -201,7 +231,23 @@ export default function NewSessionPage() {
       },
       notes: notes.trim() || undefined,
     };
-    sessionActions.createSession(draft, { activate: true });
+    const created = sessionActions.createSession(draft, { activate: true });
+    if (created.prefabId) setActivePrefabId(created.prefabId);
+    void dispatchTrigger({
+      type: "twin_layout_loaded",
+      timestamp: Date.now(),
+      payload: {
+        layout: {
+          zones: created.zones
+            .filter((z) => z.polygon?.length)
+            .map((z) => ({
+              id: z.id,
+              label: z.name,
+              polygon: z.polygon!,
+            })),
+        },
+      },
+    });
     router.push("/live");
   }
 
@@ -222,7 +268,7 @@ export default function NewSessionPage() {
               today<span className="text-accent">?</span>
             </>
           }
-          subtitle="Pick the type of experience this session will measure. We'll seed sensible defaults for zones and touchpoints — you can edit them in the next steps."
+          subtitle="Pick the type of experience this session will measure. We'll seed touchpoint ideas — you choose the space template when mapping the layout."
         >
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {SESSION_TYPES.map((meta) => (
@@ -447,29 +493,18 @@ export default function NewSessionPage() {
         <WizardStep
           step={3}
           total={TOTAL_STEPS}
-          eyebrow="Layout — zones"
+          eyebrow="Layout — space & zones"
           ghost="The layout"
           title={
             <>
-              The layout
+              Map the <span className="text-text-faint">space</span>
               <span className="text-accent">.</span>
             </>
           }
-          subtitle={
-            <>
-              Zones are the way RealmSpace makes sense of your space.
-              {typeMeta && (
-                <>
-                  {" "}
-                  We&apos;ve seeded a typical{" "}
-                  <span className="text-text-primary">{typeMeta.label.toLowerCase()}</span> layout
-                  — edit, add or remove as you need.
-                </>
-              )}
-            </>
-          }
+          subtitle="Choose a venue template, then refine zones. This footprint drives the digital twin and how sensor tracks map into the booth."
         >
           <div className="max-w-6xl">
+            <PrefabPicker value={prefabId} onChange={selectPrefab} />
             <ZoneEditor zones={zones} onChange={setZones} />
           </div>
         </WizardStep>
@@ -718,6 +753,19 @@ export default function NewSessionPage() {
                 />
                 <ReviewLine
                   icon={<Zap size={14} />}
+                  label="Space template"
+                  value={
+                    prefabId
+                      ? `${getPrefab(prefabId)?.name ?? prefabId}${
+                          boothSize
+                            ? ` · ${boothSize.width}m × ${boothSize.depth}m`
+                            : ""
+                        }`
+                      : "—"
+                  }
+                />
+                <ReviewLine
+                  icon={<Layers size={14} />}
                   label="Zones · Touchpoints"
                   value={`${zones.length} zones · ${touchpoints.length} touchpoints`}
                 />

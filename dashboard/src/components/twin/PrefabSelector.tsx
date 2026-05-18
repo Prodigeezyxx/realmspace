@@ -6,37 +6,50 @@ import { Panel } from "@/components/ui/Panel";
 import { dispatchTrigger } from "@/lib/agent-engine";
 import { patchEventContext } from "@/lib/event-context";
 import { prefabs } from "@/lib/prefabs";
+import { applyPrefabToDraft } from "@/lib/prefabs/apply";
 import { setActivePrefabId } from "@/lib/prefab-store";
+import { sessionActions, useActiveSession } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
 
 export function PrefabSelector({ onSelect }: { onSelect?: (id: string) => void }) {
-  const [active, setActive] = useState<string | null>(null);
+  const active = useActiveSession();
+  const [selected, setSelected] = useState<string | null>(active.prefabId ?? null);
 
   async function load(id: string) {
-    const prefab = prefabs.find((p) => p.id === id);
-    if (!prefab) return;
-    setActive(id);
-    setActivePrefabId(id);
-    patchEventContext({
-      boothSize: prefab.boothSize,
-      zones: prefab.zones.map((z) => ({
-        id: z.id,
-        name: z.label,
-        type: "other" as const,
-        polygon: z.polygon,
-        color: z.color,
-      })),
+    const applied = applyPrefabToDraft(id, {
+      newId: (p) => `${p}_${Math.random().toString(36).slice(2, 7)}`,
+      prevZones: active.zones,
+      touchpoints: active.touchpoints,
     });
+    if (!applied) return;
+
+    setSelected(id);
+    setActivePrefabId(id);
+
+    sessionActions.updateSession(active.id, {
+      prefabId: applied.prefabId,
+      boothSize: applied.boothSize,
+      zones: applied.zones,
+      touchpoints: applied.touchpoints,
+    });
+
+    patchEventContext({
+      boothSize: applied.boothSize,
+      zones: applied.zones,
+    });
+
     await dispatchTrigger({
       type: "twin_layout_loaded",
       timestamp: Date.now(),
       payload: {
         layout: {
-          zones: prefab.zones.map((z) => ({
-            id: z.id,
-            label: z.label,
-            polygon: z.polygon,
-          })),
+          zones: applied.zones
+            .filter((z) => z.polygon?.length)
+            .map((z) => ({
+              id: z.id,
+              label: z.name,
+              polygon: z.polygon!,
+            })),
         },
       },
     });
@@ -44,7 +57,10 @@ export function PrefabSelector({ onSelect }: { onSelect?: (id: string) => void }
   }
 
   return (
-    <Panel title="Venue prefabs" subtitle="Load a spatial template without uploading">
+    <Panel
+      title="Change space template"
+      subtitle="Updates the active session layout — set during onboarding for new sessions"
+    >
       <div className="grid grid-cols-2 gap-3">
         {prefabs.map((p) => (
           <button
@@ -53,7 +69,7 @@ export function PrefabSelector({ onSelect }: { onSelect?: (id: string) => void }
             onClick={() => load(p.id)}
             className={cn(
               "text-left rounded-lg border p-3 transition-colors",
-              active === p.id
+              selected === p.id
                 ? "border-accent/50 bg-accent/10"
                 : "border-border-subtle hover:border-border-default bg-bg-elevated/40"
             )}

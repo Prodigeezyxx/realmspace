@@ -20,7 +20,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
-import { PrefabSelector } from "@/components/twin/PrefabSelector";
 import { Pill } from "@/components/ui/Pill";
 import {
   getTypeMeta,
@@ -76,10 +75,6 @@ export default function SessionsPage() {
 
   return (
     <div className="p-6 md:p-8 max-w-[1400px] mx-auto">
-      <div className="mb-8 max-w-xl">
-        <PrefabSelector />
-      </div>
-
       {/* ── Page header */}
       <div className="flex flex-wrap items-end justify-between gap-6 mb-10">
         <div>
