@@ -1,36 +1,33 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RealmSpace Dashboard
 
-## Getting Started
+Next.js experiential intelligence console — live sensor, digital twin, sessions, agents.
 
-First, run the development server:
+## Local dev
 
 ```bash
+npm install --legacy-peer-deps
+cp firebase.env.example .env.local   # add Firebase keys for auth (optional locally)
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). Without `.env.local`, the app runs **without auth** (all routes open). With Firebase configured, `/live`, `/twin`, etc. require sign-in.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Firebase setup
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. [Create a Firebase project](https://console.firebase.google.com/)
+2. **Build → Hosting** — note your site URL
+3. **Authentication → Sign-in method** — enable **Email/Password** and **Google**
+4. **Project settings → Your apps → Web** — copy config into `.env.local`
+5. **Authentication → Settings → Authorized domains** — add `localhost` and your `*.web.app` / custom domain
 
-## Learn More
+```bash
+# from repo root
+cp .firebaserc.example .firebaserc   # set your project id
+cd dashboard && npm run deploy
+```
 
-To learn more about Next.js, take a look at the following resources:
+Or from repo root: `npx firebase login` then `cd dashboard && npm run deploy`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Stack
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Next.js 16 · React 19 · TensorFlow.js (on-device live) · React Three Fiber · Firebase Auth + Hosting

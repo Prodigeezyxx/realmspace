@@ -67,6 +67,12 @@ export default function LandingPage() {
           {/* CTA pill */}
           <div className="flex items-center gap-2">
             <Link
+              href="/login"
+              className="hidden sm:inline-flex items-center h-12 px-5 rounded-full border border-border-subtle text-[13px] font-medium text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors"
+            >
+              Sign in
+            </Link>
+            <Link
               href="/live"
               className="inline-flex items-center gap-2 bg-accent text-text-inverse h-12 pl-5 pr-2.5 rounded-full font-semibold text-[13px] hover:bg-accent-bright transition-colors shadow-[var(--glow-green)]"
             >

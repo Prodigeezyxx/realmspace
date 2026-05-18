@@ -14,6 +14,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { SignOutButton } from "@/components/auth/LoginForm";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { Pill } from "@/components/ui/Pill";
 import {
   getTypeMeta,
@@ -62,6 +64,7 @@ export function StatusBar() {
   const cameraCount = active.cameras.length;
   const detectorStatus = useLiveSession((s) => s.status);
   const detectorFps = useLiveSession((s) => s.stats?.fps ?? 0);
+  const { user, configured: authConfigured } = useAuth();
 
   function pick(id: string) {
     sessionActions.setActive(id);
@@ -231,6 +234,15 @@ export function StatusBar() {
               {active.privacy.mode}
             </span>
           </div>
+
+          {authConfigured && user && (
+            <div className="hidden sm:flex flex-col items-end max-w-[140px]">
+              <span className="text-[10px] text-text-muted truncate w-full text-right">
+                {user.email}
+              </span>
+              <SignOutButton />
+            </div>
+          )}
 
           <div className="hidden md:inline-flex pill-group h-10 px-4 font-mono text-xs tabular text-text-primary tracking-wider">
             {now
