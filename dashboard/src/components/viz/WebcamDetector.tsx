@@ -103,30 +103,34 @@ export const WebcamDetector = forwardRef<WebcamDetectorHandle, Props>(
     [onStatusChange]
   );
 
-  // ── Setup: request camera + load the model ────────────────────────────
+  // ── Setup: load model + sensor (parallel) ─────────────────────────────
   const startSession = useCallback(async () => {
     if (status === "running" || status === "loading-model" || status === "requesting") {
       return;
     }
     setErrorMsg(null);
-    setStatusSynced("requesting");
+    setStatusSynced("loading-model");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
       const video = videoRef.current;
       if (!video) return;
+
+      const [, stream] = await Promise.all([
+        getDetectionModel().then((m) => {
+          modelRef.current = m;
+        }),
+        navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "user",
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+          },
+          audio: false,
+        }),
+      ]);
+
       video.srcObject = stream;
       await video.play();
       onStreamChange?.(stream);
-
-      setStatusSynced("loading-model");
-      modelRef.current = await getDetectionModel();
 
       sessionStartedAtRef.current = Date.now();
       trackerRef.current.reset();
@@ -176,13 +180,21 @@ export const WebcamDetector = forwardRef<WebcamDetectorHandle, Props>(
     if (!video || !canvas) return;
 
     let cancelled = false;
+    let lastInferMs = 0;
+    const minFrameMs = 100; // ~10 fps — lighter on CPU/RAM
 
-    const tick = async () => {
+    const tick = async (frameTs: number) => {
       if (cancelled) return;
       if (video.readyState !== 4) {
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
+
+      if (frameTs - lastInferMs < minFrameMs) {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      lastInferMs = frameTs;
 
       const model = modelRef.current;
       if (!model) {
@@ -286,7 +298,7 @@ export const WebcamDetector = forwardRef<WebcamDetectorHandle, Props>(
           <div className="absolute top-3 left-3 flex items-center gap-2">
             <span className="live-dot" />
             <span className="text-[10px] tabular tracking-[0.18em] uppercase text-white/90 bg-black/30 backdrop-blur px-2 py-1 rounded">
-              REC · CAM_01
+              REC · SENSOR_01
             </span>
           </div>
           <div className="absolute top-3 right-3 flex items-center gap-2 text-[10px] tabular text-white/85">
@@ -431,20 +443,20 @@ function StartOverlay({
       case "requesting":
         return {
           icon: <Loader2 className="animate-spin" size={24} />,
-          title: "Asking for camera access…",
-          sub: "Approve the browser permission to start the live session.",
+          title: "Connecting sensor…",
+          sub: "Approve sensor access to start the live session.",
         };
       case "loading-model":
         return {
           icon: <Loader2 className="animate-spin" size={24} />,
-          title: "Loading detection model…",
-          sub: "Weights download in the background (~15–30s first time). You can open other tabs — Live keeps running.",
+          title: "Loading object detection model…",
+          sub: "First run downloads ~20 MB. You can open other tabs while it loads.",
         };
       case "denied":
         return {
           icon: <CameraOff size={24} />,
-          title: "Camera access denied",
-          sub: "Allow camera in your browser site settings, then refresh.",
+          title: "Sensor access denied",
+          sub: "Allow sensor access in your browser site settings, then refresh.",
         };
       case "error":
         return {
@@ -456,10 +468,7 @@ function StartOverlay({
         return {
           icon: <Camera size={24} />,
           title: "Watch the room think",
-          sub:
-            getModelLoadStage() === "ready"
-              ? "Detection model is preloaded. Start live — you can switch tabs while it runs."
-              : "Model preloading in background (~15–30s first visit). Start when ready.",
+          sub: "On-device person detection. No frames leave the browser.",
         };
     }
   }, [status, errorMsg]);

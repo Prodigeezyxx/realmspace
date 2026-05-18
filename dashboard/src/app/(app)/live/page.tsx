@@ -38,8 +38,7 @@ export default function LivePage() {
   const activeSession = useActiveSession();
   const isDemo = activeSession.isDemo;
 
-  const { stats, liveEvents, peopleHistory, status: detectorStatus, modelLoadStage } =
-    useLiveSessionStore();
+  const { stats, liveEvents, peopleHistory } = useLiveSessionStore();
   const alerts = useAgentAlerts();
 
   const realPeopleNow = stats?.activeTracks.length ?? 0;
@@ -158,8 +157,8 @@ export default function LivePage() {
         {/* Live camera + heatmap */}
         <div className="col-span-12 xl:col-span-8 space-y-5">
           <Panel
-            title="Camera 01 · this device"
-            subtitle="Real-time on-device detection · COCO-SSD + centroid tracker · no frames stored"
+            title="Sensor 01 · this device"
+            subtitle="On-device object detection · centroid tracker · no frames stored"
             action={
               <div className="flex items-center gap-2">
                 <Pill variant={isDetectorRunning ? "live" : "neutral"}>
@@ -176,12 +175,6 @@ export default function LivePage() {
             padded={false}
           >
             <div className="aspect-[16/9] p-3">
-              {detectorStatus === "loading-model" && (
-                <p className="text-xs text-text-muted mb-2 px-1">
-                  {modelLoadStage} — safe to open Twin, Ask, or Agents while this
-                  finishes.
-                </p>
-              )}
               <LiveDetectorSlot className="relative w-full h-full min-h-[280px]" />
             </div>
           </Panel>

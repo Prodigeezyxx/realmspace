@@ -62,7 +62,6 @@ export function StatusBar() {
   const cameraCount = active.cameras.length;
   const detectorStatus = useLiveSession((s) => s.status);
   const detectorFps = useLiveSession((s) => s.stats?.fps ?? 0);
-  const modelStage = useLiveSession((s) => s.modelLoadStage);
 
   function pick(id: string) {
     sessionActions.setActive(id);
@@ -212,19 +211,8 @@ export function StatusBar() {
             {detectorStatus === "loading-model" && (
               <>
                 <span className="inline-flex items-center gap-1.5 text-accent-amber">
-                  Loading model…
+                  Loading object detection model…
                 </span>
-                <span className="w-px h-3 bg-border-subtle" />
-              </>
-            )}
-            {detectorStatus === "idle" && modelStage === "ready" && (
-              <>
-                <Link
-                  href="/live"
-                  className="inline-flex items-center gap-1.5 text-accent hover:underline"
-                >
-                  Model ready
-                </Link>
                 <span className="w-px h-3 bg-border-subtle" />
               </>
             )}

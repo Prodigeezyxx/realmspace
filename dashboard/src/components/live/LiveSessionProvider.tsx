@@ -1,21 +1,25 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useRef,
   useState,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 
-import { WebcamDetector, type WebcamDetectorHandle } from "@/components/viz/WebcamDetector";
+import {
+  WebcamDetector,
+  type WebcamDetectorHandle,
+} from "@/components/viz/WebcamDetector";
 import { liveSessionActions } from "@/lib/live-session/store";
+import { cn } from "@/lib/utils";
 
 interface LiveSessionContextValue {
-  stream: MediaStream | null;
-  registerStream: (s: MediaStream | null) => void;
+  registerDetectorSlot: (el: HTMLElement | null) => void;
   start: () => void;
   stop: () => void;
 }
@@ -28,18 +32,15 @@ export function useLiveSessionControl() {
   return ctx;
 }
 
-/** @deprecated use useLiveSessionControl */
-export function useLiveDetectorSlot() {
-  return useLiveSessionControl();
-}
-
 export function LiveSessionProvider({ children }: { children: ReactNode }) {
-  const hostRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
+  const offscreenRef = useRef<HTMLDivElement>(null);
   const detectorRef = useRef<WebcamDetectorHandle>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const onLivePage = pathname.startsWith("/live");
 
-  const registerStream = useCallback((s: MediaStream | null) => {
-    setStream(s);
+  const registerDetectorSlot = useCallback((el: HTMLElement | null) => {
+    setSlot(el);
   }, []);
 
   const start = useCallback(() => {
@@ -50,32 +51,37 @@ export function LiveSessionProvider({ children }: { children: ReactNode }) {
     detectorRef.current?.stop();
   }, []);
 
-  useEffect(() => {
-    void liveSessionActions.ensureModelPreloaded();
-  }, []);
+  const portalTarget =
+    onLivePage && slot ? slot : offscreenRef.current;
 
   return (
     <LiveSessionContext.Provider
-      value={{ stream, registerStream, start, stop }}
+      value={{ registerDetectorSlot, start, stop }}
     >
       {children}
-      {/* Single persistent host — never unmounts when changing routes */}
       <div
-        ref={hostRef}
-        className="fixed left-0 top-0 w-[640px] h-[360px] overflow-hidden pointer-events-none opacity-0 -z-50"
-        aria-hidden
-      >
-        <WebcamDetector
-          ref={detectorRef}
-          persist
-          showControls={false}
-          classFilter={["person"]}
-          minConfidence={0.5}
-          onStats={liveSessionActions.onStats}
-          onStatusChange={liveSessionActions.setStatus}
-          onStreamChange={registerStream}
-        />
-      </div>
+        ref={offscreenRef}
+        className={cn(
+          "overflow-hidden",
+          onLivePage && slot
+            ? "hidden"
+            : "fixed left-0 top-0 w-px h-px opacity-0 pointer-events-none -z-50"
+        )}
+        aria-hidden={!onLivePage}
+      />
+      {portalTarget &&
+        createPortal(
+          <WebcamDetector
+            ref={detectorRef}
+            persist
+            showControls={onLivePage}
+            classFilter={["person"]}
+            minConfidence={0.5}
+            onStats={liveSessionActions.onStats}
+            onStatusChange={liveSessionActions.setStatus}
+          />,
+          portalTarget
+        )}
     </LiveSessionContext.Provider>
   );
 }

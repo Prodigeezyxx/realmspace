@@ -328,7 +328,7 @@ function TwinEmptyState() {
             isolate visitors, and watch your space through time.
           </>
         }
-        cta={{ href: "/live", label: "Open live & start the camera" }}
+        cta={{ href: "/live", label: "Open live & start the sensor" }}
       />
 
       {/* Show their configured layout as a calm "ready and waiting" preview */}

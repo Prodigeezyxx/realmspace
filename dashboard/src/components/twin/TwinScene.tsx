@@ -7,7 +7,12 @@ import * as THREE from "three";
 
 import { getEventContext } from "@/lib/event-context";
 import { peopleTracks, positionsAt } from "@/lib/mock/people";
-import { session, surfaces, zones, type Zone } from "@/lib/mock/session";
+import { session, zones, type Zone } from "@/lib/mock/session";
+import { useActiveSession } from "@/lib/session/store";
+import {
+  resolveTwinSurfaces,
+  type TwinSurface,
+} from "@/lib/twin/touchpoint-layout";
 import type { HeatmapOutput } from "@/skills/heatmap";
 import type { TwinAvatarDelta } from "@/skills/twin-sync";
 
@@ -38,9 +43,19 @@ export function TwinScene({
   liveHeatmap?: HeatmapOutput | null;
   liveMode?: boolean;
 }) {
+  const activeSession = useActiveSession();
   const ctx = getEventContext();
   const W = ctx.boothSize.width || DEFAULT_W;
   const D = ctx.boothSize.depth || DEFAULT_D;
+  const sceneSurfaces = useMemo(
+    () =>
+      resolveTwinSurfaces(
+        !!activeSession.isDemo,
+        activeSession.touchpoints,
+        ctx.zones
+      ),
+    [activeSession.isDemo, activeSession.touchpoints, ctx.zones]
+  );
   const sceneZones: Zone[] =
     ctx.zones.length > 0
       ? ctx.zones
@@ -77,7 +92,7 @@ export function TwinScene({
 
       <Booth showHeatmap={showHeatmap} w={W} d={D} liveHeatmap={liveHeatmap} />
       <Zones zoneList={sceneZones} w={W} d={D} />
-      <Surfaces w={W} d={D} />
+      <Surfaces items={sceneSurfaces} w={W} d={D} />
       {liveMode && liveAvatars?.length ? (
         <LivePeople avatars={liveAvatars} />
       ) : (
@@ -310,10 +325,18 @@ function ZoneTile({ zone, w, d }: { zone: Zone; w: number; d: number }) {
   );
 }
 
-function Surfaces({ w, d }: { w: number; d: number }) {
+function Surfaces({
+  items,
+  w,
+  d,
+}: {
+  items: TwinSurface[];
+  w: number;
+  d: number;
+}) {
   return (
     <group>
-      {surfaces.map((s) => {
+      {items.map((s) => {
         const [x, , z] = toWorld(s.position[0], s.position[1], w, d);
         const color = s.active ? "#00d4ff" : "#5a5a60";
         return (

@@ -155,7 +155,6 @@ if (typeof window !== "undefined") {
     state = { ...state, modelLoadStage: getModelLoadStage() };
     emit();
   });
-  void preloadDetectionModel();
 }
 
 export function useLiveSession<T>(selector: (s: State) => T): T {

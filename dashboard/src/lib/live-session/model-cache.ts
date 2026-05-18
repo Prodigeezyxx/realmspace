@@ -1,5 +1,6 @@
 /**
- * Shared COCO-SSD loader — preload once on app boot so Live start is faster.
+ * Lazy-loaded COCO-SSD — only loads when user starts a live session.
+ * Uses lite_mobilenet_v2 for lower RAM than mobilenet_v2.
  */
 
 export type ModelHandle = {
@@ -11,11 +12,11 @@ export type ModelHandle = {
 let modelPromise: Promise<ModelHandle> | null = null;
 let loadStage = "idle";
 
-const stageListeners = new Set<(stage: string) => void>();
+const stageListeners = new Set<() => void>();
 
 function setStage(stage: string) {
   loadStage = stage;
-  stageListeners.forEach((l) => l(stage));
+  stageListeners.forEach((l) => l());
 }
 
 export function getModelLoadStage() {
@@ -27,20 +28,21 @@ export function subscribeModelLoadStage(listener: () => void) {
   return () => stageListeners.delete(listener);
 }
 
+/** Load only when live session starts — avoids ~300–600 MB on initial page load */
 export function preloadDetectionModel(): Promise<ModelHandle> {
   if (modelPromise) return modelPromise;
 
   modelPromise = (async () => {
-    setStage("Loading TensorFlow.js…");
+    setStage("Loading object detection model…");
     const tf = await import("@tensorflow/tfjs");
     await import("@tensorflow/tfjs-backend-webgl");
     await tf.setBackend("webgl");
     await tf.ready();
 
-    setStage("Downloading COCO-SSD weights (~28 MB)…");
+    setStage("Loading object detection model…");
     const cocoSsd = await import("@tensorflow-models/coco-ssd");
     const model = (await cocoSsd.load({
-      base: "mobilenet_v2",
+      base: "lite_mobilenet_v2",
     })) as unknown as ModelHandle;
 
     setStage("ready");
