@@ -4,6 +4,7 @@ import {
   Box,
   FileBarChart,
   Gauge,
+  Layers,
   MessageSquareText,
   Settings,
   Zap,
@@ -14,11 +15,12 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 const items = [
-  { href: "/live", label: "Live", icon: Gauge },
-  { href: "/twin", label: "Twin", icon: Box },
-  { href: "/ask", label: "Ask", icon: MessageSquareText },
-  { href: "/agents", label: "Agents", icon: Zap },
-  { href: "/report", label: "Report", icon: FileBarChart },
+  { href: "/sessions", label: "Sessions", icon: Layers },
+  { href: "/live",     label: "Live",     icon: Gauge },
+  { href: "/twin",     label: "Twin",     icon: Box },
+  { href: "/ask",      label: "Ask",      icon: MessageSquareText },
+  { href: "/agents",   label: "Agents",   icon: Zap },
+  { href: "/report",   label: "Report",   icon: FileBarChart },
 ];
 
 export function NavRail() {

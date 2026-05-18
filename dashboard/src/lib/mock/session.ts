@@ -1,12 +1,23 @@
 /**
- * Single source of truth for the demo session.
- * Used across Live, Twin, Ask, Agents and Report pages.
+ * Single source of truth for the seeded **demo session** (Lagos Showroom).
  *
- * NOTE: All data here is fabricated for the prototype.
- * In production these objects are computed in the Perception Engine
- * and persisted to Neo4j + Postgres + Qdrant.
+ * This file does two things:
+ *   1. Exports the demo session in the canonical `Session` shape used by the
+ *      whole app (see `@/lib/session/types`), so the session store can hold
+ *      both user-created sessions and the demo in one list.
+ *   2. Keeps the legacy named exports (`session`, `zones`, `surfaces`,
+ *      `liveCounts`, `peopleSeries`, etc.) that the existing visualisation
+ *      components already consume — they continue to work unchanged.
+ *
+ * All data here is fabricated for the prototype. In production these objects
+ * are computed in the Perception Engine and persisted to Neo4j + Postgres +
+ * Qdrant.
  */
 
+import type { Session } from "@/lib/session/types";
+
+// Legacy demo-specific zone type (carries `polygon`, which user-defined
+// zones don't currently have).
 export type ZoneType = "entry" | "experience" | "product" | "lounge" | "exit";
 
 export interface Zone {
@@ -253,3 +264,77 @@ function generateSeries(
   }
   return out;
 }
+
+// ── Canonical demo session in the new `Session` shape ────────────────────
+//
+// The session store picks this up as `isDemo: true` and always keeps it in
+// the list. It's the default active session on first load.
+
+export const DEMO_SESSION: Session = {
+  id: session.id,
+  isDemo: true,
+  status: "live",
+  name: session.campaign,
+  type: "brand_activation",
+  brand: session.client,
+  client: session.client,
+  agency: session.agencyName,
+  venue: session.venue,
+  address: "Pavilion No. 7, Eko Atlantic, Lagos",
+  city: session.city,
+  timezone: "Africa/Lagos",
+  startAt: session.startedAt,
+  endAt: session.endsAt,
+  expectedDailyFootfall: 1500,
+  cameras: Array.from({ length: session.cameraCount }).map((_, i) => ({
+    id: `cam_${i + 1}`,
+    name: `Camera ${i + 1}`,
+    placement: i === 0 ? "Ceiling — central" : "Side — sponsor wall",
+    device: "Logitech C920",
+  })),
+  zones: zones.map((z) => ({
+    id: z.id,
+    name: z.name,
+    // Demo's narrow ZoneType maps to the wider Session ZoneType:
+    type:
+      z.type === "experience"
+        ? "engagement"
+        : z.type === "product"
+          ? "retail"
+          : z.type, // entry / lounge / exit map directly
+    color: z.color,
+    polygon: z.polygon,
+    capacity: 25,
+  })),
+  touchpoints: surfaces.map((s) => ({
+    id: s.id,
+    name: s.label,
+    type:
+      s.type === "ar"
+        ? "ar_mirror"
+        : s.type === "game"
+          ? "quiz"
+          : s.type === "scent"
+            ? "scent_station"
+            : s.type === "product"
+              ? "product_display"
+              : s.type, // screen | rfid map directly
+    zoneId: s.zoneId,
+    triggers: ["viewed", "interacted"],
+  })),
+  goals: {
+    primaryObjective: "brand_awareness",
+    targetVisitors: 3500,
+    targetDwellSec: 240,
+    targetCaptures: 700,
+    notes: "Demo seed — Maison Vivienne Pavilion No. 7 activation.",
+  },
+  privacy: {
+    mode: "default",
+    consentSignage: true,
+    retentionDays: 30,
+    recipients: ["maya@yourselfcreative.co", "client@maisonvivienne.com"],
+  },
+  createdAt: session.startedAt,
+  startedAt: session.startedAt,
+};

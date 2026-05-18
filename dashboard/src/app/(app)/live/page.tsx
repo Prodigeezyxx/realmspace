@@ -4,6 +4,7 @@ import {
   Activity,
   ArrowUpRight,
   Eye,
+  Layers,
   Sparkles,
   Timer,
   Users,
@@ -29,6 +30,8 @@ import {
   liveCounts,
   triggerSeries,
 } from "@/lib/mock/session";
+import { TOUCHPOINT_TYPE_OPTIONS } from "@/lib/session/presets";
+import { useActiveSession } from "@/lib/session/store";
 import { formatDuration, formatNumber } from "@/lib/utils";
 import type { Track } from "@/lib/tracker";
 
@@ -40,6 +43,8 @@ interface LiveEvent {
 }
 
 export default function LivePage() {
+  const activeSession = useActiveSession();
+
   // ── Real detector state ───────────────────────────────────────────────
   const [stats, setStats] = useState<DetectorStats | null>(null);
   const lastIdsRef = useRef<Set<number>>(new Set());
@@ -270,6 +275,15 @@ export default function LivePage() {
           </Panel>
 
           <Panel
+            title="Touchpoints"
+            subtitle={`${activeSession.touchpoints.length} interactive surfaces configured`}
+            action={<Layers size={14} className="text-text-muted" />}
+            padded={false}
+          >
+            <TouchpointPanel />
+          </Panel>
+
+          <Panel
             title="Attention score"
             subtitle="Avg engagement across active visitors"
           >
@@ -337,6 +351,52 @@ export default function LivePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function TouchpointPanel() {
+  const active = useActiveSession();
+  if (active.touchpoints.length === 0) {
+    return (
+      <div className="px-6 py-8 text-sm text-text-muted text-center">
+        No touchpoints configured for this session.
+      </div>
+    );
+  }
+  return (
+    <ul className="divide-y divide-border-hairline">
+      {active.touchpoints.map((t) => {
+        const zone = active.zones.find((z) => z.id === t.zoneId);
+        const typeLabel = TOUCHPOINT_TYPE_OPTIONS.find(
+          (o) => o.value === t.type
+        )?.label;
+        return (
+          <li
+            key={t.id}
+            className="grid grid-cols-[10px_1fr_auto] items-center gap-3 px-5 py-3"
+          >
+            <span
+              className="w-2 h-2 rounded-full"
+              style={{
+                background: zone?.color ?? "#42faa1",
+                boxShadow: `0 0 10px ${zone?.color ?? "#42faa1"}`,
+              }}
+            />
+            <div className="min-w-0">
+              <div className="text-sm font-medium truncate">{t.name}</div>
+              <div className="text-[11px] text-text-muted truncate">
+                {typeLabel}
+                {zone && ` · ${zone.name}`}
+                {t.sponsor && ` · ${t.sponsor}`}
+              </div>
+            </div>
+            <div className="text-[10px] uppercase tracking-[0.12em] text-accent font-medium">
+              ready
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
