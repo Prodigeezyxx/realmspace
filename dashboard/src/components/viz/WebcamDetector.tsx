@@ -434,7 +434,7 @@ function StartOverlay({
       {canStart && (
         <button
           onClick={onStart}
-          className="mt-6 inline-flex items-center gap-2 bg-white text-black h-11 px-5 rounded-full font-medium text-sm hover:bg-white/90 transition-colors shadow-[0_8px_24px_-12px_rgba(0,0,0,0.4)]"
+          className="mt-6 inline-flex items-center gap-2 bg-accent text-text-inverse h-11 px-5 rounded-full font-semibold text-sm hover:bg-accent-bright transition-colors shadow-[var(--glow-green)]"
         >
           <Camera size={16} />
           Start live session

@@ -32,12 +32,12 @@ export interface Track {
 }
 
 const PALETTE = [
-  "#0a6dd6", // blue
-  "#0aa3d9", // cyan
-  "#7a3ee0", // violet
-  "#1e9f3a", // green
-  "#c68a00", // amber
-  "#d70015", // red
+  "#42faa1", // brand mint
+  "#4a9eff", // blue
+  "#00d4ff", // cyan
+  "#b66bff", // violet
+  "#ffc83d", // amber
+  "#ff4d4d", // red
   "#0091ff", // bright blue
   "#5856d6", // indigo
   "#ff2d92", // pink

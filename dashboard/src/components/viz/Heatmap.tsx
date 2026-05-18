@@ -57,9 +57,10 @@ export function Heatmap({ height = 200 }: { height?: number }) {
         )}
         <defs>
           <radialGradient id="heat">
-            <stop offset="0%" stopColor="#d70015" stopOpacity="0.85" />
-            <stop offset="40%" stopColor="#e89a00" stopOpacity="0.55" />
-            <stop offset="100%" stopColor="#0a6dd6" stopOpacity="0" />
+            <stop offset="0%" stopColor="#ff4d4d" stopOpacity="0.9" />
+            <stop offset="35%" stopColor="#ffc83d" stopOpacity="0.65" />
+            <stop offset="70%" stopColor="#42faa1" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="#42faa1" stopOpacity="0" />
           </radialGradient>
         </defs>
       </svg>
@@ -68,7 +69,7 @@ export function Heatmap({ height = 200 }: { height?: number }) {
         attention density · session-to-date
       </div>
       <div className="absolute bottom-2 right-2 flex items-center gap-2 text-[10px] tabular text-text-muted">
-        <div className="h-1.5 w-24 rounded-full bg-gradient-to-r from-accent-blue via-accent-amber to-accent-red" />
+        <div className="h-1.5 w-24 rounded-full bg-gradient-to-r from-accent via-accent-amber to-accent-red" />
         <span>cold → hot</span>
       </div>
     </div>

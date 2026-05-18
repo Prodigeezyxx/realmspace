@@ -1,5 +1,6 @@
 import {
-  ArrowRight,
+  ArrowDownRight,
+  ArrowUpRight,
   Brain,
   Cctv,
   ChevronRight,
@@ -7,9 +8,9 @@ import {
   Gauge,
   Lock,
   Package,
+  Search,
   Sparkles,
   Wand2,
-  Workflow,
   Zap,
 } from "lucide-react";
 import Link from "next/link";
@@ -20,178 +21,261 @@ import { Pill } from "@/components/ui/Pill";
 export default function LandingPage() {
   return (
     <div className="min-h-screen canvas-vignette text-text-primary">
-      {/* ── Top nav */}
-      <nav className="sticky top-0 z-40 backdrop-blur-xl bg-bg-base/70 border-b border-border-hairline">
-        <div className="max-w-7xl mx-auto h-14 px-6 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-accent-cyan to-accent-blue flex items-center justify-center shadow-[var(--glow-cyan)]">
-              <div className="w-2.5 h-2.5 rounded-full bg-bg-base" />
+      {/* ── Top nav — pill-grouped, Intellias style */}
+      <nav className="sticky top-0 z-40 px-5 py-4">
+        <div className="max-w-[1400px] mx-auto flex items-center justify-between gap-4">
+          {/* Logo pill */}
+          <Link
+            href="/"
+            className="bg-bg-raised border border-border-subtle h-12 rounded-full px-5 inline-flex items-center gap-2.5 hover:border-border-strong transition-colors shadow-[var(--shadow-sm)]"
+          >
+            <div className="relative w-5 h-5">
+              <div className="absolute inset-0 rounded-full bg-accent shadow-[var(--glow-green)]" />
+              <div className="absolute inset-[3px] rounded-full bg-bg-base" />
+              <div className="absolute inset-[5px] rounded-full bg-accent" />
             </div>
-            <span className="text-sm font-semibold tracking-tight">RealmSpace</span>
-            <Pill variant="info" className="ml-2">Preview</Pill>
+            <span className="text-base font-semibold tracking-tight">
+              RealmSpace
+            </span>
+          </Link>
+
+          {/* Nav pill */}
+          <div className="hidden md:flex bg-bg-raised border border-border-subtle h-12 rounded-full pl-2 pr-2 items-center shadow-[var(--shadow-sm)]">
+            {[
+              { href: "#capabilities", label: "Capabilities" },
+              { href: "#loop", label: "The loop" },
+              { href: "#privacy", label: "Privacy" },
+              { href: "#pricing", label: "Pricing" },
+              { href: "/live", label: "Demo" },
+            ].map((item) => (
+              <Link
+                key={item.label}
+                href={item.href}
+                className="px-4 h-9 inline-flex items-center text-[13px] text-text-secondary hover:text-text-primary transition-colors rounded-full hover:bg-bg-elevated font-medium tracking-tight"
+              >
+                {item.label}
+              </Link>
+            ))}
+            <button
+              className="w-9 h-9 rounded-full inline-flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors"
+              aria-label="Search"
+            >
+              <Search size={15} strokeWidth={2.2} />
+            </button>
           </div>
-          <div className="hidden md:flex items-center gap-7 text-sm text-text-secondary">
-            <a href="#loop" className="hover:text-text-primary transition-colors">The loop</a>
-            <a href="#stack" className="hover:text-text-primary transition-colors">Stack</a>
-            <a href="#privacy" className="hover:text-text-primary transition-colors">Privacy</a>
-            <a href="#pricing" className="hover:text-text-primary transition-colors">Pricing</a>
-          </div>
+
+          {/* CTA pill */}
           <div className="flex items-center gap-2">
-            <Link href="/live">
-              <Button variant="secondary" size="sm">Open demo</Button>
-            </Link>
-            <Link href="/live">
-              <Button variant="primary" size="sm" iconAfter={<ArrowRight size={14} />}>
-                Book a pilot
-              </Button>
+            <Link
+              href="/live"
+              className="inline-flex items-center gap-2 bg-accent text-text-inverse h-12 pl-5 pr-2.5 rounded-full font-semibold text-[13px] hover:bg-accent-bright transition-colors shadow-[var(--glow-green)]"
+            >
+              Book a pilot
+              <span className="w-9 h-9 rounded-full bg-text-inverse text-accent inline-flex items-center justify-center">
+                <ArrowUpRight size={16} />
+              </span>
             </Link>
           </div>
         </div>
       </nav>
 
       {/* ── Hero */}
-      <section className="relative max-w-7xl mx-auto px-6 pt-24 pb-32">
-        <div className="grid lg:grid-cols-12 gap-10 items-center">
+      <section className="relative max-w-[1400px] mx-auto px-5 pt-16 md:pt-24 pb-24">
+        <div className="grid lg:grid-cols-12 gap-12 lg:gap-16 items-start">
+          {/* LHS — display headline */}
           <div className="lg:col-span-7">
-            <Pill variant="live" className="mb-6">
-              <span className="live-dot" />
-              Live in Lagos · Pavilion No. 7
+            <Pill variant="success" className="mb-7">
+              <span className="alert-dot" />
+              Live now · Pavilion No. 7, Lagos
             </Pill>
-            <h1 className="text-5xl md:text-7xl font-semibold tracking-tight leading-[0.95]">
-              Watch the room
-              <br />
-              <span className="text-text-muted">think.</span>
+
+            <h1 className="display text-[80px] md:text-[112px] leading-[0.92] tracking-[-0.04em] font-bold">
+              <span className="block">
+                <span className="ghost-text" data-text="Watch the">
+                  Watch the
+                </span>
+              </span>
+              <span className="block text-text-faint">room</span>
+              <span className="block">
+                think
+                <span className="text-accent">.</span>
+              </span>
             </h1>
-            <p className="mt-6 text-lg text-text-secondary max-w-xl leading-relaxed">
-              RealmSpace is the measurement, replay and intelligence layer for
-              physical brand experiences. Plug in any camera. Get a queryable
-              graph of attention, dwell and behavior — plus a 3D digital twin
-              you can scrub through and ask questions of.
+
+            <p className="mt-10 text-lg md:text-xl text-text-secondary max-w-xl leading-relaxed">
+              The measurement, replay and intelligence layer for physical brand
+              experiences. One camera. One laptop. A queryable graph of
+              attention, dwell and behaviour — plus a 3D digital twin you can
+              scrub through and ask questions of.
             </p>
-            <div className="mt-9 flex flex-wrap items-center gap-3">
+
+            <div className="mt-10 flex flex-wrap items-center gap-3">
               <Link href="/live">
-                <Button variant="primary" size="lg" iconAfter={<ArrowRight size={16} />}>
-                  Open the demo
+                <Button
+                  variant="primary"
+                  size="lg"
+                  iconAfter={
+                    <span className="w-9 h-9 -mr-3 rounded-full bg-text-inverse text-accent inline-flex items-center justify-center">
+                      <ArrowUpRight size={16} />
+                    </span>
+                  }
+                >
+                  Open the live demo
                 </Button>
               </Link>
               <Link href="/report">
-                <Button variant="secondary" size="lg">See a client report</Button>
+                <Button variant="secondary" size="lg">
+                  See a client report
+                </Button>
               </Link>
-              <span className="text-xs text-text-muted ml-2">
-                No signup · No backend · Runs on this laptop
-              </span>
             </div>
 
-            <div className="mt-12 grid grid-cols-3 gap-6 max-w-xl">
-              <Metric value="1,287" label="Visitors today" delta="+18%" />
-              <Metric value="6m 50s" label="Avg lounge dwell" delta="+12%" />
-              <Metric value="62%" label="Mirror → RFID" delta="+24%" />
-            </div>
+            <p className="text-xs text-text-muted mt-6 tabular">
+              No signup · No backend · Real-time webcam detection runs in your
+              browser
+            </p>
           </div>
 
+          {/* RHS — hero preview card */}
           <div className="lg:col-span-5">
             <HeroPreview />
+          </div>
+        </div>
+
+        {/* Footer metrics strip */}
+        <div className="mt-20 md:mt-24 pt-10 border-t border-border-hairline grid grid-cols-2 md:grid-cols-4 gap-8">
+          <Metric value="1,287" label="Visitors today" delta="+18%" />
+          <Metric value="6m 50s" label="Avg lounge dwell" delta="+12%" />
+          <Metric value="62%" label="Mirror → RFID" delta="+24%" />
+          <Metric value="4.2×" label="ROI per dollar" delta="+68%" accent />
+        </div>
+      </section>
+
+      {/* ── Capabilities — three pillars */}
+      <section
+        id="capabilities"
+        className="border-y border-border-hairline bg-bg-canvas/50"
+      >
+        <div className="max-w-[1400px] mx-auto px-5 py-24">
+          <div className="grid md:grid-cols-2 gap-12 items-end mb-14">
+            <div>
+              <Pill variant="outline" className="mb-5">
+                What it does
+              </Pill>
+              <h2 className="display-sm text-5xl md:text-6xl">
+                Three surfaces. One platform.
+                <br />
+                <span className="text-text-faint">
+                  Built for the room, not the rack.
+                </span>
+              </h2>
+            </div>
+            <p className="text-text-secondary text-lg leading-relaxed max-w-xl">
+              Capture the room in real time. Replay it in 3D. Ask it questions
+              in plain English. RealmSpace is what happens when measurement is
+              designed by the people who designed the activation.
+            </p>
+          </div>
+
+          <div className="grid lg:grid-cols-3 gap-5">
+            <Pillar
+              icon={<Gauge size={22} />}
+              tag="Capture"
+              title="The room as live telemetry."
+              body="Real-time on-device detection in your browser today; OpenCV + YOLOv8 + ByteTrack in production. Faces never persist. Visitors are anonymous, session-scoped IDs."
+              cta={{ href: "/live", label: "Live dashboard" }}
+            />
+            <Pillar
+              icon={<Eye size={22} />}
+              tag="Twin"
+              title="A 3D replay of every minute."
+              body="Anonymous avatars walking a scale model of the activation. Scrub the timeline. Fly the camera. Isolate a zone. The client sees what happened, not just numbers."
+              cta={{ href: "/twin", label: "Open the twin" }}
+              accent
+            />
+            <Pillar
+              icon={<Brain size={22} />}
+              tag="Ask"
+              title="Plain-English. Real answers."
+              body="Claude or GPT-4o translates the client's question into a Cypher query against the spatial graph. Answers come back in seconds, with charts and a highlighted subgraph. No analyst required."
+              cta={{ href: "/ask", label: "Ask the room" }}
+            />
           </div>
         </div>
       </section>
 
       {/* ── The Loop */}
-      <section id="loop" className="border-y border-border-hairline bg-bg-canvas/60">
-        <div className="max-w-7xl mx-auto px-6 py-24">
-          <div className="max-w-3xl">
-            <Pill variant="violet" className="mb-4">The loop</Pill>
-            <h2 className="text-4xl md:text-5xl font-semibold tracking-tight">
-              Designed, built and measured
-              <br />
-              by the same hands.
-            </h2>
-            <p className="mt-5 text-text-secondary text-lg leading-relaxed">
-              Most measurement vendors show up after the booth is built. We
-              don&apos;t. We design the activation, ship the interactive
-              experiences inside it, and instrument the whole thing — so the
-              data we deliver is structurally cleaner than anything a
-              bolt-on tool can produce.
-            </p>
-          </div>
-
-          <div className="mt-14 grid md:grid-cols-4 gap-4">
-            <LoopStep
-              i={1}
-              icon={<Package size={20} />}
-              title="Booth"
-              text="We design and fabricate the physical activation — modular, sponsor-ready, camera-aware."
-            />
-            <LoopStep
-              i={2}
-              icon={<Wand2 size={20} />}
-              title="Experience"
-              text="AR mirrors, scent quizzes, RFID memory walls. We build the digital layer that gives visitors a reason to dwell."
-            />
-            <LoopStep
-              i={3}
-              icon={<Cctv size={20} />}
-              title="Measure"
-              text="One laptop, one camera. Anonymous tracking, zone analytics, gaze, dwell, group dynamics."
-            />
-            <LoopStep
-              i={4}
-              icon={<Sparkles size={20} />}
-              title="Twin"
-              text="A 3D replay of the activation the client can scrub through — and ask questions of, in plain English."
-            />
-          </div>
+      <section id="loop" className="max-w-[1400px] mx-auto px-5 py-28">
+        <div className="max-w-3xl">
+          <Pill variant="success" className="mb-5">
+            <Sparkles size={11} />
+            The loop
+          </Pill>
+          <h2 className="display-sm text-5xl md:text-6xl">
+            Designed, built and measured
+            <br />
+            <span className="text-text-faint">by the same hands.</span>
+          </h2>
+          <p className="mt-6 text-text-secondary text-lg leading-relaxed max-w-2xl">
+            Most measurement vendors show up after the booth is built. We
+            don&apos;t. We design the activation, ship the interactive
+            experiences inside it, and instrument the whole thing — so the data
+            we deliver is structurally cleaner than anything a bolt-on tool can
+            produce.
+          </p>
         </div>
-      </section>
 
-      {/* ── Three product pillars */}
-      <section id="stack" className="max-w-7xl mx-auto px-6 py-28">
-        <div className="grid lg:grid-cols-3 gap-6">
-          <Pillar
-            icon={<Gauge size={22} />}
-            tag="Capture"
-            title="The room as live telemetry."
-            body="OpenCV + YOLOv8 + ByteTrack stream people, gaze, dwell and proximity into a Postgres + Neo4j store at 22fps — locally, on a MacBook. Faces never persist. Visitors are anonymous, session-scoped IDs."
-            cta={{ href: "/live", label: "Live dashboard" }}
+        <div className="mt-14 grid md:grid-cols-4 gap-4">
+          <LoopStep
+            i={1}
+            icon={<Package size={20} />}
+            title="Booth"
+            text="We design and fabricate the physical activation — modular, sponsor-ready, camera-aware."
           />
-          <Pillar
-            icon={<Eye size={22} />}
-            tag="Twin"
-            title="A 3D replay of every minute."
-            body="Anonymous avatars walk through a scale model of the activation. Scrub the timeline, fly the camera, isolate a zone. The client sees what happened, not just numbers."
-            cta={{ href: "/twin", label: "Open the twin" }}
-            accent
+          <LoopStep
+            i={2}
+            icon={<Wand2 size={20} />}
+            title="Experience"
+            text="AR mirrors, scent quizzes, RFID memory walls. We build the digital layer that gives visitors a reason to dwell."
           />
-          <Pillar
-            icon={<Brain size={22} />}
-            tag="Ask"
-            title="Plain-English questions, real answers."
-            body="Claude or GPT-4o translates the client&apos;s question into a Cypher query against the spatial graph. Answers come back in seconds, with charts and a highlighted subgraph. No analyst required."
-            cta={{ href: "/ask", label: "Ask the room" }}
+          <LoopStep
+            i={3}
+            icon={<Cctv size={20} />}
+            title="Measure"
+            text="One laptop, one camera. Anonymous tracking, zone analytics, gaze, dwell, group dynamics."
+          />
+          <LoopStep
+            i={4}
+            icon={<Sparkles size={20} />}
+            title="Twin"
+            text="A 3D replay of the activation the client can scrub through — and ask questions of, in plain English."
           />
         </div>
       </section>
 
-      {/* ── Privacy moat */}
+      {/* ── Privacy */}
       <section
         id="privacy"
-        className="border-y border-border-hairline bg-bg-canvas/60"
+        className="border-y border-border-hairline bg-bg-canvas/50"
       >
-        <div className="max-w-7xl mx-auto px-6 py-24 grid lg:grid-cols-2 gap-12 items-center">
+        <div className="max-w-[1400px] mx-auto px-5 py-24 grid lg:grid-cols-2 gap-16 items-center">
           <div>
-            <Pill variant="success" className="mb-4">
+            <Pill variant="outline" className="mb-5">
               <Lock size={11} />
               Privacy first
             </Pill>
-            <h2 className="text-4xl md:text-5xl font-semibold tracking-tight">
-              No faces. No re-identification.
+            <h2 className="display-sm text-5xl md:text-6xl">
+              No faces.
               <br />
-              <span className="text-text-muted">Local by default.</span>
+              No re-identification.
+              <br />
+              <span className="text-text-faint">Local by default.</span>
             </h2>
-            <p className="mt-5 text-text-secondary text-lg leading-relaxed">
-              Frames are processed on-device. Raw video auto-purges in
-              minutes; only the structured graph survives. Person IDs reset
-              per session — we never link a visitor to themselves across days,
-              cameras or activations.
+            <p className="mt-7 text-text-secondary text-lg leading-relaxed max-w-xl">
+              Frames are processed on-device. Raw video auto-purges in minutes;
+              only the structured graph survives. Person IDs reset per session
+              — we never link a visitor to themselves across days, cameras or
+              activations.
             </p>
             <p className="mt-3 text-text-muted text-sm">
               GDPR / CCPA / UK DPA-aware by construction. Per-pixel masking
@@ -199,7 +283,7 @@ export default function LandingPage() {
             </p>
           </div>
 
-          <div className="panel-elevated p-7 grid grid-cols-2 gap-5 text-sm">
+          <div className="panel-elevated p-8 grid grid-cols-2 gap-x-6 gap-y-4 text-sm">
             <PrivacyRow ok>Local-first perception</PrivacyRow>
             <PrivacyRow ok>Anonymous session IDs</PrivacyRow>
             <PrivacyRow ok>Auto-delete raw video</PrivacyRow>
@@ -213,20 +297,24 @@ export default function LandingPage() {
       </section>
 
       {/* ── Pricing */}
-      <section id="pricing" className="max-w-7xl mx-auto px-6 py-28">
-        <div className="text-center max-w-2xl mx-auto">
-          <Pill variant="info" className="mb-4">Pricing</Pill>
-          <h2 className="text-4xl md:text-5xl font-semibold tracking-tight">
-            Per activation. Built for agency calendars.
+      <section id="pricing" className="max-w-[1400px] mx-auto px-5 py-28">
+        <div className="max-w-2xl mb-14">
+          <Pill variant="outline" className="mb-5">
+            Pricing
+          </Pill>
+          <h2 className="display-sm text-5xl md:text-6xl">
+            Per activation.
+            <br />
+            <span className="text-text-faint">Built for agency calendars.</span>
           </h2>
-          <p className="mt-4 text-text-secondary">
+          <p className="mt-6 text-text-secondary text-lg leading-relaxed">
             We deliver a kit, a live dashboard, a client-ready report and a
             scrubbable 3D twin. You bill it through as a measurement line item
             — or as part of the booth itself.
           </p>
         </div>
 
-        <div className="mt-14 grid md:grid-cols-3 gap-5">
+        <div className="grid md:grid-cols-3 gap-5">
           <PriceTier
             name="Booth"
             price="$5,800"
@@ -269,17 +357,42 @@ export default function LandingPage() {
 
       {/* ── Footer */}
       <footer className="border-t border-border-hairline">
-        <div className="max-w-7xl mx-auto px-6 py-12 flex flex-col md:flex-row gap-6 items-start md:items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-accent-cyan to-accent-blue" />
-            <span className="text-sm font-semibold">RealmSpace</span>
-            <span className="text-text-muted text-xs ml-2">
-              Experiential Intelligence · by Yourself Creative
-            </span>
+        <div className="max-w-[1400px] mx-auto px-5 py-12 grid md:grid-cols-2 gap-10">
+          <div>
+            <div className="display-sm text-5xl md:text-6xl tracking-tight">
+              Let&apos;s talk
+              <span className="text-accent">.</span>
+            </div>
+            <p className="mt-5 text-text-secondary max-w-md text-lg leading-relaxed">
+              Whether you&apos;re planning your next activation or want
+              measurement plugged into a season-long calendar, we&apos;re ready.
+            </p>
+            <div className="mt-7 flex flex-wrap gap-3">
+              <div className="pill-group h-12 pl-4 pr-5 text-sm">
+                <span className="text-text-muted">hello@realmspace.io</span>
+              </div>
+              <div className="pill-group h-12 pl-4 pr-5 text-sm">
+                <span className="text-text-muted">+44 7000 000 000</span>
+              </div>
+            </div>
           </div>
-          <div className="text-xs text-text-muted">
-            © 2026 · Built for agencies, brand teams, and the venues that hold
-            them.
+
+          <div className="md:text-right flex flex-col md:items-end gap-4">
+            <div className="flex items-center gap-2.5">
+              <div className="relative w-6 h-6">
+                <div className="absolute inset-0 rounded-full bg-accent" />
+                <div className="absolute inset-[3px] rounded-full bg-bg-base" />
+                <div className="absolute inset-[5px] rounded-full bg-accent" />
+              </div>
+              <span className="text-sm font-semibold">RealmSpace</span>
+            </div>
+            <div className="text-xs text-text-muted">
+              Experiential Intelligence · by Yourself Creative
+            </div>
+            <div className="text-xs text-text-muted">
+              © 2026 · Built for agencies, brand teams, and the venues that hold
+              them.
+            </div>
           </div>
         </div>
       </footer>
@@ -287,13 +400,28 @@ export default function LandingPage() {
   );
 }
 
-function Metric({ value, label, delta }: { value: string; label: string; delta: string }) {
+function Metric({
+  value,
+  label,
+  delta,
+  accent,
+}: {
+  value: string;
+  label: string;
+  delta: string;
+  accent?: boolean;
+}) {
   return (
     <div>
-      <div className="text-3xl font-semibold tabular tracking-tight">{value}</div>
-      <div className="mt-1 text-xs text-text-muted">{label}</div>
-      <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-accent-green tabular">
-        ▲ {delta}
+      <div
+        className={`text-4xl font-semibold tabular tracking-[-0.02em] ${accent ? "text-accent" : "text-text-primary"}`}
+      >
+        {value}
+      </div>
+      <div className="mt-1.5 text-xs text-text-muted">{label}</div>
+      <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-accent tabular">
+        <ArrowUpRight size={11} />
+        {delta}
       </div>
     </div>
   );
@@ -311,15 +439,17 @@ function LoopStep({
   text: string;
 }) {
   return (
-    <div className="panel p-6 relative group hover:border-border-subtle transition-colors">
-      <div className="absolute top-5 right-5 text-[10px] tabular text-text-faint">
+    <div className="panel p-7 relative group hover:border-border-subtle transition-colors">
+      <div className="absolute top-6 right-6 text-[10px] tabular text-text-faint font-medium">
         0{i}
       </div>
-      <div className="w-9 h-9 rounded-lg bg-bg-elevated border border-border-subtle flex items-center justify-center text-accent-blue">
+      <div className="w-11 h-11 rounded-full bg-bg-elevated border border-border-subtle flex items-center justify-center text-accent">
         {icon}
       </div>
-      <h3 className="mt-4 text-lg font-semibold tracking-tight">{title}</h3>
-      <p className="mt-2 text-sm text-text-secondary leading-relaxed">{text}</p>
+      <h3 className="mt-5 text-xl font-semibold tracking-tight">{title}</h3>
+      <p className="mt-2.5 text-sm text-text-secondary leading-relaxed">
+        {text}
+      </p>
     </div>
   );
 }
@@ -342,24 +472,30 @@ function Pillar({
   return (
     <div
       className={`panel p-7 flex flex-col gap-4 group hover:border-border-subtle transition-all ${
-        accent ? "ring-1 ring-accent-blue/30 shadow-[var(--glow-blue)]" : ""
+        accent ? "ring-1 ring-accent/40 shadow-[var(--glow-green)]" : ""
       }`}
     >
-      <div className="flex items-center gap-2.5">
-        <div className="w-9 h-9 rounded-lg bg-bg-elevated border border-border-subtle flex items-center justify-center text-accent-blue">
+      <div className="flex items-center gap-3">
+        <div
+          className={`w-11 h-11 rounded-full flex items-center justify-center ${
+            accent
+              ? "bg-accent text-text-inverse"
+              : "bg-bg-elevated border border-border-subtle text-accent"
+          }`}
+        >
           {icon}
         </div>
-        <span className="text-[10px] uppercase tracking-[0.18em] text-text-secondary">
-          {tag}
-        </span>
+        <span className="eyebrow">{tag}</span>
       </div>
-      <h3 className="text-2xl font-semibold tracking-tight leading-tight">
+      <h3 className="text-[26px] font-semibold tracking-tight leading-[1.05]">
         {title}
       </h3>
-      <p className="text-sm text-text-secondary leading-relaxed flex-1">{body}</p>
+      <p className="text-[15px] text-text-secondary leading-relaxed flex-1">
+        {body}
+      </p>
       <Link
         href={cta.href}
-        className="text-sm text-accent-blue inline-flex items-center gap-1.5 group-hover:text-accent-blue-bright transition-colors"
+        className="text-sm text-accent inline-flex items-center gap-1.5 group-hover:gap-2.5 transition-all font-medium"
       >
         {cta.label}
         <ChevronRight
@@ -371,13 +507,21 @@ function Pillar({
   );
 }
 
-function PrivacyRow({ children, ok, ko }: { children: React.ReactNode; ok?: boolean; ko?: boolean }) {
+function PrivacyRow({
+  children,
+  ok,
+  ko,
+}: {
+  children: React.ReactNode;
+  ok?: boolean;
+  ko?: boolean;
+}) {
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center gap-3">
       <span
-        className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
+        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
           ok
-            ? "bg-accent-green/15 text-accent-green border border-accent-green/30"
+            ? "bg-accent/15 text-accent border border-accent/30"
             : "bg-accent-red/15 text-accent-red border border-accent-red/30"
         }`}
       >
@@ -405,79 +549,81 @@ function PriceTier({
 }) {
   return (
     <div
-      className={`panel p-7 flex flex-col gap-5 ${
-        featured
-          ? "ring-1 ring-accent-blue/40 shadow-[var(--glow-blue)] relative"
-          : ""
+      className={`panel p-8 flex flex-col gap-6 relative ${
+        featured ? "ring-1 ring-accent/40 shadow-[var(--glow-green)]" : ""
       }`}
     >
       {featured && (
-        <Pill variant="info" className="absolute -top-3 left-7">
+        <Pill variant="success" className="absolute -top-3 left-8">
           Most popular
         </Pill>
       )}
       <div>
-        <div className="text-xs uppercase tracking-[0.18em] text-text-secondary">
-          {name}
-        </div>
-        <div className="mt-3 flex items-baseline gap-1.5">
-          <span className="text-4xl font-semibold tabular tracking-tight">
+        <div className="eyebrow">{name}</div>
+        <div className="mt-4 flex items-baseline gap-2">
+          <span className="text-5xl font-semibold tabular tracking-[-0.025em]">
             {price}
           </span>
         </div>
-        <div className="text-xs text-text-muted mt-1">{unit}</div>
+        <div className="text-sm text-text-muted mt-1.5">{unit}</div>
       </div>
-      <ul className="text-sm text-text-secondary space-y-2.5 flex-1">
+      <ul className="text-[15px] text-text-secondary space-y-3 flex-1">
         {features.map((f) => (
-          <li key={f} className="flex gap-2.5">
-            <span className="text-accent-green mt-0.5 shrink-0">
-              <Zap size={13} strokeWidth={2.5} />
+          <li key={f} className="flex gap-3">
+            <span className="text-accent mt-1 shrink-0">
+              <Zap size={14} strokeWidth={2.5} />
             </span>
             {f}
           </li>
         ))}
       </ul>
-      <Button variant={featured ? "primary" : "secondary"} fullWidth>
+      <Button variant={featured ? "primary" : "secondary"} fullWidth size="lg">
         Book a pilot
       </Button>
     </div>
   );
 }
 
-/** A static-but-alive looking miniature of the dashboard for the hero. */
+/** Hero preview — a polished card that hints at the live dashboard. */
 function HeroPreview() {
   return (
     <div className="relative">
-      <div className="absolute -inset-6 bg-gradient-to-br from-accent-blue/20 via-transparent to-accent-cyan/10 blur-3xl -z-10" />
+      <div className="absolute -inset-6 bg-gradient-to-br from-accent/15 via-transparent to-accent/5 blur-3xl -z-10" />
       <div className="panel-elevated overflow-hidden">
-        <div className="flex items-center justify-between px-4 h-9 border-b border-border-hairline bg-bg-base/50">
-          <div className="flex items-center gap-2">
+        {/* Header strip */}
+        <div className="flex items-center justify-between px-5 h-12 border-b border-border-hairline bg-bg-elevated/60">
+          <div className="flex items-center gap-2.5">
             <span className="live-dot" />
-            <span className="text-[11px] tabular text-text-secondary">LIVE · 21:14:08</span>
+            <span className="text-[11px] tabular tracking-[0.16em] uppercase text-text-secondary font-medium">
+              LIVE · 21:14:08
+            </span>
           </div>
-          <div className="flex gap-1">
+          <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-border-subtle" />
             <span className="w-2 h-2 rounded-full bg-border-subtle" />
             <span className="w-2 h-2 rounded-full bg-border-subtle" />
           </div>
         </div>
+
+        {/* KPI strip */}
         <div className="grid grid-cols-3 gap-px bg-border-hairline">
           <PreviewTile label="People now" value="14" />
           <PreviewTile label="Avg dwell" value="4m 23s" />
           <PreviewTile label="Triggers" value="2,186" accent />
         </div>
-        <div className="relative h-56 bg-bg-canvas map-grid overflow-hidden">
-          <div className="absolute inset-0 flex items-center justify-center text-text-muted text-[10px] uppercase tracking-[0.2em]">
+
+        {/* Twin preview */}
+        <div className="relative h-60 bg-bg-viewport map-grid overflow-hidden">
+          <div className="absolute inset-0 flex items-center justify-center text-text-faint text-[10px] uppercase tracking-[0.18em] font-medium">
             digital twin · pavilion no. 7
           </div>
-          {/* mock avatar dots */}
           {[
-            ["20%", "30%", "#3e83f7"],
-            ["45%", "35%", "#bf5af2"],
-            ["62%", "20%", "#00d4ff"],
-            ["55%", "65%", "#30d158"],
-            ["75%", "70%", "#ffd60a"],
-            ["32%", "55%", "#ff7eb6"],
+            ["20%", "30%", "var(--accent)"],
+            ["45%", "35%", "var(--accent-violet)"],
+            ["62%", "20%", "var(--accent-cyan)"],
+            ["55%", "65%", "var(--accent)"],
+            ["75%", "70%", "var(--accent-amber)"],
+            ["32%", "55%", "var(--accent-blue)"],
           ].map(([x, y, c], i) => (
             <div
               key={i}
@@ -490,14 +636,20 @@ function HeroPreview() {
               }}
             />
           ))}
-          {/* zone outlines */}
-          <div className="absolute left-[18%] top-[18%] w-[26%] h-[40%] border border-accent-violet/40 rounded-md" />
-          <div className="absolute left-[58%] top-[12%] w-[28%] h-[30%] border border-accent-cyan/40 rounded-md" />
-          <div className="absolute left-[28%] top-[60%] w-[36%] h-[30%] border border-accent-green/40 rounded-md" />
+          {/* Zone outlines */}
+          <div className="absolute left-[18%] top-[18%] w-[26%] h-[40%] border border-accent-violet/40 rounded-lg" />
+          <div className="absolute left-[58%] top-[12%] w-[28%] h-[30%] border border-accent-cyan/40 rounded-lg" />
+          <div className="absolute left-[28%] top-[60%] w-[36%] h-[30%] border border-accent/40 rounded-lg" />
         </div>
-        <div className="p-3 border-t border-border-hairline text-[11px] font-mono text-text-secondary flex items-center gap-3 truncate">
-          <span className="text-accent-cyan">›</span>
+
+        {/* Footer event log */}
+        <div className="p-4 border-t border-border-hairline text-[11px] font-mono text-text-secondary flex items-center gap-3 truncate">
+          <span className="text-accent">›</span>
           P-216 looked at Bottle Wall · 7s
+          <span className="ml-auto text-text-faint inline-flex items-center gap-1">
+            <ArrowDownRight size={11} />
+            view full log
+          </span>
         </div>
       </div>
     </div>
@@ -514,13 +666,13 @@ function PreviewTile({
   accent?: boolean;
 }) {
   return (
-    <div className="bg-bg-panel p-4">
-      <div className="text-[10px] uppercase tracking-[0.16em] text-text-muted">
+    <div className="bg-bg-panel p-5">
+      <div className="text-[10px] uppercase tracking-[0.16em] text-text-muted font-medium">
         {label}
       </div>
       <div
-        className={`text-2xl font-semibold tabular tracking-tight mt-1 ${
-          accent ? "text-accent-cyan" : "text-text-primary"
+        className={`text-3xl font-semibold tabular tracking-[-0.02em] mt-1.5 ${
+          accent ? "text-accent" : "text-text-primary"
         }`}
       >
         {value}

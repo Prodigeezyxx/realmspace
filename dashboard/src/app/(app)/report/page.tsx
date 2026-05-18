@@ -55,7 +55,7 @@ export default function ReportPage() {
             <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted">
               ROI per dollar
             </div>
-            <div className="text-5xl font-semibold tabular tracking-tight text-accent-green mt-1">
+            <div className="text-5xl font-semibold tabular tracking-tight text-accent mt-1">
               4.2×
             </div>
             <div className="text-xs text-text-muted mt-1 tabular">
@@ -102,7 +102,7 @@ export default function ReportPage() {
 
       {/* ── Headline */}
       <section className="panel-elevated p-7 relative overflow-hidden">
-        <div className="absolute -top-12 -right-8 text-[200px] text-accent-blue/10 font-serif">
+        <div className="absolute -top-12 -right-8 text-[200px] text-accent/10 font-serif">
           <Quote />
         </div>
         <Pill variant="violet" className="mb-4">
@@ -110,8 +110,8 @@ export default function ReportPage() {
           Headline insight
         </Pill>
         <h2 className="text-3xl md:text-4xl font-semibold tracking-tight leading-tight max-w-3xl">
-          Visitors who tried the Scent Quiz dwelled <span className="text-accent-cyan">2.4×</span> longer in the Lounge,
-          and were <span className="text-accent-cyan">3.1×</span> more likely to capture a memory at the RFID Wall.
+          Visitors who tried the Scent Quiz dwelled <span className="text-accent">2.4×</span> longer in the Lounge,
+          and were <span className="text-accent">3.1×</span> more likely to capture a memory at the RFID Wall.
         </h2>
         <p className="mt-4 text-text-secondary max-w-2xl">
           The Scent Quiz is your conversion engine — not the Bottle Wall. We
@@ -290,7 +290,7 @@ function BigNumber({
   const colorMap = {
     cyan: "var(--accent-cyan)",
     amber: "var(--accent-amber)",
-    green: "var(--accent-green)",
+    green: "var(--accent)",
   };
   return (
     <div className="panel-elevated p-5">
@@ -305,9 +305,7 @@ function BigNumber({
       </div>
       <div className="mt-2 flex items-center justify-between">
         <span
-          className={`text-xs tabular inline-flex items-center gap-1 ${
-            direction === "up" ? "text-accent-green" : "text-accent-green"
-          }`}
+          className="text-xs tabular inline-flex items-center gap-1 text-accent"
         >
           {direction === "up" ? (
             <ArrowUpRight size={12} />
@@ -320,7 +318,7 @@ function BigNumber({
           data={spark}
           width={70}
           height={24}
-          stroke={accent ? colorMap[accent] : "var(--accent-blue)"}
+          stroke={accent ? colorMap[accent] : "var(--accent)"}
         />
       </div>
     </div>
@@ -354,7 +352,7 @@ function FunnelStep({
       </div>
       <div className="mt-3 h-1 rounded-full bg-bg-elevated overflow-hidden">
         <div
-          className="h-full bg-gradient-to-r from-accent-blue to-accent-cyan"
+          className="h-full bg-accent"
           style={{ width: `${share}%` }}
         />
       </div>
@@ -407,7 +405,7 @@ function SponsorRow({
       </div>
       <div className="h-1.5 rounded-full bg-bg-elevated overflow-hidden">
         <div
-          className="h-full bg-gradient-to-r from-accent-violet to-accent-blue"
+          className="h-full bg-gradient-to-r from-accent-violet to-accent"
           style={{ width: `${share}%` }}
         />
       </div>
@@ -418,7 +416,7 @@ function SponsorRow({
 function Rec({ n, text }: { n: number; text: string }) {
   return (
     <li className="flex gap-3">
-      <span className="w-6 h-6 rounded-full bg-accent-blue/15 border border-accent-blue/40 text-accent-blue text-xs font-medium flex items-center justify-center shrink-0 mt-0.5 tabular">
+      <span className="w-6 h-6 rounded-full bg-accent/15 border border-accent/40 text-accent text-xs font-medium flex items-center justify-center shrink-0 mt-0.5 tabular">
         {n}
       </span>
       <span className="text-text-secondary leading-relaxed flex-1">{text}</span>

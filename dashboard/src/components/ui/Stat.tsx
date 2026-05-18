@@ -7,7 +7,15 @@ interface StatProps {
   unit?: string;
   delta?: { value: string; direction: "up" | "down" | "flat" };
   size?: "sm" | "md" | "lg" | "xl";
-  accent?: "blue" | "cyan" | "green" | "red" | "amber" | "violet" | "white";
+  accent?:
+    | "brand"
+    | "blue"
+    | "cyan"
+    | "green"
+    | "red"
+    | "amber"
+    | "violet"
+    | "white";
   className?: string;
   hint?: string;
 }
@@ -20,9 +28,10 @@ const sizeMap = {
 };
 
 const accentMap = {
+  brand: "text-accent",
   blue: "text-accent-blue",
   cyan: "text-accent-cyan",
-  green: "text-accent-green",
+  green: "text-accent",
   red: "text-accent-red",
   amber: "text-accent-amber",
   violet: "text-accent-violet",
@@ -64,7 +73,7 @@ export function Stat({
             <span
               className={cn(
                 "inline-flex items-center gap-1 font-medium tabular",
-                delta.direction === "up" && "text-accent-green",
+                delta.direction === "up" && "text-accent",
                 delta.direction === "down" && "text-accent-red",
                 delta.direction === "flat" && "text-text-muted"
               )}

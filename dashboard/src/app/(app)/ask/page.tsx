@@ -70,7 +70,7 @@ export default function AskPage() {
             }}
             className="flex items-center gap-3"
           >
-            <MessageSquareText size={18} className="text-accent-blue shrink-0 ml-1" />
+            <MessageSquareText size={18} className="text-accent shrink-0 ml-1" />
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
@@ -150,7 +150,7 @@ export default function AskPage() {
           </ul>
           <div className="mt-3 pt-3 border-t border-border-hairline flex justify-between text-xs">
             <span className="text-text-muted">Total</span>
-            <span className="tabular text-accent-green font-medium">902 ms</span>
+            <span className="tabular text-accent font-medium">902 ms</span>
           </div>
         </Panel>
       </div>
@@ -214,8 +214,8 @@ function AnswerCard({ turn }: { turn: ConversationTurn }) {
       </div>
 
       <div className="flex items-start gap-3">
-        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-accent-blue to-accent-cyan flex items-center justify-center shrink-0">
-          <Brain size={13} className="text-white" />
+        <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0 shadow-[var(--glow-green)]">
+          <Brain size={13} className="text-text-inverse" />
         </div>
         <div className="flex-1 panel p-5 space-y-4">
           <p className="text-base leading-relaxed">{natural}</p>
@@ -262,12 +262,12 @@ function AnswerVisualization({
     const d = data as { value: number; unit?: string; delta?: string };
     return (
       <div className="flex items-baseline gap-3 py-2">
-        <span className="text-6xl font-semibold tabular tracking-tight text-accent-cyan">
+        <span className="text-6xl font-semibold tabular tracking-tight text-accent">
           {d.value.toLocaleString()}
         </span>
         {d.unit && <span className="text-text-muted">{d.unit}</span>}
         {d.delta && (
-          <span className="text-accent-green text-sm tabular ml-2">
+          <span className="text-accent text-sm tabular ml-2">
             ▲ {d.delta}
           </span>
         )}
@@ -296,7 +296,7 @@ function AnswerVisualization({
                 className={cn(
                   "h-full rounded-full transition-all",
                   idx === 0
-                    ? "bg-gradient-to-r from-accent-blue to-accent-cyan"
+                    ? "bg-accent"
                     : "bg-border-strong"
                 )}
                 style={{ width: `${(it.value / max) * 100}%` }}

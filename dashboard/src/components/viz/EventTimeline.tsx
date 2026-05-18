@@ -15,7 +15,7 @@ import { events, type SessionEvent } from "@/lib/mock/events";
 import { formatRelative } from "@/lib/utils";
 
 const ICON: Record<SessionEvent["type"], { icon: LucideIcon; color: string }> = {
-  enter: { icon: DoorOpen, color: "text-accent-green" },
+  enter: { icon: DoorOpen, color: "text-accent" },
   exit: { icon: DoorClosed, color: "text-text-secondary" },
   dwell: { icon: Timer, color: "text-accent-blue" },
   gaze: { icon: Eye, color: "text-accent-cyan" },

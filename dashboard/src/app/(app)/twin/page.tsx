@@ -127,14 +127,14 @@ export default function TwinPage() {
                   <Rewind size={14} className="text-text-secondary" />
                 </button>
                 <button
-                  className="w-11 h-11 rounded-full bg-accent-blue flex items-center justify-center shadow-[var(--glow-blue)] hover:bg-accent-blue-bright transition-colors"
+                  className="w-11 h-11 rounded-full bg-accent flex items-center justify-center shadow-[var(--glow-green)] hover:bg-accent-bright transition-colors"
                   onClick={() => setPlaying((v) => !v)}
                   title={playing ? "Pause" : "Play"}
                 >
                   {playing ? (
-                    <Pause size={16} className="text-white" />
+                    <Pause size={16} className="text-text-inverse" />
                   ) : (
-                    <Play size={16} className="text-white ml-0.5" />
+                    <Play size={16} className="text-text-inverse ml-0.5" />
                   )}
                 </button>
               </div>
@@ -147,7 +147,7 @@ export default function TwinPage() {
                   step={0.5}
                   value={time}
                   onChange={(e) => setTime(parseFloat(e.target.value))}
-                  className="w-full accent-accent-blue"
+                  className="w-full"
                 />
                 <div className="flex justify-between text-[10px] tabular text-text-muted">
                   <span>{formatDuration(time)}</span>
@@ -163,7 +163,7 @@ export default function TwinPage() {
                     className={cn(
                       "h-8 px-2.5 rounded-md tabular border transition-colors",
                       speed === s
-                        ? "bg-accent-blue/10 border-accent-blue/40 text-accent-blue"
+                        ? "bg-accent/10 border-accent/40 text-accent"
                         : "bg-transparent border-border-subtle text-text-secondary hover:border-border-strong"
                     )}
                   >
@@ -284,7 +284,7 @@ function SceneLoading() {
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-text-muted">
       <div className="flex gap-1.5">
-        <span className="w-2 h-2 rounded-full bg-accent-blue animate-bounce [animation-delay:-0.3s]" />
+        <span className="w-2 h-2 rounded-full bg-accent animate-bounce [animation-delay:-0.3s]" />
         <span className="w-2 h-2 rounded-full bg-accent-cyan animate-bounce [animation-delay:-0.15s]" />
         <span className="w-2 h-2 rounded-full bg-accent-violet animate-bounce" />
       </div>

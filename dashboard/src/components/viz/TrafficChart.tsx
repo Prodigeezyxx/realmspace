@@ -31,14 +31,14 @@ export function TrafficChart() {
         <AreaChart data={data} margin={{ top: 6, right: 10, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="trafficFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#0a6dd6" stopOpacity={0.22} />
-              <stop offset="100%" stopColor="#0a6dd6" stopOpacity={0} />
+              <stop offset="0%" stopColor="#42faa1" stopOpacity={0.28} />
+              <stop offset="100%" stopColor="#42faa1" stopOpacity={0} />
             </linearGradient>
           </defs>
-          <CartesianGrid stroke="#e6e6ea" vertical={false} />
+          <CartesianGrid stroke="#1c1c1c" vertical={false} />
           <XAxis
             dataKey="minute"
-            stroke="#86868b"
+            stroke="#6e6e74"
             tickLine={false}
             axisLine={false}
             fontSize={10}
@@ -46,7 +46,7 @@ export function TrafficChart() {
             ticks={[-60, -45, -30, -15, 0]}
           />
           <YAxis
-            stroke="#86868b"
+            stroke="#6e6e74"
             tickLine={false}
             axisLine={false}
             fontSize={10}
@@ -54,26 +54,27 @@ export function TrafficChart() {
           />
           <Tooltip
             cursor={{
-              stroke: "#0a6dd6",
+              stroke: "#42faa1",
               strokeWidth: 1,
               strokeDasharray: "2 2",
             }}
             contentStyle={{
-              background: "#ffffff",
-              border: "1px solid #d9d9df",
+              background: "#181818",
+              border: "1px solid #262626",
               borderRadius: 8,
               fontSize: 11,
               padding: "6px 10px",
-              boxShadow: "0 4px 16px -8px rgba(0,0,0,0.15)",
+              boxShadow: "0 4px 16px -8px rgba(0,0,0,0.6)",
+              color: "#fff",
             }}
-            labelStyle={{ color: "#1d1d1f" }}
+            labelStyle={{ color: "#a8a8ad" }}
             labelFormatter={(v) => `${v}m ago`}
             formatter={(v) => [`${v}`, "people"]}
           />
           <Area
             type="monotone"
             dataKey="people"
-            stroke="#0a6dd6"
+            stroke="#42faa1"
             strokeWidth={1.75}
             fill="url(#trafficFill)"
           />

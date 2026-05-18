@@ -195,14 +195,14 @@ export default function AgentsPage() {
                     onClick={() => toggle(a.id)}
                     className={cn(
                       "h-7 w-12 rounded-full relative transition-colors",
-                      a.active ? "bg-accent-green/30 border border-accent-green/50" : "bg-bg-elevated border border-border-subtle"
+                      a.active ? "bg-accent/30 border border-accent/50" : "bg-bg-elevated border border-border-subtle"
                     )}
                   >
                     <span
                       className={cn(
                         "absolute top-0.5 h-5 w-5 rounded-full transition-all",
                         a.active
-                          ? "left-[calc(100%-22px)] bg-accent-green shadow-[var(--glow-green)]"
+                          ? "left-[calc(100%-22px)] bg-accent shadow-[var(--glow-green)]"
                           : "left-0.5 bg-text-muted"
                       )}
                     />
@@ -221,7 +221,7 @@ export default function AgentsPage() {
           subtitle="Plain English. We translate it to a graph subscription."
         >
           <textarea
-            className="w-full bg-bg-canvas border border-border-subtle rounded-lg p-4 text-sm font-mono text-text-secondary focus:border-accent-blue focus:outline-none min-h-[160px] resize-none"
+            className="w-full bg-bg-canvas border border-border-subtle rounded-lg p-4 text-sm font-mono text-text-secondary focus:border-accent focus:outline-none min-h-[160px] resize-none"
             defaultValue={`When 5+ people are in the Mirror Room for more than 90 seconds AND the Bottle Wall has fewer than 2 visitors, dim the Bottle Wall lighting by 30% and POST to /api/staff/redirect.`}
           />
           <div className="flex gap-2 mt-3">
@@ -284,7 +284,7 @@ function Summary({
   const map = {
     cyan: "text-accent-cyan",
     violet: "text-accent-violet",
-    green: "text-accent-green",
+    green: "text-accent",
     amber: "text-accent-amber",
   };
   return (
@@ -320,7 +320,7 @@ function RecentFire({
     "text-accent-cyan": "bg-accent-cyan",
     "text-accent-amber": "bg-accent-amber",
     "text-accent-red": "bg-accent-red",
-    "text-accent-green": "bg-accent-green",
+    "text-accent": "bg-accent",
   };
   return (
     <li className="grid grid-cols-[80px_8px_1fr] items-center gap-3 px-2 py-1.5 rounded hover:bg-bg-elevated">

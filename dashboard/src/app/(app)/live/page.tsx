@@ -116,7 +116,7 @@ export default function LivePage() {
           icon={<Users size={14} />}
           label="People now"
           value={isDetectorRunning ? realPeopleNow.toString() : liveCounts.peopleNow.toString()}
-          accent="blue"
+          accent="brand"
           series={isDetectorRunning ? peopleHistory : [8, 11, 9, 12, 14, 13, 15, 14]}
           delta={
             isDetectorRunning
@@ -278,7 +278,7 @@ export default function LivePage() {
                 label="Now"
                 value={`${Math.round(attentionSeries[attentionSeries.length - 1] * 100)}`}
                 unit="%"
-                accent="blue"
+                accent="brand"
                 size="xl"
               />
               <div className="flex-1">
@@ -286,8 +286,8 @@ export default function LivePage() {
                   data={attentionSeries.slice(-30)}
                   width={220}
                   height={56}
-                  stroke="var(--accent-blue)"
-                  fill="rgba(10,109,214,0.10)"
+                  stroke="var(--accent)"
+                  fill="rgba(66,250,161,0.10)"
                   showLast
                 />
                 <div className="mt-1 text-[10px] tabular text-text-muted flex justify-between">
@@ -331,7 +331,7 @@ export default function LivePage() {
               <dt className="text-text-muted">Inference</dt>
               <dd className="tabular text-right">{stats?.modelMs ?? "—"} ms / frame</dd>
               <dt className="text-text-muted">Frames stored</dt>
-              <dd className="tabular text-right text-accent-green">0</dd>
+              <dd className="tabular text-right text-accent">0</dd>
             </dl>
           </Panel>
         </div>
@@ -353,17 +353,25 @@ function KpiTile({
   value: string;
   delta?: { value: string; direction: "up" | "down" | "flat" };
   series?: number[];
-  accent?: "blue" | "cyan" | "amber" | "green" | "red" | "violet";
+  accent?:
+    | "brand"
+    | "blue"
+    | "cyan"
+    | "amber"
+    | "green"
+    | "red"
+    | "violet";
 }) {
   const strokeMap = {
+    brand: "var(--accent)",
     cyan: "var(--accent-cyan)",
     amber: "var(--accent-amber)",
     blue: "var(--accent-blue)",
-    green: "var(--accent-green)",
+    green: "var(--accent)",
     red: "var(--accent-red)",
     violet: "var(--accent-violet)",
   };
-  const stroke = strokeMap[accent ?? "blue"];
+  const stroke = strokeMap[accent ?? "brand"];
   return (
     <div className="panel-elevated px-5 py-4 flex flex-col gap-3 group hover:border-border-subtle transition-colors">
       <div className="flex items-center justify-between text-text-secondary">
@@ -392,7 +400,7 @@ function KpiTile({
           <span
             className={
               delta.direction === "up"
-                ? "text-accent-green"
+                ? "text-accent"
                 : delta.direction === "down"
                   ? "text-accent-red"
                   : "text-text-muted"
@@ -448,7 +456,7 @@ function TrackRow({ track }: { track: Track }) {
           {track.class} · {Math.round(track.score * 100)}% · {formatDuration(lifespanSec)} in frame
         </div>
       </div>
-      <span className="text-[10px] tabular text-accent-green font-medium">
+      <span className="text-[10px] tabular text-accent font-medium">
         live
       </span>
     </li>
@@ -504,17 +512,17 @@ function LiveTrafficChart({ history }: { history: number[] }) {
       >
         <defs>
           <linearGradient id="liveFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#0a6dd6" stopOpacity={0.22} />
-            <stop offset="100%" stopColor="#0a6dd6" stopOpacity={0} />
+            <stop offset="0%" stopColor="#42faa1" stopOpacity={0.28} />
+            <stop offset="100%" stopColor="#42faa1" stopOpacity={0} />
           </linearGradient>
         </defs>
         <path d={`${path} L 100 100 L 0 100 Z`} fill="url(#liveFill)" />
-        <path d={path} stroke="#0a6dd6" strokeWidth="0.6" fill="none" />
+        <path d={path} stroke="#42faa1" strokeWidth="0.6" fill="none" />
       </svg>
       <div className="absolute top-2 left-2 text-[10px] tabular text-text-muted">
         people in frame
       </div>
-      <div className="absolute bottom-2 right-2 text-[10px] tabular text-accent-blue font-medium">
+      <div className="absolute bottom-2 right-2 text-[10px] tabular text-accent font-medium">
         current: {history[history.length - 1]}
       </div>
     </div>
