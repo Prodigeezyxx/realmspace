@@ -55,6 +55,8 @@ interface Props {
   onStatusChange?: (status: LiveDetectorStatus, errorMsg?: string | null) => void;
   /** Show start / loading overlay (only on /live viewport). */
   showControls?: boolean;
+  /** Draw boxes on the hidden sensor canvas (off when /live mirrors overlay). */
+  renderOverlay?: boolean;
   onStreamChange?: (stream: MediaStream | null) => void;
 }
 
@@ -67,6 +69,7 @@ export const WebcamDetector = forwardRef<WebcamDetectorHandle, Props>(
       onStats,
       onStatusChange,
       showControls = true,
+      renderOverlay = true,
       onStreamChange,
     },
     ref
@@ -225,7 +228,7 @@ export const WebcamDetector = forwardRef<WebcamDetectorHandle, Props>(
       const vh = video.videoHeight;
       if (canvas.width !== vw) canvas.width = vw;
       if (canvas.height !== vh) canvas.height = vh;
-      drawOverlay(canvas, tracks);
+      if (renderOverlay) drawOverlay(canvas, tracks);
 
       // FPS counter
       fpsFramesRef.current += 1;
@@ -248,7 +251,7 @@ export const WebcamDetector = forwardRef<WebcamDetectorHandle, Props>(
       cancelled = true;
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     };
-  }, [status, minConfidence, classFilter]);
+  }, [status, minConfidence, classFilter, renderOverlay]);
 
   // ── Emit stats up to parent (live KPIs, event log) ────────────────────
   useEffect(() => {

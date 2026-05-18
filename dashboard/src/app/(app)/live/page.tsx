@@ -29,7 +29,11 @@ import {
 } from "@/lib/mock/session";
 import { TOUCHPOINT_TYPE_OPTIONS } from "@/lib/session/presets";
 import { useActiveSession } from "@/lib/session/store";
-import { useLiveSessionStore, type LiveEvent } from "@/lib/live-session/store";
+import {
+  useLiveSession,
+  useLiveSessionStore,
+  type LiveEvent,
+} from "@/lib/live-session/store";
 import type { Track } from "@/lib/tracker";
 import { formatDuration, formatNumber } from "@/lib/utils";
 import { useAgentAlerts } from "@/hooks/useAgentStream";
@@ -48,7 +52,7 @@ export default function LivePage() {
   const sessionDurationSec = sessionStartedAt
     ? Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000))
     : 0;
-  const isDetectorRunning = !!stats?.sessionStartedAt;
+  const isDetectorRunning = useLiveSession((s) => s.status === "running");
 
   return (
     <div className="p-5 space-y-5 max-w-[1600px] mx-auto">

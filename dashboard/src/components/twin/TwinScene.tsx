@@ -93,8 +93,8 @@ export function TwinScene({
       <Booth showHeatmap={showHeatmap} w={W} d={D} liveHeatmap={liveHeatmap} />
       <Zones zoneList={sceneZones} w={W} d={D} />
       <Surfaces items={sceneSurfaces} w={W} d={D} />
-      {liveMode && liveAvatars?.length ? (
-        <LivePeople avatars={liveAvatars} />
+      {liveMode ? (
+        <LivePeople avatars={liveAvatars ?? []} />
       ) : (
         <People time={time} selectedPerson={selectedPerson} w={W} d={D} />
       )}

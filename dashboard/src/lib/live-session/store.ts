@@ -3,12 +3,21 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { processFrameTracks } from "@/lib/agent-engine";
+import type { HeatmapOutput } from "@/skills/heatmap";
+import type { TwinAvatarDelta } from "@/skills/twin-sync";
 
 import {
   getModelLoadStage,
   preloadDetectionModel,
   subscribeModelLoadStage,
 } from "./model-cache";
+import {
+  buildHeatmapFromTracks,
+  emitTwinFromTracks,
+  SENSOR_H,
+  SENSOR_W,
+  tracksToAvatars,
+} from "./twin-emit";
 import type { DetectorStats } from "./types";
 
 export type LiveDetectorStatus =
@@ -31,6 +40,8 @@ interface State {
   errorMsg: string | null;
   modelLoadStage: string;
   stats: DetectorStats | null;
+  twinAvatars: TwinAvatarDelta[];
+  heatmap: HeatmapOutput | null;
   liveEvents: LiveEvent[];
   peopleHistory: number[];
 }
@@ -40,6 +51,8 @@ let state: State = {
   errorMsg: null,
   modelLoadStage: "idle",
   stats: null,
+  twinAvatars: [],
+  heatmap: null,
   liveEvents: [],
   peopleHistory: [],
 };
@@ -62,6 +75,8 @@ function getSnapshot() {
 const lastIds = new Set<number>();
 let lastHistoryTick = 0;
 let lastAgentTick = 0;
+let lastTwinEmit = 0;
+let lastHeatmapEmit = 0;
 
 function ingestStats(s: DetectorStats) {
   const currentIds = new Set(s.activeTracks.map((t) => t.id));
@@ -111,10 +126,31 @@ function ingestStats(s: DetectorStats) {
     state.status === "running"
   ) {
     lastAgentTick = now;
-    void processFrameTracks(s.activeTracks, now, 1280, 720);
+    void processFrameTracks(s.activeTracks, now, SENSOR_W, SENSOR_H);
   }
 
-  state = { ...state, stats: s, liveEvents, peopleHistory };
+  let twinAvatars = state.twinAvatars;
+  let heatmap = state.heatmap;
+  if (state.status === "running") {
+    if (now - lastTwinEmit > 200) {
+      lastTwinEmit = now;
+      twinAvatars = tracksToAvatars(s.activeTracks);
+      emitTwinFromTracks(s.activeTracks);
+    }
+    if (now - lastHeatmapEmit > 1000) {
+      lastHeatmapEmit = now;
+      heatmap = buildHeatmapFromTracks(s.activeTracks);
+    }
+  }
+
+  state = {
+    ...state,
+    stats: s,
+    twinAvatars,
+    heatmap,
+    liveEvents,
+    peopleHistory,
+  };
   emit();
 }
 
@@ -132,9 +168,13 @@ export const liveSessionActions = {
     lastIds.clear();
     lastHistoryTick = 0;
     lastAgentTick = 0;
+    lastTwinEmit = 0;
+    lastHeatmapEmit = 0;
     state = {
       ...state,
       stats: null,
+      twinAvatars: [],
+      heatmap: null,
       liveEvents: [],
       peopleHistory: [],
     };

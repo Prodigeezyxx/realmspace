@@ -8,12 +8,17 @@ import {
   TWIN_UPDATE_CHANNEL,
   busSubscribe,
 } from "@/lib/event-bus";
+import { useLiveSession } from "@/lib/live-session/store";
 import type { HeatmapOutput } from "@/skills/heatmap";
 import type { TwinAvatarDelta } from "@/skills/twin-sync";
 
 export function useTwinLive() {
-  const [avatars, setAvatars] = useState<TwinAvatarDelta[]>([]);
-  const [heatmap, setHeatmap] = useState<HeatmapOutput | null>(null);
+  const storeAvatars = useLiveSession((s) => s.twinAvatars);
+  const storeHeatmap = useLiveSession((s) => s.heatmap);
+  const detectorRunning = useLiveSession((s) => s.status === "running");
+
+  const [busAvatars, setBusAvatars] = useState<TwinAvatarDelta[]>([]);
+  const [busHeatmap, setBusHeatmap] = useState<HeatmapOutput | null>(null);
   const [layoutZones, setLayoutZones] = useState<
     { id: string; label: string; polygon: [number, number][] }[] | null
   >(null);
@@ -24,7 +29,7 @@ export function useTwinLive() {
         avatars?: TwinAvatarDelta[];
         zones?: { id: string; label: string; polygon: [number, number][] }[];
       };
-      if (payload.avatars?.length) setAvatars(payload.avatars);
+      if (payload.avatars) setBusAvatars(payload.avatars);
       if (payload.zones?.length) setLayoutZones(payload.zones);
     });
   }, []);
@@ -34,7 +39,7 @@ export function useTwinLive() {
       const result = msg.payload as AgentRunResult;
       if (result.agentId === "heatmap") {
         const hm = result.skillChain.heatmap as HeatmapOutput | undefined;
-        if (hm) setHeatmap(hm);
+        if (hm) setBusHeatmap(hm);
       }
       if (result.agentId === "layout") {
         const twin = result.skillChain["twin-sync"] as {
@@ -44,6 +49,11 @@ export function useTwinLive() {
       }
     });
   }, []);
+
+  const avatars = detectorRunning ? storeAvatars : busAvatars;
+  const heatmap = detectorRunning
+    ? storeHeatmap ?? busHeatmap
+    : busHeatmap;
 
   return { avatars, heatmap, layoutZones };
 }
