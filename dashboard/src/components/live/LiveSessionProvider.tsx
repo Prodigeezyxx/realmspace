@@ -4,16 +4,13 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 
-import {
-  WebcamDetector,
-  type WebcamDetectorHandle,
-} from "@/components/viz/WebcamDetector";
-import { liveSessionActions } from "@/lib/live-session/store";
+import { detectorRuntime } from "@/lib/live-session/detector-runtime";
 
 interface LiveSessionContextValue {
   stream: MediaStream | null;
@@ -30,40 +27,43 @@ export function useLiveSessionControl() {
 }
 
 /**
- * Detector always mounts here — never moved via portal (avoids remount / session end).
- * /live mirrors stream + overlay from the global live store.
+ * Sensor + inference live in detectorRuntime (module singleton).
+ * This provider only hosts the hidden video element and stream mirror for /live.
  */
 export function LiveSessionProvider({ children }: { children: ReactNode }) {
-  const hostRef = useRef<HTMLDivElement>(null);
-  const detectorRef = useRef<WebcamDetectorHandle>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
 
+  useEffect(() => {
+    detectorRuntime.setStreamListener(setStream);
+    return () => detectorRuntime.setStreamListener(() => {});
+  }, []);
+
+  useEffect(() => {
+    detectorRuntime.attachVideo(videoRef.current);
+  }, []);
+
   const start = useCallback(() => {
-    detectorRef.current?.start();
+    void detectorRuntime.start();
   }, []);
 
   const stop = useCallback(() => {
-    detectorRef.current?.stop();
+    detectorRuntime.stop();
   }, []);
 
   return (
     <LiveSessionContext.Provider value={{ stream, start, stop }}>
       {children}
       <div
-        ref={hostRef}
         className="fixed left-0 top-0 w-[640px] h-[360px] overflow-hidden opacity-0 pointer-events-none -z-50"
         aria-hidden
       >
-        <WebcamDetector
-          ref={detectorRef}
-          persist
-          showControls={false}
-          renderOverlay={false}
-          classFilter={["person"]}
-          minConfidence={0.5}
-          onStats={liveSessionActions.onStats}
-          onStatusChange={liveSessionActions.setStatus}
-          onStreamChange={setStream}
+        <video
+          ref={videoRef}
+          className="w-full h-full object-cover"
+          playsInline
+          muted
+          style={{ transform: "scaleX(-1)" }}
         />
       </div>
     </LiveSessionContext.Provider>

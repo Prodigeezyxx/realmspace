@@ -11,10 +11,6 @@ import { useEffect, useRef } from "react";
 
 import { drawTrackOverlay } from "@/lib/live-session/overlay";
 import {
-  SENSOR_H,
-  SENSOR_W,
-} from "@/lib/live-session/twin-emit";
-import {
   useLiveSession,
   useLiveSessionStore,
   type LiveDetectorStatus,
@@ -49,7 +45,12 @@ export function LiveDetectorSlot({ className }: { className?: string }) {
     const tick = () => {
       const canvas = canvasRef.current;
       if (canvas) {
-        drawTrackOverlay(canvas, stats.activeTracks, SENSOR_W, SENSOR_H);
+        drawTrackOverlay(
+          canvas,
+          stats.activeTracks,
+          stats.frameWidth,
+          stats.frameHeight
+        );
       }
       raf = requestAnimationFrame(tick);
     };

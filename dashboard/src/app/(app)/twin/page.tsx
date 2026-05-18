@@ -47,7 +47,7 @@ export default function TwinPage() {
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!playing) return;
+    if (!playing || detectorRunning) return;
     const id = setInterval(() => {
       setTime((t) => {
         const next = t + 0.1 * speed;
@@ -55,7 +55,7 @@ export default function TwinPage() {
       });
     }, 100);
     return () => clearInterval(id);
-  }, [playing, speed]);
+  }, [playing, speed, detectorRunning]);
 
   const activeTracks = useMemo(
     () =>

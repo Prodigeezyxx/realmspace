@@ -7,4 +7,7 @@ export interface DetectorStats {
   activeTracks: Track[];
   totalSeen: number;
   sessionStartedAt: number | null;
+  /** Intrinsic sensor frame size (matches track bbox / centroid space). */
+  frameWidth: number;
+  frameHeight: number;
 }

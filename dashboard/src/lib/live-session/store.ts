@@ -14,8 +14,6 @@ import {
 import {
   buildHeatmapFromTracks,
   emitTwinFromTracks,
-  SENSOR_H,
-  SENSOR_W,
   tracksToAvatars,
 } from "./twin-emit";
 import type { DetectorStats } from "./types";
@@ -126,20 +124,27 @@ function ingestStats(s: DetectorStats) {
     state.status === "running"
   ) {
     lastAgentTick = now;
-    void processFrameTracks(s.activeTracks, now, SENSOR_W, SENSOR_H);
+    void processFrameTracks(
+      s.activeTracks,
+      now,
+      s.frameWidth,
+      s.frameHeight
+    );
   }
 
+  const fw = s.frameWidth;
+  const fh = s.frameHeight;
   let twinAvatars = state.twinAvatars;
   let heatmap = state.heatmap;
   if (state.status === "running") {
     if (now - lastTwinEmit > 200) {
       lastTwinEmit = now;
-      twinAvatars = tracksToAvatars(s.activeTracks);
-      emitTwinFromTracks(s.activeTracks);
+      twinAvatars = tracksToAvatars(s.activeTracks, fw, fh);
+      emitTwinFromTracks(s.activeTracks, fw, fh);
     }
     if (now - lastHeatmapEmit > 1000) {
       lastHeatmapEmit = now;
-      heatmap = buildHeatmapFromTracks(s.activeTracks);
+      heatmap = buildHeatmapFromTracks(s.activeTracks, fw, fh);
     }
   }
 

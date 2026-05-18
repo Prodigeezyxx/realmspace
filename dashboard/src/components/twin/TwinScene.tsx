@@ -422,7 +422,7 @@ function LivePeople({ avatars }: { avatars: TwinAvatarDelta[] }) {
       {avatars.map((a) => (
         <PersonAvatar
           key={a.personId}
-          id={`P-${a.personId.toString().padStart(3, "0")}`}
+          id={a.label}
           color="#42faa1"
           x={a.x}
           y={a.z}

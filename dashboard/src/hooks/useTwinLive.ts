@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { AgentRunResult } from "@/agents/types";
 import {
@@ -9,13 +9,14 @@ import {
   busSubscribe,
 } from "@/lib/event-bus";
 import { useLiveSession } from "@/lib/live-session/store";
+import { tracksToAvatars } from "@/lib/live-session/twin-emit";
 import type { HeatmapOutput } from "@/skills/heatmap";
 import type { TwinAvatarDelta } from "@/skills/twin-sync";
 
 export function useTwinLive() {
-  const storeAvatars = useLiveSession((s) => s.twinAvatars);
-  const storeHeatmap = useLiveSession((s) => s.heatmap);
   const detectorRunning = useLiveSession((s) => s.status === "running");
+  const stats = useLiveSession((s) => s.stats);
+  const storeHeatmap = useLiveSession((s) => s.heatmap);
 
   const [busAvatars, setBusAvatars] = useState<TwinAvatarDelta[]>([]);
   const [busHeatmap, setBusHeatmap] = useState<HeatmapOutput | null>(null);
@@ -50,7 +51,17 @@ export function useTwinLive() {
     });
   }, []);
 
-  const avatars = detectorRunning ? storeAvatars : busAvatars;
+  const avatars = useMemo(() => {
+    if (detectorRunning && stats) {
+      return tracksToAvatars(
+        stats.activeTracks,
+        stats.frameWidth,
+        stats.frameHeight
+      );
+    }
+    return busAvatars;
+  }, [detectorRunning, stats, busAvatars]);
+
   const heatmap = detectorRunning
     ? storeHeatmap ?? busHeatmap
     : busHeatmap;

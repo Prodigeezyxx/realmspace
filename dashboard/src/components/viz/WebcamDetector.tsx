@@ -260,6 +260,7 @@ export const WebcamDetector = forwardRef<WebcamDetectorHandle, Props>(
     activeTracks.forEach((t) => {
       counts[t.class] = (counts[t.class] ?? 0) + 1;
     });
+    const video = videoRef.current;
     onStats({
       fps,
       modelMs,
@@ -267,6 +268,8 @@ export const WebcamDetector = forwardRef<WebcamDetectorHandle, Props>(
       activeTracks,
       totalSeen,
       sessionStartedAt: sessionStartedAtRef.current,
+      frameWidth: video?.videoWidth || 640,
+      frameHeight: video?.videoHeight || 480,
     });
   }, [activeTracks, fps, modelMs, totalSeen, onStats]);
 
