@@ -24,6 +24,7 @@ import {
   useActiveSession,
   useSessions,
 } from "@/lib/session/store";
+import { useLiveSession } from "@/lib/live-session/store";
 import { cn } from "@/lib/utils";
 
 export function StatusBar() {
@@ -59,6 +60,9 @@ export function StatusBar() {
   const meta = getTypeMeta(active.type);
   const Icon = meta.icon;
   const cameraCount = active.cameras.length;
+  const detectorStatus = useLiveSession((s) => s.status);
+  const detectorFps = useLiveSession((s) => s.stats?.fps ?? 0);
+  const modelStage = useLiveSession((s) => s.modelLoadStage);
 
   function pick(id: string) {
     sessionActions.setActive(id);
@@ -196,6 +200,34 @@ export function StatusBar() {
         {/* Right — sensor pill + clock + status / actions */}
         <div className="flex items-center gap-2.5">
           <div className="hidden lg:flex pill-group h-10 px-3 gap-3 text-[11px] tabular text-text-secondary">
+            {detectorStatus === "running" && (
+              <>
+                <span className="inline-flex items-center gap-1.5 text-accent">
+                  <span className="live-dot" />
+                  Live · {detectorFps.toFixed(0)} fps
+                </span>
+                <span className="w-px h-3 bg-border-subtle" />
+              </>
+            )}
+            {detectorStatus === "loading-model" && (
+              <>
+                <span className="inline-flex items-center gap-1.5 text-accent-amber">
+                  Loading model…
+                </span>
+                <span className="w-px h-3 bg-border-subtle" />
+              </>
+            )}
+            {detectorStatus === "idle" && modelStage === "ready" && (
+              <>
+                <Link
+                  href="/live"
+                  className="inline-flex items-center gap-1.5 text-accent hover:underline"
+                >
+                  Model ready
+                </Link>
+                <span className="w-px h-3 bg-border-subtle" />
+              </>
+            )}
             <span className="inline-flex items-center gap-1.5">
               <Signal size={12} className="text-text-muted" />
               {cameraCount} cam{cameraCount === 1 ? "" : "s"}

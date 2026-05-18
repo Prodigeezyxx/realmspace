@@ -20,23 +20,27 @@ import {
   Lock,
   Maximize2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
+import { getDetectionModel, getModelLoadStage } from "@/lib/live-session/model-cache";
+import { liveSessionActions } from "@/lib/live-session/store";
+import type { LiveDetectorStatus } from "@/lib/live-session/store";
+import type { DetectorStats } from "@/lib/live-session/types";
 import { CentroidTracker, type Track } from "@/lib/tracker";
 
-type ModelHandle = {
-  detect: (video: HTMLVideoElement) => Promise<
-    Array<{ bbox: [number, number, number, number]; class: string; score: number }>
-  >;
-};
+export type { DetectorStats };
 
-export interface DetectorStats {
-  fps: number;
-  modelMs: number;       // last inference duration
-  classCounts: Record<string, number>;
-  activeTracks: Track[];
-  totalSeen: number;     // unique IDs ever assigned this session
-  sessionStartedAt: number | null;
+export interface WebcamDetectorHandle {
+  start: () => void;
+  stop: () => void;
 }
 
 interface Props {
@@ -44,21 +48,37 @@ interface Props {
   classFilter?: string[];
   /** Min confidence to keep a detection. */
   minConfidence?: number;
+  /** Keep camera + loop running when this component unmounts (route changes). */
+  persist?: boolean;
   /** Called every detection frame so the parent can render dashboard state. */
   onStats?: (s: DetectorStats) => void;
+  onStatusChange?: (status: LiveDetectorStatus, errorMsg?: string | null) => void;
+  /** Show start / loading overlay (only on /live viewport). */
+  showControls?: boolean;
+  onStreamChange?: (stream: MediaStream | null) => void;
 }
 
-export function WebcamDetector({
-  classFilter = ["person"],
-  minConfidence = 0.45,
-  onStats,
-}: Props) {
+export const WebcamDetector = forwardRef<WebcamDetectorHandle, Props>(
+  function WebcamDetector(
+    {
+      classFilter = ["person"],
+      minConfidence = 0.45,
+      persist = false,
+      onStats,
+      onStatusChange,
+      showControls = true,
+      onStreamChange,
+    },
+    ref
+  ) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const trackerRef = useRef(
     new CentroidTracker({ classFilter, idPrefix: "P" })
   );
-  const modelRef = useRef<ModelHandle | null>(null);
+  const modelRef = useRef<Awaited<ReturnType<typeof getDetectionModel>> | null>(
+    null
+  );
   const rafRef = useRef<number | null>(null);
 
   const [status, setStatus] = useState<
@@ -74,11 +94,22 @@ export function WebcamDetector({
   const lastFpsTickRef = useRef<number>(0);
   const fpsFramesRef = useRef<number>(0);
 
+  const setStatusSynced = useCallback(
+    (next: typeof status, err: string | null = null) => {
+      setStatus(next);
+      setErrorMsg(err);
+      onStatusChange?.(next, err);
+    },
+    [onStatusChange]
+  );
+
   // ── Setup: request camera + load the model ────────────────────────────
   const startSession = useCallback(async () => {
-    if (status === "running" || status === "loading-model") return;
+    if (status === "running" || status === "loading-model" || status === "requesting") {
+      return;
+    }
     setErrorMsg(null);
-    setStatus("requesting");
+    setStatusSynced("requesting");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -92,32 +123,24 @@ export function WebcamDetector({
       if (!video) return;
       video.srcObject = stream;
       await video.play();
+      onStreamChange?.(stream);
 
-      setStatus("loading-model");
-      // Dynamic import keeps the heavy TF.js bundle out of the initial chunk
-      const tf = await import("@tensorflow/tfjs");
-      await import("@tensorflow/tfjs-backend-webgl");
-      await tf.setBackend("webgl");
-      await tf.ready();
-      const cocoSsd = await import("@tensorflow-models/coco-ssd");
-      modelRef.current = (await cocoSsd.load({
-        base: "mobilenet_v2",
-      })) as unknown as ModelHandle;
+      setStatusSynced("loading-model");
+      modelRef.current = await getDetectionModel();
 
       sessionStartedAtRef.current = Date.now();
       trackerRef.current.reset();
-      setStatus("running");
+      setStatusSynced("running");
     } catch (err) {
       const e = err as Error;
       if (e.name === "NotAllowedError" || /permission/i.test(e.message)) {
-        setStatus("denied");
+        setStatusSynced("denied", e.message);
       } else {
-        setStatus("error");
+        setStatusSynced("error", e.message);
       }
-      setErrorMsg(e.message);
       console.error("[WebcamDetector] start failed:", err);
     }
-  }, [status]);
+  }, [status, setStatusSynced, onStreamChange]);
 
   const stopSession = useCallback(() => {
     if (rafRef.current != null) {
@@ -129,13 +152,21 @@ export function WebcamDetector({
       (video.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
       video.srcObject = null;
     }
+    onStreamChange?.(null);
     sessionStartedAtRef.current = null;
+    modelRef.current = null;
     trackerRef.current.reset();
     setActiveTracks([]);
     setTotalSeen(0);
     setFps(0);
-    setStatus("idle");
-  }, []);
+    setStatusSynced("idle");
+    liveSessionActions.resetSession();
+  }, [setStatusSynced, onStreamChange]);
+
+  useImperativeHandle(ref, () => ({
+    start: () => void startSession(),
+    stop: () => stopSession(),
+  }));
 
   // ── Detection loop ────────────────────────────────────────────────────
   useEffect(() => {
@@ -148,12 +179,16 @@ export function WebcamDetector({
 
     const tick = async () => {
       if (cancelled) return;
-      const model = modelRef.current;
-      if (!model || video.readyState !== 4) {
+      if (video.readyState !== 4) {
         rafRef.current = requestAnimationFrame(tick);
         return;
       }
 
+      const model = modelRef.current;
+      if (!model) {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
       const t0 = performance.now();
       const raw = await model.detect(video);
       const t1 = performance.now();
@@ -220,8 +255,11 @@ export function WebcamDetector({
     });
   }, [activeTracks, fps, modelMs, totalSeen, onStats]);
 
-  // ── Cleanup on unmount
-  useEffect(() => stopSession, [stopSession]);
+  // ── Cleanup on unmount (skip when persisting across routes)
+  useEffect(() => {
+    if (!persist) return () => stopSession();
+    return undefined;
+  }, [persist, stopSession]);
 
   const peopleNow = activeTracks.length;
 
@@ -270,7 +308,7 @@ export function WebcamDetector({
       )}
 
       {/* Idle / setup state */}
-      {status !== "running" && (
+      {showControls && status !== "running" && (
         <StartOverlay
           status={status}
           errorMsg={errorMsg}
@@ -291,7 +329,8 @@ export function WebcamDetector({
       )}
     </div>
   );
-}
+  }
+);
 
 // ── Drawing ─────────────────────────────────────────────────────────────
 
@@ -399,7 +438,7 @@ function StartOverlay({
         return {
           icon: <Loader2 className="animate-spin" size={24} />,
           title: "Loading detection model…",
-          sub: "COCO-SSD (~28 MB) is downloading. This only happens once.",
+          sub: "Weights download in the background (~15–30s first time). You can open other tabs — Live keeps running.",
         };
       case "denied":
         return {
@@ -417,7 +456,10 @@ function StartOverlay({
         return {
           icon: <Camera size={24} />,
           title: "Watch the room think",
-          sub: "We'll use your webcam to detect and track people on-device. No frames ever leave the browser.",
+          sub:
+            getModelLoadStage() === "ready"
+              ? "Detection model is preloaded. Start live — you can switch tabs while it runs."
+              : "Model preloading in background (~15–30s first visit). Start when ready.",
         };
     }
   }, [status, errorMsg]);

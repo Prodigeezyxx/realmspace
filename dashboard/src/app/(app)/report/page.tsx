@@ -14,6 +14,7 @@ import {
   Users,
 } from "lucide-react";
 
+import { ReportGenerator } from "@/components/report/ReportGenerator";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
@@ -31,6 +32,8 @@ export default function ReportPage() {
   }
   return (
     <div className="max-w-[1100px] mx-auto p-6 md:p-10 space-y-10">
+      <ReportGenerator />
+
       {/* ── Cover */}
       <header className="space-y-6">
         <div className="flex items-center justify-between gap-4 flex-wrap">

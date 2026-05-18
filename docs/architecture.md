@@ -19,3 +19,9 @@
 | `twin_layout_loaded` | layout |
 
 Swap registry implementation later; skills and UI stay the same.
+
+## Live session (background)
+
+- **Preload** — `lib/live-session/model-cache.ts` downloads COCO-SSD on app load.
+- **Store** — `lib/live-session/store.ts` holds stats, events, agent ticks (survives route changes).
+- **Provider** — `LiveSessionProvider` keeps one hidden `WebcamDetector`; `/live` mirrors the stream.

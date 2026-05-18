@@ -21,7 +21,9 @@ import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
 import { peopleTracks } from "@/lib/mock/people";
 import { surfaces, zones } from "@/lib/mock/session";
+import { useLiveSession } from "@/lib/live-session/store";
 import { useActiveSession } from "@/lib/session/store";
+import { useTwinLive } from "@/hooks/useTwinLive";
 import { cn, formatDuration } from "@/lib/utils";
 
 const TwinScene = dynamic(
@@ -35,6 +37,9 @@ const SPEEDS = [0.5, 1, 2, 4];
 export default function TwinPage() {
   const activeSession = useActiveSession();
   const isDemo = activeSession.isDemo;
+  const detectorRunning = useLiveSession((s) => s.status === "running");
+  const { avatars, heatmap } = useTwinLive();
+  const useLiveTwin = detectorRunning;
   const [time, setTime] = useState(180);
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(1);
@@ -62,7 +67,7 @@ export default function TwinPage() {
     [time]
   );
 
-  if (!isDemo) {
+  if (!isDemo && !detectorRunning) {
     return <TwinEmptyState />;
   }
 
@@ -70,16 +75,17 @@ export default function TwinPage() {
     <div className="p-5 max-w-[1600px] mx-auto space-y-4">
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <Pill variant="violet" className="mb-2">
+          <Pill variant={useLiveTwin ? "live" : "violet"} className="mb-2">
             <Sparkles size={11} />
-            Digital twin · replay
+            {useLiveTwin ? "Digital twin · live" : "Digital twin · replay"}
           </Pill>
           <h1 className="text-2xl font-semibold tracking-tight">
-            Pavilion No. 7 — 3D replay
+            {useLiveTwin ? "Live spatial twin" : "Pavilion No. 7 — 3D replay"}
           </h1>
           <p className="text-sm text-text-secondary mt-1">
-            Anonymous avatars on a scale model of the activation. Scrub the
-            timeline. Click a visitor to follow their path.
+            {useLiveTwin
+              ? "Mirrors webcam tracks and agent heatmap while Live runs — switch tabs freely."
+              : "Anonymous avatars on a scale model of the activation. Scrub the timeline."}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -108,11 +114,14 @@ export default function TwinPage() {
                 time={time}
                 showHeatmap={showHeatmap}
                 selectedPerson={selectedPerson}
+                liveMode={useLiveTwin}
+                liveAvatars={avatars}
+                liveHeatmap={heatmap}
               />
               <div className="absolute top-3 left-3 flex items-center gap-2">
                 <Pill variant="live">
                   <span className="live-dot" />
-                  Replay · {speed}×
+                  {useLiveTwin ? "Live feed" : `Replay · ${speed}×`}
                 </Pill>
                 <Pill variant="neutral">
                   T+{formatDuration(time)}

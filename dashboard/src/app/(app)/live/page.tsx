@@ -10,15 +10,11 @@ import {
   Users,
   Zap,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
 
 import { EventTimeline } from "@/components/viz/EventTimeline";
 import { Heatmap } from "@/components/viz/Heatmap";
 import { TrafficChart } from "@/components/viz/TrafficChart";
-import {
-  WebcamDetector,
-  type DetectorStats,
-} from "@/components/viz/WebcamDetector";
+import { LiveDetectorSlot } from "@/components/live/LiveDetectorSlot";
 import { ZoneList } from "@/components/viz/ZoneList";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
@@ -33,87 +29,18 @@ import {
 } from "@/lib/mock/session";
 import { TOUCHPOINT_TYPE_OPTIONS } from "@/lib/session/presets";
 import { useActiveSession } from "@/lib/session/store";
-import { processFrameTracks } from "@/lib/agent-engine";
-import { formatDuration, formatNumber } from "@/lib/utils";
+import { useLiveSessionStore, type LiveEvent } from "@/lib/live-session/store";
 import type { Track } from "@/lib/tracker";
+import { formatDuration, formatNumber } from "@/lib/utils";
 import { useAgentAlerts } from "@/hooks/useAgentStream";
-
-interface LiveEvent {
-  id: string;
-  ts: number;
-  text: string;
-  color: string;
-}
 
 export default function LivePage() {
   const activeSession = useActiveSession();
   const isDemo = activeSession.isDemo;
 
-  // ── Real detector state ───────────────────────────────────────────────
-  const [stats, setStats] = useState<DetectorStats | null>(null);
-  const lastIdsRef = useRef<Set<number>>(new Set());
-  const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([]);
-  const [peopleHistory, setPeopleHistory] = useState<number[]>([]);
-  const lastHistoryTickRef = useRef<number>(0);
-  const lastAgentTickRef = useRef<number>(0);
+  const { stats, liveEvents, peopleHistory, status: detectorStatus, modelLoadStage } =
+    useLiveSessionStore();
   const alerts = useAgentAlerts();
-
-  const handleStats = useCallback((s: DetectorStats) => {
-    setStats(s);
-
-    const currentIds = new Set(s.activeTracks.map((t) => t.id));
-    const previousIds = lastIdsRef.current;
-
-    // Detect new entries
-    s.activeTracks.forEach((t) => {
-      if (!previousIds.has(t.id)) {
-        setLiveEvents((cur) => [
-          {
-            id: `enter_${t.id}_${Date.now()}`,
-            ts: Date.now(),
-            text: `${t.label} entered the frame`,
-            color: t.color,
-          },
-          ...cur,
-        ].slice(0, 30));
-      }
-    });
-
-    // Detect exits
-    previousIds.forEach((id) => {
-      if (!currentIds.has(id)) {
-        setLiveEvents((cur) => [
-          {
-            id: `exit_${id}_${Date.now()}`,
-            ts: Date.now(),
-            text: `P-${id.toString().padStart(3, "0")} left the frame`,
-            color: "#86868b",
-          },
-          ...cur,
-        ].slice(0, 30));
-      }
-    });
-
-    lastIdsRef.current = currentIds;
-
-    // Sample people-count history every 500ms for the sparkline
-    const now = Date.now();
-    if (now - lastHistoryTickRef.current > 500) {
-      lastHistoryTickRef.current = now;
-      setPeopleHistory((cur) => [...cur.slice(-59), s.activeTracks.length]);
-    }
-
-    if (now - lastAgentTickRef.current > 1000 && s.activeTracks.length > 0) {
-      lastAgentTickRef.current = now;
-      void processFrameTracks(s.activeTracks, now, 1280, 720);
-    }
-  }, []);
-
-  // Reset events on full page mount
-  useEffect(() => {
-    setLiveEvents([]);
-    setPeopleHistory([]);
-  }, []);
 
   const realPeopleNow = stats?.activeTracks.length ?? 0;
   const realTotalSeen = stats?.totalSeen ?? 0;
@@ -249,11 +176,13 @@ export default function LivePage() {
             padded={false}
           >
             <div className="aspect-[16/9] p-3">
-              <WebcamDetector
-                classFilter={["person"]}
-                minConfidence={0.5}
-                onStats={handleStats}
-              />
+              {detectorStatus === "loading-model" && (
+                <p className="text-xs text-text-muted mb-2 px-1">
+                  {modelLoadStage} — safe to open Twin, Ask, or Agents while this
+                  finishes.
+                </p>
+              )}
+              <LiveDetectorSlot className="relative w-full h-full min-h-[280px]" />
             </div>
           </Panel>
 

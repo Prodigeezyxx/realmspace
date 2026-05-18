@@ -5,25 +5,55 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
 
+import { getEventContext } from "@/lib/event-context";
 import { peopleTracks, positionsAt } from "@/lib/mock/people";
 import { session, surfaces, zones, type Zone } from "@/lib/mock/session";
+import type { HeatmapOutput } from "@/skills/heatmap";
+import type { TwinAvatarDelta } from "@/skills/twin-sync";
 
-const W = session.boothSize.width;
-const D = session.boothSize.depth;
+const DEFAULT_W = session.boothSize.width;
+const DEFAULT_D = session.boothSize.depth;
 
-function toWorld(nx: number, ny: number): [number, number, number] {
-  return [(nx - 0.5) * W, 0, (ny - 0.5) * D];
+function toWorld(
+  nx: number,
+  ny: number,
+  w: number,
+  d: number
+): [number, number, number] {
+  return [(nx - 0.5) * w, 0, (ny - 0.5) * d];
 }
 
 export function TwinScene({
   time,
   showHeatmap,
   selectedPerson,
+  liveAvatars,
+  liveHeatmap,
+  liveMode = false,
 }: {
   time: number;
   showHeatmap: boolean;
   selectedPerson?: string | null;
+  liveAvatars?: TwinAvatarDelta[];
+  liveHeatmap?: HeatmapOutput | null;
+  liveMode?: boolean;
 }) {
+  const ctx = getEventContext();
+  const W = ctx.boothSize.width || DEFAULT_W;
+  const D = ctx.boothSize.depth || DEFAULT_D;
+  const sceneZones: Zone[] =
+    ctx.zones.length > 0
+      ? ctx.zones
+          .filter((z) => z.polygon?.length)
+          .map((z) => ({
+            id: z.id,
+            name: z.name,
+            type: "entry" as Zone["type"],
+            polygon: z.polygon!,
+            color: z.color ?? "#3e83f7",
+          }))
+      : zones;
+
   return (
     <Canvas
       shadows
@@ -45,11 +75,15 @@ export function TwinScene({
       <pointLight position={[0, 6, 0]} intensity={0.4} color="#3e83f7" />
       <pointLight position={[-W / 2, 4, -D / 2]} intensity={0.3} color="#00d4ff" />
 
-      <Booth showHeatmap={showHeatmap} />
-      <Zones />
-      <Surfaces />
-      <People time={time} selectedPerson={selectedPerson} />
-      <Cameras />
+      <Booth showHeatmap={showHeatmap} w={W} d={D} liveHeatmap={liveHeatmap} />
+      <Zones zoneList={sceneZones} w={W} d={D} />
+      <Surfaces w={W} d={D} />
+      {liveMode && liveAvatars?.length ? (
+        <LivePeople avatars={liveAvatars} />
+      ) : (
+        <People time={time} selectedPerson={selectedPerson} w={W} d={D} />
+      )}
+      <Cameras w={W} d={D} />
 
       <OrbitControls
         enableDamping
@@ -66,16 +100,26 @@ export function TwinScene({
   );
 }
 
-function Booth({ showHeatmap }: { showHeatmap: boolean }) {
+function Booth({
+  showHeatmap,
+  w,
+  d,
+  liveHeatmap,
+}: {
+  showHeatmap: boolean;
+  w: number;
+  d: number;
+  liveHeatmap?: HeatmapOutput | null;
+}) {
   return (
     <group>
       <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-        <planeGeometry args={[W, D]} />
+        <planeGeometry args={[w, d]} />
         <meshStandardMaterial color="#0c0f14" metalness={0.4} roughness={0.6} />
       </mesh>
 
       <Grid
-        args={[W, D]}
+        args={[w, d]}
         cellSize={0.5}
         cellThickness={0.4}
         cellColor="#1c2330"
@@ -87,23 +131,23 @@ function Booth({ showHeatmap }: { showHeatmap: boolean }) {
         infiniteGrid={false}
       />
 
-      {showHeatmap && <HeatmapOverlay />}
+      {showHeatmap && <HeatmapOverlay w={w} d={d} liveHeatmap={liveHeatmap} />}
 
-      <mesh position={[0, 1.4, -D / 2]} castShadow>
-        <boxGeometry args={[W, 2.8, 0.06]} />
+      <mesh position={[0, 1.4, -d / 2]} castShadow>
+        <boxGeometry args={[w, 2.8, 0.06]} />
         <meshStandardMaterial color="#10141a" metalness={0.5} roughness={0.7} />
       </mesh>
-      <mesh position={[-W / 2, 1.4, 0]} castShadow>
-        <boxGeometry args={[0.06, 2.8, D]} />
+      <mesh position={[-w / 2, 1.4, 0]} castShadow>
+        <boxGeometry args={[0.06, 2.8, d]} />
         <meshStandardMaterial color="#10141a" metalness={0.5} roughness={0.7} />
       </mesh>
-      <mesh position={[W / 2, 1.4, 0]} castShadow>
-        <boxGeometry args={[0.06, 2.8, D]} />
+      <mesh position={[w / 2, 1.4, 0]} castShadow>
+        <boxGeometry args={[0.06, 2.8, d]} />
         <meshStandardMaterial color="#10141a" metalness={0.5} roughness={0.7} />
       </mesh>
 
-      <mesh position={[-W / 2 + 1, 2.5, 0]}>
-        <boxGeometry args={[0.2, 0.05, D]} />
+      <mesh position={[-w / 2 + 1, 2.5, 0]}>
+        <boxGeometry args={[0.2, 0.05, d]} />
         <meshStandardMaterial
           color="#3e83f7"
           emissive="#3e83f7"
@@ -114,10 +158,27 @@ function Booth({ showHeatmap }: { showHeatmap: boolean }) {
   );
 }
 
-function HeatmapOverlay() {
-  const COLS = 28;
-  const ROWS = 16;
+function HeatmapOverlay({
+  w,
+  d,
+  liveHeatmap,
+}: {
+  w: number;
+  d: number;
+  liveHeatmap?: HeatmapOutput | null;
+}) {
+  const COLS = liveHeatmap?.width ?? 28;
+  const ROWS = liveHeatmap?.height ?? 16;
   const data = useMemo(() => {
+    if (liveHeatmap?.grid) {
+      const heat = new Float32Array(COLS * ROWS);
+      liveHeatmap.grid.forEach((row, y) => {
+        row.forEach((v, x) => {
+          heat[y * COLS + x] = v;
+        });
+      });
+      return heat;
+    }
     const heat = new Float32Array(COLS * ROWS);
     peopleTracks.forEach((p) => {
       p.waypoints.forEach(([x, y, t], i) => {
@@ -131,7 +192,7 @@ function HeatmapOverlay() {
     const max = Math.max(0.0001, ...heat);
     for (let i = 0; i < heat.length; i++) heat[i] /= max;
     return heat;
-  }, []);
+  }, [liveHeatmap, COLS, ROWS]);
 
   return (
     <group position={[0, 0.005, 0]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -139,8 +200,8 @@ function HeatmapOverlay() {
         Array.from({ length: COLS }).map((_, x) => {
           const v = data[y * COLS + x];
           if (v < 0.05) return null;
-          const wx = (x / (COLS - 1) - 0.5) * W;
-          const wy = (y / (ROWS - 1) - 0.5) * D;
+          const wx = (x / (COLS - 1) - 0.5) * w;
+          const wy = (y / (ROWS - 1) - 0.5) * d;
           const color =
             v > 0.7
               ? "#ff453a"
@@ -167,22 +228,30 @@ function HeatmapOverlay() {
   );
 }
 
-function Zones() {
+function Zones({
+  zoneList,
+  w,
+  d,
+}: {
+  zoneList: Zone[];
+  w: number;
+  d: number;
+}) {
   return (
     <group>
-      {zones.map((z) => (
-        <ZoneTile key={z.id} zone={z} />
+      {zoneList.map((z) => (
+        <ZoneTile key={z.id} zone={z} w={w} d={d} />
       ))}
     </group>
   );
 }
 
-function ZoneTile({ zone }: { zone: Zone }) {
+function ZoneTile({ zone, w, d }: { zone: Zone; w: number; d: number }) {
   const shape = useMemo(() => {
     const s = new THREE.Shape();
     zone.polygon.forEach(([nx, ny], i) => {
-      const x = (nx - 0.5) * W;
-      const y = (ny - 0.5) * D;
+      const x = (nx - 0.5) * w;
+      const y = (ny - 0.5) * d;
       if (i === 0) s.moveTo(x, y);
       else s.lineTo(x, y);
     });
@@ -192,20 +261,20 @@ function ZoneTile({ zone }: { zone: Zone }) {
 
   const outlinePoints = useMemo(() => {
     const pts: [number, number, number][] = zone.polygon.map(([nx, ny]) => [
-      (nx - 0.5) * W,
+      (nx - 0.5) * w,
       0.02,
-      (ny - 0.5) * D,
+      (ny - 0.5) * d,
     ]);
     pts.push(pts[0]);
     return pts;
-  }, [zone.polygon]);
+  }, [zone.polygon, w, d]);
 
   const [cx, cy] = useMemo(() => {
     const cx = zone.polygon.reduce((s, [x]) => s + x, 0) / zone.polygon.length;
     const cy = zone.polygon.reduce((s, [, y]) => s + y, 0) / zone.polygon.length;
     return [cx, cy];
   }, [zone.polygon]);
-  const [lx, , lz] = toWorld(cx, cy);
+  const [lx, , lz] = toWorld(cx, cy, w, d);
 
   return (
     <group>
@@ -241,11 +310,11 @@ function ZoneTile({ zone }: { zone: Zone }) {
   );
 }
 
-function Surfaces() {
+function Surfaces({ w, d }: { w: number; d: number }) {
   return (
     <group>
       {surfaces.map((s) => {
-        const [x, , z] = toWorld(s.position[0], s.position[1]);
+        const [x, , z] = toWorld(s.position[0], s.position[1], w, d);
         const color = s.active ? "#00d4ff" : "#5a5a60";
         return (
           <group key={s.id} position={[x, 0, z]}>
@@ -293,10 +362,10 @@ function Surfaces() {
   );
 }
 
-function Cameras() {
+function Cameras({ w, d }: { w: number; d: number }) {
   const positions: [number, number, number][] = [
-    [-W / 2 + 0.5, 3.2, -D / 2 + 0.5],
-    [W / 2 - 0.5, 3.2, D / 2 - 0.5],
+    [-w / 2 + 0.5, 3.2, -d / 2 + 0.5],
+    [w / 2 - 0.5, 3.2, d / 2 - 0.5],
   ];
   return (
     <group>
@@ -324,12 +393,34 @@ function Cameras() {
   );
 }
 
+function LivePeople({ avatars }: { avatars: TwinAvatarDelta[] }) {
+  return (
+    <group>
+      {avatars.map((a) => (
+        <PersonAvatar
+          key={a.personId}
+          id={`P-${a.personId.toString().padStart(3, "0")}`}
+          color="#42faa1"
+          x={a.x}
+          y={a.z}
+          focused
+          worldCoords
+        />
+      ))}
+    </group>
+  );
+}
+
 function People({
   time,
   selectedPerson,
+  w,
+  d,
 }: {
   time: number;
   selectedPerson?: string | null;
+  w: number;
+  d: number;
 }) {
   const live = positionsAt(time);
   return (
@@ -344,10 +435,14 @@ function People({
             x={p.x}
             y={p.y}
             focused={focused}
+            w={w}
+            d={d}
           />
         );
       })}
-      {selectedPerson && <PersonTrail id={selectedPerson} upTo={time} />}
+      {selectedPerson && (
+        <PersonTrail id={selectedPerson} upTo={time} w={w} d={d} />
+      )}
     </group>
   );
 }
@@ -358,12 +453,18 @@ function PersonAvatar({
   x,
   y,
   focused,
+  w,
+  d,
+  worldCoords = false,
 }: {
   id: string;
   color: string;
   x: number;
   y: number;
   focused: boolean;
+  w?: number;
+  d?: number;
+  worldCoords?: boolean;
 }) {
   const ringRef = useRef<THREE.Mesh>(null);
 
@@ -375,7 +476,9 @@ function PersonAvatar({
     }
   });
 
-  const [wx, , wz] = toWorld(x, y);
+  const [wx, , wz] = worldCoords
+    ? [x, 0, y]
+    : toWorld(x, y, w ?? DEFAULT_W, d ?? DEFAULT_D);
 
   return (
     <group position={[wx, 0, wz]}>
@@ -427,18 +530,28 @@ function PersonAvatar({
   );
 }
 
-function PersonTrail({ id, upTo }: { id: string; upTo: number }) {
+function PersonTrail({
+  id,
+  upTo,
+  w,
+  d,
+}: {
+  id: string;
+  upTo: number;
+  w: number;
+  d: number;
+}) {
   const p = peopleTracks.find((pp) => pp.id === id);
   const points = useMemo<[number, number, number][] | null>(() => {
     if (!p) return null;
     const pts: [number, number, number][] = [];
     for (const [x, y, t] of p.waypoints) {
       if (t > upTo) break;
-      const [wx, , wz] = toWorld(x, y);
+      const [wx, , wz] = toWorld(x, y, w, d);
       pts.push([wx, 0.05, wz]);
     }
     return pts;
-  }, [p, upTo]);
+  }, [p, upTo, w, d]);
 
   if (!p || !points || points.length < 2) return null;
   return (
