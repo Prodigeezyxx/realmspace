@@ -14,13 +14,15 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
-import { answers, findAnswer, suggestedQueries } from "@/lib/mock/ask-answers";
+import { runNlqQuery } from "@/lib/agent-engine";
+import { answers, suggestedQueries } from "@/lib/mock/ask-answers";
+import type { NlqOutput } from "@/skills/nlq";
 import { useActiveSession } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
 
 interface ConversationTurn {
   q: string;
-  answer: ReturnType<typeof findAnswer>;
+  nlq: NlqOutput;
   thinking?: boolean;
 }
 
@@ -29,17 +31,23 @@ export default function AskPage() {
   const isDemo = activeSession.isDemo;
 
   const [q, setQ] = useState("");
-  const [turns, setTurns] = useState<ConversationTurn[]>(
-    isDemo
-      ? [{ q: answers[1].query, answer: answers[1] }] // longest dwell, pre-populated
-      : []
-  );
+  const [turns, setTurns] = useState<ConversationTurn[]>([]);
 
-  function ask(query: string) {
+  async function ask(query: string) {
     if (!query.trim()) return;
-    const found = findAnswer(query) ?? answers[0];
-    setTurns((cur) => [...cur, { q: query, answer: { ...found, query } }]);
+    setTurns((cur) => [...cur, { q: query, nlq: { query, cypher: "", explanation: "…" }, thinking: true }]);
     setQ("");
+    const results = await runNlqQuery(query);
+    const nlq = (results[0]?.skillChain.nlq as NlqOutput) ?? {
+      query,
+      cypher: "// no agent",
+      explanation: "NLQ agent did not return a result.",
+    };
+    setTurns((cur) => {
+      const next = [...cur];
+      next[next.length - 1] = { q: query, nlq };
+      return next;
+    });
   }
 
   if (!isDemo) {
@@ -53,7 +61,7 @@ export default function AskPage() {
         <div>
           <Pill variant="info" className="mb-2">
             <Brain size={11} />
-            Ask the Room · powered by Claude
+            Ask the Room · NLQ agent
           </Pill>
           <h1 className="text-3xl font-semibold tracking-tight">
             Plain English. Real answers.
@@ -210,8 +218,16 @@ function SchemaGroup({ title, items }: { title: string; items: string[] }) {
 }
 
 function AnswerCard({ turn }: { turn: ConversationTurn }) {
-  if (!turn.answer) return null;
-  const { natural, cypher, chartType, data, insights } = turn.answer;
+  const { explanation, cypher, chartData, raw } = turn.nlq;
+  const chartType = chartData?.type ?? (raw ? "bar" : "text");
+
+  if (turn.thinking) {
+    return (
+      <div className="panel p-5 text-sm text-text-muted animate-pulse">
+        Running NLQ agent…
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -229,23 +245,12 @@ function AnswerCard({ turn }: { turn: ConversationTurn }) {
           <Brain size={13} className="text-text-inverse" />
         </div>
         <div className="flex-1 panel p-5 space-y-4">
-          <p className="text-base leading-relaxed">{natural}</p>
+          <p className="text-base leading-relaxed">{explanation}</p>
 
-          <AnswerVisualization chartType={chartType} data={data} />
-
-          {insights && insights.length > 0 && (
-            <div className="pt-3 border-t border-border-hairline space-y-2">
-              {insights.map((i) => (
-                <div key={i} className="flex gap-2 text-xs text-text-secondary">
-                  <Sparkles
-                    size={12}
-                    className="text-accent-violet shrink-0 mt-0.5"
-                  />
-                  {i}
-                </div>
-              ))}
-            </div>
-          )}
+          <AnswerVisualization
+            chartType={chartType}
+            data={chartData ?? raw}
+          />
 
           <details className="text-xs">
             <summary className="cursor-pointer text-text-muted hover:text-text-secondary inline-flex items-center gap-1.5">
@@ -269,6 +274,40 @@ function AnswerVisualization({
   chartType: string;
   data: unknown;
 }) {
+  if (
+    data &&
+    typeof data === "object" &&
+    "labels" in data &&
+    "values" in data
+  ) {
+    const cd = data as { labels: string[]; values: number[] };
+    const items = cd.labels.map((label, i) => ({
+      label,
+      value: cd.values[i] ?? 0,
+    }));
+    const max = Math.max(...items.map((i) => i.value), 1);
+    return (
+      <div className="space-y-2 py-1">
+        {items.map((it, idx) => (
+          <div key={idx} className="space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-text-secondary">{it.label}</span>
+              <span className="tabular text-text-primary font-medium">
+                {it.value.toLocaleString()}
+              </span>
+            </div>
+            <div className="h-1.5 rounded-full bg-bg-elevated overflow-hidden">
+              <div
+                className="h-full rounded-full bg-accent"
+                style={{ width: `${(it.value / max) * 100}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   if (chartType === "number") {
     const d = data as { value: number; unit?: string; delta?: string };
     return (

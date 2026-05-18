@@ -33,8 +33,10 @@ import {
 } from "@/lib/mock/session";
 import { TOUCHPOINT_TYPE_OPTIONS } from "@/lib/session/presets";
 import { useActiveSession } from "@/lib/session/store";
+import { processFrameTracks } from "@/lib/agent-engine";
 import { formatDuration, formatNumber } from "@/lib/utils";
 import type { Track } from "@/lib/tracker";
+import { useAgentAlerts } from "@/hooks/useAgentStream";
 
 interface LiveEvent {
   id: string;
@@ -53,6 +55,8 @@ export default function LivePage() {
   const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([]);
   const [peopleHistory, setPeopleHistory] = useState<number[]>([]);
   const lastHistoryTickRef = useRef<number>(0);
+  const lastAgentTickRef = useRef<number>(0);
+  const alerts = useAgentAlerts();
 
   const handleStats = useCallback((s: DetectorStats) => {
     setStats(s);
@@ -98,6 +102,11 @@ export default function LivePage() {
       lastHistoryTickRef.current = now;
       setPeopleHistory((cur) => [...cur.slice(-59), s.activeTracks.length]);
     }
+
+    if (now - lastAgentTickRef.current > 1000 && s.activeTracks.length > 0) {
+      lastAgentTickRef.current = now;
+      void processFrameTracks(s.activeTracks, now, 1280, 720);
+    }
   }, []);
 
   // Reset events on full page mount
@@ -117,6 +126,11 @@ export default function LivePage() {
 
   return (
     <div className="p-5 space-y-5 max-w-[1600px] mx-auto">
+      {alerts[0] && (
+        <div className="rounded-lg border border-accent-amber/40 bg-accent-amber/10 px-4 py-2 text-sm text-accent-amber">
+          <strong>{alerts[0].title}</strong> — {alerts[0].body}
+        </div>
+      )}
       {/* ── Top KPI strip — go LIVE when the detector runs; otherwise reflect
          the demo's curated numbers OR a clean "no data yet" for fresh sessions. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

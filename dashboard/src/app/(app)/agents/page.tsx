@@ -10,9 +10,13 @@ import {
   Webhook,
   Zap,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
+import { listAgents, setAgentEnabled } from "@/agents/registry";
+import type { AgentDefinition } from "@/agents/types";
 import { Button } from "@/components/ui/Button";
+import { dispatchTrigger } from "@/lib/agent-engine";
+import { useAgentAlerts } from "@/hooks/useAgentStream";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
@@ -113,6 +117,12 @@ const ACTION_META: Record<Action, { label: string; icon: React.ReactNode }> = {
 export default function AgentsPage() {
   const activeSession = useActiveSession();
   const isDemo = activeSession.isDemo;
+  const [registryVersion, setRegistryVersion] = useState(0);
+  const registryAgents = useMemo(
+    () => listAgents(),
+    [registryVersion]
+  );
+  const alerts = useAgentAlerts();
   // Fresh sessions start with no rules. The demo keeps the curated seed.
   const [agents, setAgents] = useState(isDemo ? seed : []);
 
@@ -170,6 +180,45 @@ export default function AgentsPage() {
           accent="violet"
         />
       </div>
+
+      <Panel title="Runtime agents" subtitle="YAML-configured agents from registry">
+        <ul className="divide-y divide-border-hairline -m-5 mb-4">
+          {registryAgents.map((a) => (
+            <RegistryAgentRow
+              key={a.id}
+              agent={a}
+              onToggle={(en) => {
+                setAgentEnabled(a.id, en);
+                setRegistryVersion((v) => v + 1);
+              }}
+            />
+          ))}
+        </ul>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() =>
+            void dispatchTrigger({
+              type: "zone_threshold_exceeded",
+              timestamp: Date.now(),
+              payload: {
+                zoneId: "zone_entry",
+                count: 8,
+                threshold: 5,
+                title: "Simulated breach",
+                body: "Test alert from /agents",
+              },
+            })
+          }
+        >
+          Simulate threshold breach
+        </Button>
+        {alerts[0] && (
+          <p className="text-xs text-accent-amber mt-3 font-mono">
+            Latest: {alerts[0].title} — {alerts[0].body}
+          </p>
+        )}
+      </Panel>
 
       <Panel title="All agents" subtitle="Click to enable / disable">
         {agents.length === 0 && (
@@ -344,6 +393,46 @@ function Summary({
         {value}
       </div>
     </div>
+  );
+}
+
+function RegistryAgentRow({
+  agent,
+  onToggle,
+}: {
+  agent: AgentDefinition;
+  onToggle: (enabled: boolean) => void;
+}) {
+  return (
+    <li className="grid grid-cols-[1fr_auto] gap-4 px-5 py-3 items-center">
+      <div>
+        <div className="text-sm font-medium">{agent.name}</div>
+        <p className="text-[11px] text-text-muted mt-0.5">{agent.description}</p>
+        <p className="text-[10px] font-mono text-text-faint mt-1">
+          {agent.trigger.event} → [{agent.skills.map((s) => s.id).join(", ")}] →{" "}
+          {agent.outputs.map((o) => o.type).join(", ")}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => onToggle(!agent.enabled)}
+        className={cn(
+          "h-7 w-12 rounded-full relative transition-colors",
+          agent.enabled
+            ? "bg-accent/30 border border-accent/50"
+            : "bg-bg-elevated border border-border-subtle"
+        )}
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 h-5 w-5 rounded-full transition-all",
+            agent.enabled
+              ? "left-[calc(100%-22px)] bg-accent"
+              : "left-0.5 bg-text-muted"
+          )}
+        />
+      </button>
+    </li>
   );
 }
 
