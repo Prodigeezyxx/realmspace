@@ -20,6 +20,7 @@ import {
   type DetectorStats,
 } from "@/components/viz/WebcamDetector";
 import { ZoneList } from "@/components/viz/ZoneList";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
 import { Sparkline } from "@/components/ui/Sparkline";
@@ -44,6 +45,7 @@ interface LiveEvent {
 
 export default function LivePage() {
   const activeSession = useActiveSession();
+  const isDemo = activeSession.isDemo;
 
   // ── Real detector state ───────────────────────────────────────────────
   const [stats, setStats] = useState<DetectorStats | null>(null);
@@ -115,21 +117,36 @@ export default function LivePage() {
 
   return (
     <div className="p-5 space-y-5 max-w-[1600px] mx-auto">
-      {/* ── Top KPI strip — these go LIVE the moment you start the detector */}
+      {/* ── Top KPI strip — go LIVE when the detector runs; otherwise reflect
+         the demo's curated numbers OR a clean "no data yet" for fresh sessions. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiTile
           icon={<Users size={14} />}
           label="People now"
-          value={isDetectorRunning ? realPeopleNow.toString() : liveCounts.peopleNow.toString()}
+          value={
+            isDetectorRunning
+              ? realPeopleNow.toString()
+              : isDemo
+                ? liveCounts.peopleNow.toString()
+                : "0"
+          }
           accent="brand"
-          series={isDetectorRunning ? peopleHistory : [8, 11, 9, 12, 14, 13, 15, 14]}
+          series={
+            isDetectorRunning
+              ? peopleHistory
+              : isDemo
+                ? [8, 11, 9, 12, 14, 13, 15, 14]
+                : []
+          }
           delta={
             isDetectorRunning
               ? {
                   value: `${realFps.toFixed(1)} fps live`,
                   direction: realPeopleNow > 0 ? "up" : "flat",
                 }
-              : { value: "+2 in last 5m", direction: "up" }
+              : isDemo
+                ? { value: "+2 in last 5m", direction: "up" }
+                : { value: "camera idle", direction: "flat" }
           }
         />
         <KpiTile
@@ -138,16 +155,20 @@ export default function LivePage() {
           value={
             isDetectorRunning
               ? realTotalSeen.toString()
-              : formatNumber(liveCounts.peopleToday)
+              : isDemo
+                ? formatNumber(liveCounts.peopleToday)
+                : "0"
           }
-          series={isDetectorRunning ? peopleHistory : []}
+          series={isDetectorRunning ? peopleHistory : isDemo ? [] : []}
           delta={
             isDetectorRunning
               ? { value: "this session", direction: "up" }
-              : {
-                  value: `+${Math.round(liveCounts.peopleVsYesterday * 100)}% vs yesterday`,
-                  direction: "up",
-                }
+              : isDemo
+                ? {
+                    value: `+${Math.round(liveCounts.peopleVsYesterday * 100)}% vs yesterday`,
+                    direction: "up",
+                  }
+                : { value: "session not started", direction: "flat" }
           }
         />
         <KpiTile
@@ -156,22 +177,38 @@ export default function LivePage() {
           value={
             isDetectorRunning
               ? formatDuration(sessionDurationSec)
-              : formatDuration(liveCounts.avgDwellSeconds)
+              : isDemo
+                ? formatDuration(liveCounts.avgDwellSeconds)
+                : "—"
           }
-          series={dwellSeries.slice(-12)}
+          series={isDemo ? dwellSeries.slice(-12) : []}
           delta={
             isDetectorRunning
               ? { value: "live", direction: "up" }
-              : { value: "+12% wk", direction: "up" }
+              : isDemo
+                ? { value: "+12% wk", direction: "up" }
+                : activeSession.goals.targetDwellSec
+                  ? {
+                      value: `target ${formatDuration(activeSession.goals.targetDwellSec)}`,
+                      direction: "flat",
+                    }
+                  : { value: "no target set", direction: "flat" }
           }
         />
         <KpiTile
           icon={<Zap size={14} />}
           label="Triggers fired"
-          value={formatNumber(liveCounts.triggers)}
+          value={isDemo ? formatNumber(liveCounts.triggers) : "0"}
           accent="amber"
-          series={triggerSeries.slice(-12)}
-          delta={{ value: "+18 last hour", direction: "up" }}
+          series={isDemo ? triggerSeries.slice(-12) : []}
+          delta={
+            isDemo
+              ? { value: "+18 last hour", direction: "up" }
+              : {
+                  value: `${activeSession.touchpoints.length} touchpoints ready`,
+                  direction: "flat",
+                }
+          }
         />
       </div>
 
@@ -222,7 +259,9 @@ export default function LivePage() {
               subtitle={
                 isDetectorRunning
                   ? `${realTotalSeen} unique IDs so far`
-                  : `Peak ${liveCounts.peakConcurrent} concurrent visitors today`
+                  : isDemo
+                    ? `Peak ${liveCounts.peakConcurrent} concurrent visitors today`
+                    : "No traffic recorded yet"
               }
             >
               {isDetectorRunning ? (
@@ -241,7 +280,18 @@ export default function LivePage() {
                 ? "Generated from real detections"
                 : "Every detection becomes a graph node"
             }
-            action={<Pill variant="info">{`${liveCounts.insights} insights today`}</Pill>}
+            action={
+              isDemo ? (
+                <Pill variant="info">{`${liveCounts.insights} insights today`}</Pill>
+              ) : isDetectorRunning ? (
+                <Pill variant="success">
+                  <span className="live-dot" />
+                  Live
+                </Pill>
+              ) : (
+                <Pill variant="neutral">Idle</Pill>
+              )
+            }
             padded={false}
           >
             <div className="p-2 max-h-[360px] overflow-y-auto">
@@ -287,51 +337,71 @@ export default function LivePage() {
             title="Attention score"
             subtitle="Avg engagement across active visitors"
           >
-            <div className="flex items-center gap-5">
-              <Stat
-                label="Now"
-                value={`${Math.round(attentionSeries[attentionSeries.length - 1] * 100)}`}
-                unit="%"
-                accent="brand"
-                size="xl"
-              />
-              <div className="flex-1">
-                <Sparkline
-                  data={attentionSeries.slice(-30)}
-                  width={220}
-                  height={56}
-                  stroke="var(--accent)"
-                  fill="rgba(66,250,161,0.10)"
-                  showLast
+            {isDemo ? (
+              <div className="flex items-center gap-5">
+                <Stat
+                  label="Now"
+                  value={`${Math.round(attentionSeries[attentionSeries.length - 1] * 100)}`}
+                  unit="%"
+                  accent="brand"
+                  size="xl"
                 />
-                <div className="mt-1 text-[10px] tabular text-text-muted flex justify-between">
-                  <span>-30m</span>
-                  <span>now</span>
+                <div className="flex-1">
+                  <Sparkline
+                    data={attentionSeries.slice(-30)}
+                    width={220}
+                    height={56}
+                    stroke="var(--accent)"
+                    fill="rgba(66,250,161,0.10)"
+                    showLast
+                  />
+                  <div className="mt-1 text-[10px] tabular text-text-muted flex justify-between">
+                    <span>-30m</span>
+                    <span>now</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <EmptyState
+                icon={<Eye size={18} />}
+                title="Attention score builds up after first detections."
+                hint="It blends gaze direction, dwell and touchpoint interaction into a single 0–100% engagement signal."
+              />
+            )}
           </Panel>
 
           <Panel
             title="Insights"
-            subtitle="Generated every 10 minutes by the AI"
+            subtitle={
+              isDemo
+                ? "Generated every 10 minutes by the AI"
+                : "Insights generate after the first 50 detections"
+            }
             action={<Sparkles size={14} className="text-accent-violet" />}
           >
-            <ul className="space-y-3 text-sm">
-              <Insight
-                text="Visitors who try the Scent Quiz dwell 2.4× longer in the Lounge."
-                ts="3m ago"
+            {isDemo ? (
+              <ul className="space-y-3 text-sm">
+                <Insight
+                  text="Visitors who try the Scent Quiz dwell 2.4× longer in the Lounge."
+                  ts="3m ago"
+                />
+                <Insight
+                  text="Bottle Wall captures 86% of gazes for visitors within 1m."
+                  ts="11m ago"
+                />
+                <Insight
+                  text="Entry Arch is dropping 38% of visitors within 30s — queue signage unclear."
+                  ts="22m ago"
+                  warn
+                />
+              </ul>
+            ) : (
+              <EmptyState
+                icon={<Sparkles size={18} />}
+                title="No insights yet."
+                hint="The AI surfaces a fresh round of insights every 10 minutes after detections begin."
               />
-              <Insight
-                text="Bottle Wall captures 86% of gazes for visitors within 1m."
-                ts="11m ago"
-              />
-              <Insight
-                text="Entry Arch is dropping 38% of visitors within 30s — queue signage unclear."
-                ts="22m ago"
-                warn
-              />
-            </ul>
+            )}
           </Panel>
 
           <Panel title="Engine" subtitle="What's running this">

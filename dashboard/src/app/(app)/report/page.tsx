@@ -1,21 +1,34 @@
+"use client";
+
 import {
   ArrowDownRight,
   ArrowUpRight,
+  CalendarClock,
   Download,
+  FileBarChart,
   FileText,
   Quote,
   Share2,
   Sparkles,
+  Target,
   Users,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { Heatmap } from "@/components/viz/Heatmap";
+import { getTypeMeta, PRIMARY_OBJECTIVE_OPTIONS } from "@/lib/session/presets";
+import { useActiveSession } from "@/lib/session/store";
+import { formatDuration } from "@/lib/utils";
 
 export default function ReportPage() {
+  const activeSession = useActiveSession();
+  if (!activeSession.isDemo) {
+    return <ReportEmptyState />;
+  }
   return (
     <div className="max-w-[1100px] mx-auto p-6 md:p-10 space-y-10">
       {/* ── Cover */}
@@ -421,5 +434,153 @@ function Rec({ n, text }: { n: number; text: string }) {
       </span>
       <span className="text-text-secondary leading-relaxed flex-1">{text}</span>
     </li>
+  );
+}
+
+// ── Empty state (non-demo, no data yet) ─────────────────────────────────────
+
+function ReportEmptyState() {
+  const active = useActiveSession();
+  const typeMeta = getTypeMeta(active.type);
+  const objective = active.goals.primaryObjective
+    ? PRIMARY_OBJECTIVE_OPTIONS.find(
+        (o) => o.value === active.goals.primaryObjective
+      )
+    : undefined;
+
+  return (
+    <div className="p-5 max-w-[1100px] mx-auto space-y-10">
+      <EmptyState
+        variant="page"
+        icon={<FileBarChart size={26} strokeWidth={1.8} />}
+        title="The report writes itself when the session ends."
+        hint={
+          <>
+            Once data starts streaming in, RealmSpace builds the narrative as
+            you go: hero numbers, funnel, attention map, sponsor exposure, and
+            a written executive summary. Drafted at the end of every shift,
+            locked when the session completes.
+          </>
+        }
+        cta={{ href: "/live", label: "Open live & start recording" }}
+      />
+
+      {/* Show the contract — what this report WILL contain when the session has data. */}
+      <div className="grid md:grid-cols-2 gap-5">
+        <Panel
+          title="Session brief"
+          subtitle="What this report will measure against"
+        >
+          <dl className="space-y-3 text-sm">
+            <BriefRow label="Session" value={active.name} />
+            <BriefRow label="Type" value={typeMeta.label} />
+            {active.brand && <BriefRow label="Brand" value={active.brand} />}
+            {active.client && (
+              <BriefRow label="Client" value={active.client} />
+            )}
+            <BriefRow label="Venue" value={active.venue} />
+            <BriefRow
+              label="Window"
+              value={
+                <span className="tabular">
+                  {new Date(active.startAt).toLocaleDateString("en-GB", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })}
+                  {active.endAt &&
+                    ` → ${new Date(active.endAt).toLocaleDateString("en-GB", {
+                      day: "numeric",
+                      month: "short",
+                    })}`}
+                </span>
+              }
+            />
+          </dl>
+        </Panel>
+
+        <Panel
+          title="Targets"
+          subtitle="The benchmarks the AI will write against"
+          action={<Target size={14} className="text-accent" />}
+        >
+          <dl className="space-y-3 text-sm">
+            {active.expectedDailyFootfall ? (
+              <BriefRow
+                label="Daily footfall"
+                value={
+                  <span className="tabular">
+                    {active.expectedDailyFootfall.toLocaleString()} expected
+                  </span>
+                }
+              />
+            ) : null}
+            {active.goals.targetDwellSec ? (
+              <BriefRow
+                label="Avg dwell"
+                value={
+                  <span className="tabular">
+                    {formatDuration(active.goals.targetDwellSec)} target
+                  </span>
+                }
+              />
+            ) : null}
+            {active.goals.targetCaptures ? (
+              <BriefRow
+                label="Captures"
+                value={
+                  <span className="tabular">
+                    {active.goals.targetCaptures.toLocaleString()} target
+                  </span>
+                }
+              />
+            ) : null}
+            {active.goals.targetVisitors ? (
+              <BriefRow
+                label="Visitors"
+                value={
+                  <span className="tabular">
+                    {active.goals.targetVisitors.toLocaleString()} target
+                  </span>
+                }
+              />
+            ) : null}
+            {objective && (
+              <div className="pt-2 border-t border-border-hairline">
+                <div className="eyebrow mb-2">Primary objective</div>
+                <Pill variant="success">{objective.label}</Pill>
+              </div>
+            )}
+            {!active.expectedDailyFootfall &&
+              !active.goals.targetDwellSec &&
+              !active.goals.targetCaptures &&
+              !active.goals.targetVisitors &&
+              !objective && (
+                <div className="text-text-muted text-sm flex items-center gap-2">
+                  <CalendarClock size={14} />
+                  No targets set. Edit the session to add them.
+                </div>
+              )}
+          </dl>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function BriefRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-4">
+      <dt className="text-text-muted text-xs uppercase tracking-[0.14em]">
+        {label}
+      </dt>
+      <dd className="text-text-primary text-right">{value}</dd>
+    </div>
   );
 }

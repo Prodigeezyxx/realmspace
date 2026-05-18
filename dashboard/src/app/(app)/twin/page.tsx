@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Box,
   Eye,
   EyeOff,
   Layers,
@@ -15,10 +16,12 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
 import { peopleTracks } from "@/lib/mock/people";
 import { surfaces, zones } from "@/lib/mock/session";
+import { useActiveSession } from "@/lib/session/store";
 import { cn, formatDuration } from "@/lib/utils";
 
 const TwinScene = dynamic(
@@ -30,6 +33,8 @@ const SESSION_DURATION = 620; // seconds covered by mock tracks
 const SPEEDS = [0.5, 1, 2, 4];
 
 export default function TwinPage() {
+  const activeSession = useActiveSession();
+  const isDemo = activeSession.isDemo;
   const [time, setTime] = useState(180);
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(1);
@@ -56,6 +61,10 @@ export default function TwinPage() {
       }),
     [time]
   );
+
+  if (!isDemo) {
+    return <TwinEmptyState />;
+  }
 
   return (
     <div className="p-5 max-w-[1600px] mx-auto space-y-4">
@@ -291,6 +300,91 @@ function SceneLoading() {
       <span className="text-[11px] tabular tracking-[0.18em] uppercase">
         loading twin…
       </span>
+    </div>
+  );
+}
+
+function TwinEmptyState() {
+  const active = useActiveSession();
+  return (
+    <div className="p-5 max-w-[1400px] mx-auto space-y-6">
+      <EmptyState
+        variant="page"
+        icon={<Box size={26} strokeWidth={1.8} />}
+        title="Your twin is ready, the data isn't — yet."
+        hint={
+          <>
+            The 3D replay rebuilds itself from anonymous position tracks. Once
+            cameras start recording, you&apos;ll be able to scrub the timeline,
+            isolate visitors, and watch your space through time.
+          </>
+        }
+        cta={{ href: "/live", label: "Open live & start the camera" }}
+      />
+
+      {/* Show their configured layout as a calm "ready and waiting" preview */}
+      <div className="grid md:grid-cols-2 gap-5 mt-12">
+        <Panel
+          title="Zones in this session"
+          subtitle={`${active.zones.length} configured`}
+          padded={false}
+        >
+          <ul className="px-3 py-2 space-y-1">
+            {active.zones.map((z) => (
+              <li key={z.id} className="flex items-center gap-2.5 py-1.5 text-sm">
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ background: z.color }}
+                />
+                <span className="flex-1 truncate">{z.name}</span>
+                <span className="text-text-muted text-[10px] uppercase tracking-[0.12em]">
+                  {z.type}
+                </span>
+              </li>
+            ))}
+            {active.zones.length === 0 && (
+              <li className="py-4 px-3 text-center text-sm text-text-muted">
+                No zones configured.
+              </li>
+            )}
+          </ul>
+        </Panel>
+
+        <Panel
+          title="Touchpoints in this session"
+          subtitle={`${active.touchpoints.length} configured`}
+          padded={false}
+        >
+          <ul className="px-3 py-2 space-y-1">
+            {active.touchpoints.map((t) => {
+              const zone = active.zones.find((z) => z.id === t.zoneId);
+              return (
+                <li
+                  key={t.id}
+                  className="flex items-center gap-2.5 py-1.5 text-sm"
+                >
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{
+                      background: zone?.color ?? "#42faa1",
+                      boxShadow: `0 0 10px ${zone?.color ?? "#42faa1"}`,
+                    }}
+                  />
+                  <span className="flex-1 truncate">{t.name}</span>
+                  <span className="text-text-muted text-[10px] uppercase tracking-[0.12em]">
+                    {zone?.name ?? "—"}
+                  </span>
+                </li>
+              );
+            })}
+            {active.touchpoints.length === 0 && (
+              <li className="py-4 px-3 text-center text-sm text-text-muted">
+                No touchpoints configured.
+              </li>
+            )}
+          </ul>
+        </Panel>
+      </div>
     </div>
   );
 }

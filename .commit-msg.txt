@@ -1,0 +1,26 @@
+feat(sessions): user-created sessions render fresh, not demo data
+
+Previously, switching to a new session kept the Lagos demo's KPIs,
+heatmap, events, insights, agent rules and report copy on screen — a
+fresh session felt fake. Every demo-flavoured surface is now gated.
+
+- Add reusable EmptyState (panel + page variants) in the Intellias
+  palette so "no data yet" reads as intentional, not broken.
+- Live: KPIs zero out for non-demo sessions when the camera is idle
+  (people now, today, dwell, triggers). Sparklines empty. Subtitles
+  switch to neutral copy. Detector-derived numbers still flow when
+  the webcam is running.
+- Heatmap, TrafficChart, EventTimeline: render EmptyState when the
+  active session is not the demo and the detector has no real data.
+- Attention score + Insights panel: show their own empty states for
+  non-demo sessions.
+- Twin: full-page empty state with the session's configured zones +
+  touchpoints rendered as a "ready and waiting" preview.
+- Ask the Room: full-page empty state. Example queries are derived
+  from this session's actual zone and touchpoint names.
+- Agents: empty rules list for non-demo. Composer textarea pre-seeded
+  with a rule shaped around the active session's zones / brand. Recent
+  firings panel also empty for fresh sessions.
+- Report: full-page empty state showing the session brief + targets
+  (footfall, dwell, captures, visitors, primary objective) so the
+  client sees what the eventual report will measure against.

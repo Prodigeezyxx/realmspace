@@ -13,8 +13,10 @@ import {
 import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
+import { useActiveSession } from "@/lib/session/store";
 import { cn, formatRelative } from "@/lib/utils";
 
 type Trigger = "dwell" | "count" | "gaze" | "group" | "exit_funnel";
@@ -109,13 +111,26 @@ const ACTION_META: Record<Action, { label: string; icon: React.ReactNode }> = {
 };
 
 export default function AgentsPage() {
-  const [agents, setAgents] = useState(seed);
+  const activeSession = useActiveSession();
+  const isDemo = activeSession.isDemo;
+  // Fresh sessions start with no rules. The demo keeps the curated seed.
+  const [agents, setAgents] = useState(isDemo ? seed : []);
 
   function toggle(id: string) {
     setAgents((cur) =>
       cur.map((a) => (a.id === id ? { ...a, active: !a.active } : a))
     );
   }
+
+  // Pre-seed the composer textarea with a rule shaped around this session's
+  // actual zones and touchpoints so the user immediately sees how to write one.
+  const composerSeed = isDemo
+    ? `When 5+ people are in the Mirror Room for more than 90 seconds AND the Bottle Wall has fewer than 2 visitors, dim the Bottle Wall lighting by 30% and POST to /api/staff/redirect.`
+    : `When 5+ people are in the ${activeSession.zones[0]?.name ?? "Entry"} for more than 30 seconds, ping #ops-${(activeSession.brand ?? "session").toLowerCase().replace(/\s+/g, "-")} in Slack.${
+        activeSession.touchpoints[0]
+          ? `\n\nWhen a visitor interacts with the ${activeSession.touchpoints[0].name}, POST to https://hooks.your-crm.com/lead.`
+          : ""
+      }`;
 
   return (
     <div className="p-5 max-w-[1400px] mx-auto space-y-5">
@@ -139,12 +154,31 @@ export default function AgentsPage() {
 
       <div className="grid grid-cols-4 gap-3">
         <Summary label="Active agents" value={agents.filter((a) => a.active).length} />
-        <Summary label="Fires today" value={718} accent="cyan" />
-        <Summary label="Avg latency" value="240ms" accent="green" />
-        <Summary label="Insights logged" value={23} accent="violet" />
+        <Summary
+          label="Fires today"
+          value={isDemo ? 718 : 0}
+          accent="cyan"
+        />
+        <Summary
+          label="Avg latency"
+          value={isDemo ? "240ms" : "—"}
+          accent="green"
+        />
+        <Summary
+          label="Insights logged"
+          value={isDemo ? 23 : 0}
+          accent="violet"
+        />
       </div>
 
       <Panel title="All agents" subtitle="Click to enable / disable">
+        {agents.length === 0 && (
+          <EmptyState
+            icon={<Zap size={18} />}
+            title="No agents yet."
+            hint="Write a rule below in plain English — RealmSpace translates it to a graph subscription you can enable here."
+          />
+        )}
         <ul className="divide-y divide-border-hairline -m-5">
           {agents.map((a) => {
             const t = TRIGGER_META[a.trigger];
@@ -221,8 +255,9 @@ export default function AgentsPage() {
           subtitle="Plain English. We translate it to a graph subscription."
         >
           <textarea
+            key={composerSeed /* re-seed when the active session changes */}
             className="w-full bg-bg-canvas border border-border-subtle rounded-lg p-4 text-sm font-mono text-text-secondary focus:border-accent focus:outline-none min-h-[160px] resize-none"
-            defaultValue={`When 5+ people are in the Mirror Room for more than 90 seconds AND the Bottle Wall has fewer than 2 visitors, dim the Bottle Wall lighting by 30% and POST to /api/staff/redirect.`}
+            defaultValue={composerSeed}
           />
           <div className="flex gap-2 mt-3">
             <Button variant="primary" size="sm" icon={<Sparkles size={14} />}>
@@ -239,33 +274,41 @@ export default function AgentsPage() {
           subtitle="Live event log of agent activity"
           padded={false}
         >
-          <ul className="p-3 space-y-1 font-mono text-xs">
-            <RecentFire
-              when="34s ago"
-              text="Mirror Engagement fired for P-216 — screen swapped to 'Rose Nuit' content"
-              color="text-accent-violet"
+          {isDemo ? (
+            <ul className="p-3 space-y-1 font-mono text-xs">
+              <RecentFire
+                when="34s ago"
+                text="Mirror Engagement fired for P-216 — screen swapped to 'Rose Nuit' content"
+                color="text-accent-violet"
+              />
+              <RecentFire
+                when="1m 18s ago"
+                text="RFID Capture Logger fired for P-214 — POST /api/leads ok"
+                color="text-accent-blue"
+              />
+              <RecentFire
+                when="4m ago"
+                text="Lounge VIP Detector fired — group of 3 dwelling 4m+, paged @ambassador-amaka"
+                color="text-accent-amber"
+              />
+              <RecentFire
+                when="11m ago"
+                text="Entry Crowd Alert fired — 6 people in Entry Arch for 38s"
+                color="text-accent-red"
+              />
+              <RecentFire
+                when="22m ago"
+                text="Mirror Engagement fired for P-211 — screen swapped to 'Sable Vert'"
+                color="text-accent-violet"
+              />
+            </ul>
+          ) : (
+            <EmptyState
+              icon={<Sparkles size={18} />}
+              title="No firings yet."
+              hint="Recent agent activity will appear here in real time."
             />
-            <RecentFire
-              when="1m 18s ago"
-              text="RFID Capture Logger fired for P-214 — POST /api/leads ok"
-              color="text-accent-blue"
-            />
-            <RecentFire
-              when="4m ago"
-              text="Lounge VIP Detector fired — group of 3 dwelling 4m+, paged @ambassador-amaka"
-              color="text-accent-amber"
-            />
-            <RecentFire
-              when="11m ago"
-              text="Entry Crowd Alert fired — 6 people in Entry Arch for 38s"
-              color="text-accent-red"
-            />
-            <RecentFire
-              when="22m ago"
-              text="Mirror Engagement fired for P-211 — screen swapped to 'Sable Vert'"
-              color="text-accent-violet"
-            />
-          </ul>
+          )}
         </Panel>
       </div>
     </div>

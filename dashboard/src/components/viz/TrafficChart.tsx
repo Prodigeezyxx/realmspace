@@ -1,5 +1,6 @@
 "use client";
 
+import { Activity } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   Area,
@@ -11,9 +12,12 @@ import {
   YAxis,
 } from "recharts";
 
+import { EmptyState } from "@/components/ui/EmptyState";
 import { peopleSeries } from "@/lib/mock/session";
+import { useActiveSession } from "@/lib/session/store";
 
 export function TrafficChart() {
+  const active = useActiveSession();
   const data = peopleSeries.map((v, i) => ({
     minute: i - peopleSeries.length,
     people: v,
@@ -24,6 +28,17 @@ export function TrafficChart() {
   useEffect(() => setMounted(true), []);
   if (!mounted) {
     return <div className="h-44 -mx-2 -mb-2" aria-hidden />;
+  }
+  if (!active.isDemo) {
+    return (
+      <div className="h-44 -mx-2 -mb-2 flex items-center justify-center">
+        <EmptyState
+          icon={<Activity size={18} />}
+          title="No traffic data yet."
+          hint="Start the camera to begin populating the 60-minute traffic profile."
+        />
+      </div>
+    );
   }
   return (
     <div className="h-44 -mx-2 -mb-2">

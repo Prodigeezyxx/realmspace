@@ -11,9 +11,11 @@ import {
 import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
 import { answers, findAnswer, suggestedQueries } from "@/lib/mock/ask-answers";
+import { useActiveSession } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
 
 interface ConversationTurn {
@@ -23,16 +25,25 @@ interface ConversationTurn {
 }
 
 export default function AskPage() {
+  const activeSession = useActiveSession();
+  const isDemo = activeSession.isDemo;
+
   const [q, setQ] = useState("");
-  const [turns, setTurns] = useState<ConversationTurn[]>([
-    { q: answers[1].query, answer: answers[1] }, // longest dwell, pre-populated
-  ]);
+  const [turns, setTurns] = useState<ConversationTurn[]>(
+    isDemo
+      ? [{ q: answers[1].query, answer: answers[1] }] // longest dwell, pre-populated
+      : []
+  );
 
   function ask(query: string) {
     if (!query.trim()) return;
     const found = findAnswer(query) ?? answers[0];
     setTurns((cur) => [...cur, { q: query, answer: { ...found, query } }]);
     setQ("");
+  }
+
+  if (!isDemo) {
+    return <AskEmptyState />;
   }
 
   return (
@@ -349,4 +360,62 @@ function AnswerVisualization({
   }
 
   return null;
+}
+
+// ── Empty state (non-demo, no data yet) ───────────────────────────────────
+
+function AskEmptyState() {
+  const active = useActiveSession();
+  // Build sensible example queries from this session's actual layout.
+  const sample = [
+    active.zones[0]?.name &&
+      `How many people entered the ${active.zones[0].name} today?`,
+    active.zones[1]?.name &&
+      `Which zone had the longest average dwell — ${active.zones[1].name} or ${active.zones[2]?.name ?? "any other"}?`,
+    active.touchpoints[0]?.name &&
+      `How many times was the ${active.touchpoints[0].name} interacted with?`,
+    "Show me the busiest 5 minutes today.",
+    "Which touchpoint converted the most visitors into captures?",
+  ].filter(Boolean) as string[];
+
+  return (
+    <div className="p-5 max-w-[1400px] mx-auto space-y-8">
+      <EmptyState
+        variant="page"
+        icon={<Brain size={26} strokeWidth={1.8} />}
+        title="Ask the Room activates once there's data to ask."
+        hint={
+          <>
+            Plain-English questions are translated to a Cypher query against
+            this session&apos;s graph and answered with a chart plus a
+            highlighted subgraph. Start the camera, let visitors interact, then
+            come back here.
+          </>
+        }
+        cta={{ href: "/live", label: "Open live & start recording" }}
+      />
+
+      {sample.length > 0 && (
+        <div className="max-w-3xl mx-auto">
+          <div className="eyebrow mb-3 text-center">
+            Questions you&apos;ll be able to ask
+          </div>
+          <ul className="space-y-2">
+            {sample.map((s, i) => (
+              <li
+                key={i}
+                className="panel p-4 flex items-start gap-3 text-sm text-text-secondary"
+              >
+                <MessageSquareText
+                  size={14}
+                  className="text-accent shrink-0 mt-0.5"
+                />
+                <span>{s}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 }

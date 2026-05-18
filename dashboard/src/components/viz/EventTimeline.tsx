@@ -4,6 +4,7 @@ import {
   DoorClosed,
   DoorOpen,
   Eye,
+  ListChecks,
   type LucideIcon,
   Sparkles,
   Timer,
@@ -11,7 +12,9 @@ import {
   Zap,
 } from "lucide-react";
 
+import { EmptyState } from "@/components/ui/EmptyState";
 import { events, type SessionEvent } from "@/lib/mock/events";
+import { useActiveSession } from "@/lib/session/store";
 import { formatRelative } from "@/lib/utils";
 
 const ICON: Record<SessionEvent["type"], { icon: LucideIcon; color: string }> = {
@@ -27,6 +30,16 @@ const ICON: Record<SessionEvent["type"], { icon: LucideIcon; color: string }> = 
 const NOW = Date.UTC(2026, 4, 18, 21, 14, 0);
 
 export function EventTimeline() {
+  const active = useActiveSession();
+  if (!active.isDemo) {
+    return (
+      <EmptyState
+        icon={<ListChecks size={18} />}
+        title="No events yet."
+        hint="Events stream in as visitors enter zones, dwell on touchpoints, or fire agent rules."
+      />
+    );
+  }
   return (
     <ul className="font-mono text-xs space-y-px">
       {events.map((e) => {
