@@ -270,15 +270,24 @@ See [docs/gtm.md](./gtm.md). Three motions:
 | Surface | Status |
 |---|---|
 | Landing page | ✅ Real |
-| Live dashboard (UI) | ✅ Real |
-| Live video feed | 🟡 Stylised top-down representation. Production wires to OpenCV MJPEG/WebSocket stream. |
-| Person tracking data | 🟡 Mocked seed paths. Production uses YOLO+ByteTrack output. |
+| Live dashboard (UI + chrome) | ✅ Real |
+| **Live webcam capture** | ✅ Real — `navigator.mediaDevices.getUserMedia` |
+| **Person detection** | ✅ Real — TensorFlow.js + COCO-SSD (mobilenet_v2) running in the browser via WebGL backend |
+| **Persistent anonymous IDs** | ✅ Real — custom centroid tracker, in-browser (`src/lib/tracker.ts`) |
+| **Live KPI strip + event log** | ✅ Real — derived directly from detector state |
 | Heatmap | 🟡 Generated from mock waypoints. Same code accepts live waypoints. |
 | Digital twin (3D scene) | ✅ Real React Three Fiber scene; data is mocked but the render is genuine. |
+| Twin avatar paths | 🟡 Hand-authored seed paths. Production replaces with recorded perception sessions. |
 | Ask the Room | 🟡 Pre-canned answers matched by regex. Production calls Claude/GPT-4o → Cypher → Neo4j. |
 | Agents | 🟡 UI is real, rule storage is in-memory. Production persists to Postgres + subscribes to graph changes. |
 | Report | 🟡 Static numbers. Production templates from session data. |
-| Perception engine | ❌ Not in this repo — Python stub in `perception/` is the next milestone. |
+| Server-side perception (Phase 0) | 🟡 Python stub in `perception/realmspace.py` — the Python equivalent of what the browser detector does today. |
+
+**The headline change vs. v0 prototype:** the live tab is no longer a stylised
+mock. Walk in front of the laptop, watch yourself get a persistent anonymous
+ID with a bounding box, see the KPI strip and event log update in real time
+from your actual camera feed. Detection, tracking and event emission all run
+on-device — no backend, no cloud, no frames stored.
 
 This document is honest. If you demo it, demo it honestly. The point of the
 prototype is to validate desire, not to claim shipped product.

@@ -16,7 +16,7 @@ export function Sparkline({
   data,
   width = 120,
   height = 32,
-  stroke = "var(--accent-cyan)",
+  stroke = "var(--accent-blue)",
   fill,
   className,
   showLast,

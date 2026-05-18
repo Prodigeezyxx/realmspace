@@ -221,21 +221,33 @@ export const zoneStats = [
 ];
 
 /** Time-series for the last 60 minutes, sampled per minute. */
-export const peopleSeries = generateSeries(60, 8, 28, 0.4);
-export const dwellSeries = generateSeries(60, 90, 360, 0.6);
-export const triggerSeries = generateSeries(60, 4, 22, 0.5);
-export const attentionSeries = generateSeries(60, 0.35, 0.92, 0.3);
+export const peopleSeries = generateSeries(60, 8, 28, 0.4, 1);
+export const dwellSeries = generateSeries(60, 90, 360, 0.6, 2);
+export const triggerSeries = generateSeries(60, 4, 22, 0.5, 3);
+export const attentionSeries = generateSeries(60, 0.35, 0.92, 0.3, 4);
 
+/**
+ * Deterministic seeded series — same output on server and client so SSR
+ * hydration matches exactly. Each series has its own seed so they look
+ * uncorrelated.
+ */
 function generateSeries(
   n: number,
   min: number,
   max: number,
-  smoothness: number
+  smoothness: number,
+  seed: number
 ): number[] {
   const out: number[] = [];
   let v = (min + max) / 2;
+  let s = (seed * 1000003) % 2147483647;
+  if (s <= 0) s += 2147483646;
+  const rand = () => {
+    s = (s * 16807) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
   for (let i = 0; i < n; i++) {
-    const drift = (Math.random() - 0.5) * (max - min) * (1 - smoothness);
+    const drift = (rand() - 0.5) * (max - min) * (1 - smoothness);
     v = Math.max(min, Math.min(max, v + drift));
     out.push(Number(v.toFixed(2)));
   }

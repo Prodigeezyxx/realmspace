@@ -110,8 +110,14 @@ const sample: Omit<SessionEvent, "id" | "timestamp">[] = [
   },
 ];
 
+// Deterministic jitter so the rendered times match between SSR and CSR
+function jitter(i: number) {
+  let s = ((i + 1) * 48271) % 2147483647;
+  return (s % 3000);
+}
+
 export const events: SessionEvent[] = sample.map((e, i) => ({
   ...e,
   id: `evt_${i.toString().padStart(4, "0")}`,
-  timestamp: NOW - i * 11_000 - Math.floor(Math.random() * 3000),
+  timestamp: NOW - i * 11_000 - jitter(i),
 }));

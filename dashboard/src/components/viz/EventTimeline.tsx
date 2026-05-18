@@ -42,6 +42,7 @@ export function EventTimeline() {
                 minute: "2-digit",
                 second: "2-digit",
                 hour12: false,
+                timeZone: "UTC",
               })}
             </span>
             <Icon size={14} className={color} />

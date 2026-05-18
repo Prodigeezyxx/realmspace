@@ -15,9 +15,14 @@ This repository ships:
   person detection, and emits structured JSON events (`perception/`)
 - The **product spec and supporting documents** (`docs/`)
 
-It is **demo-ready tonight**. It is **not** production. The boundary between
-"real" and "mocked" is documented explicitly in `docs/PRD.md` so you can demo
-honestly.
+It is **demo-ready tonight**. The live `/live` view performs **real, on-device
+person detection** from your webcam using TensorFlow.js + COCO-SSD with a
+custom centroid tracker — no backend, no cloud, no frames stored. Walk in
+front of your laptop and watch yourself get tracked with a persistent
+anonymous ID, live. Everything else (digital twin, reports, agents) is wired
+against mocked data that maps 1:1 to the contracts the real backend will
+produce. The boundary between "real" and "mocked" is documented explicitly in
+`docs/PRD.md` so you can demo honestly.
 
 ---
 
@@ -26,7 +31,7 @@ honestly.
 | Surface | Path | What it shows |
 |---|---|---|
 | **Landing** | `/` | Agency-targeted product page — hero, the 4-step loop, pricing, privacy posture |
-| **Live** | `/live` | Operator dashboard — KPIs, annotated camera view, heatmap, traffic, event log, zone counters, AI insights |
+| **Live** | `/live` | **Real webcam + on-device object tracking.** Click "Start live session" — your browser asks for camera permission, loads COCO-SSD (~28 MB, once), then detects people in your frame at 10–22 fps with persistent anonymous IDs. KPIs and the event log update in real time from the detector. Heatmap, AI insights, and zone counters remain mocked. |
 | **Twin** | `/twin` | 3D digital twin of the activation — anonymous avatars walking recorded paths, scrubbable timeline, playback speed |
 | **Ask** | `/ask` | Plain-English query interface — natural language → Cypher → answer with chart |
 | **Agents** | `/agents` | Rule builder — "when X, do Y" with Slack / webhook / screen actions |
@@ -108,14 +113,29 @@ realmspace/
 | | Real | Mocked |
 |---|---|---|
 | Dashboard UI / interactions | ✅ | |
+| **Live webcam capture** | ✅ on-device via `getUserMedia` | |
+| **Real-time person detection** | ✅ COCO-SSD via TensorFlow.js (WebGL backend) | |
+| **Persistent anonymous IDs** | ✅ in-browser centroid tracker | |
+| **Live KPIs + event log** | ✅ driven by real detections | |
 | 3D digital twin scene | ✅ | data only |
 | Heatmap rendering | ✅ | aggregated from mock waypoints |
-| Live camera feed | | 🟡 stylised top-down representation |
-| Person tracks | | 🟡 hand-authored seed paths |
+| Twin avatar paths | | 🟡 hand-authored seed paths |
 | Ask the Room — answers | | 🟡 pre-canned, regex-matched |
 | Agent rule engine | ✅ UI | 🟡 in-memory state |
 | Report numbers | | 🟡 static for the demo |
-| Perception engine | 🟡 phase-0 stub | |
+| Server-side perception (Phase 0) | 🟡 Python stub in `perception/` | |
+
+### Live tab — how the camera actually works
+
+1. **Click "Start live session"** in the camera viewport
+2. **Browser prompts for camera permission** — must be granted
+3. **COCO-SSD downloads on first run** (~28 MB, cached forever after)
+4. **Detection loop runs in `requestAnimationFrame`**: each frame goes to TF.js with WebGL backend, COCO-SSD returns bounding boxes + class labels + confidence
+5. **Centroid tracker** (`src/lib/tracker.ts`) maintains persistent IDs across frames using greedy nearest-centroid matching with a configurable distance threshold and miss tolerance
+6. **Bounding boxes + corner brackets + ID tags** are drawn on a canvas overlay that's mirrored to match the user's view
+7. **Live KPIs** ("People now", session length, fps) and the **event log** ("P-003 entered the frame", "P-005 left the frame") are derived directly from detector state
+
+No data leaves the tab. The video element, the model, the canvas, the tracker — all live in your browser. Close the tab and everything is gone.
 
 **Demo this honestly.** The mocked pieces are wired against the exact
 contract the real backend will produce. When the Phase-1 perception engine

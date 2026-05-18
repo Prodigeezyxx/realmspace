@@ -120,7 +120,7 @@ export default function TwinPage() {
             <div className="border-t border-border-hairline px-4 py-3 flex items-center gap-4">
               <div className="flex items-center gap-1.5">
                 <button
-                  className="w-9 h-9 rounded-full bg-bg-elevated border border-border-subtle flex items-center justify-center hover:bg-[#1f1f24] transition-colors"
+                  className="w-9 h-9 rounded-full bg-bg-panel border border-border-subtle flex items-center justify-center hover:bg-bg-elevated transition-colors"
                   onClick={() => setTime(0)}
                   title="Rewind"
                 >

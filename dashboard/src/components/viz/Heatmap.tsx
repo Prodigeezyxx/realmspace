@@ -31,7 +31,7 @@ export function Heatmap({ height = 200 }: { height?: number }) {
 
   return (
     <div
-      className="relative w-full rounded-lg overflow-hidden bg-bg-canvas map-grid"
+      className="relative w-full rounded-lg overflow-hidden bg-bg-canvas map-grid border border-border-hairline"
       style={{ height }}
     >
       <svg
@@ -50,16 +50,16 @@ export function Heatmap({ height = 200 }: { height?: number }) {
                 cy={y * 10 + 5}
                 r={3 + intensity * 14}
                 fill="url(#heat)"
-                opacity={0.18 + intensity * 0.7}
+                opacity={0.25 + intensity * 0.6}
               />
             );
           })
         )}
         <defs>
           <radialGradient id="heat">
-            <stop offset="0%" stopColor="#ff453a" stopOpacity="0.85" />
-            <stop offset="40%" stopColor="#ffd60a" stopOpacity="0.45" />
-            <stop offset="100%" stopColor="#3e83f7" stopOpacity="0" />
+            <stop offset="0%" stopColor="#d70015" stopOpacity="0.85" />
+            <stop offset="40%" stopColor="#e89a00" stopOpacity="0.55" />
+            <stop offset="100%" stopColor="#0a6dd6" stopOpacity="0" />
           </radialGradient>
         </defs>
       </svg>

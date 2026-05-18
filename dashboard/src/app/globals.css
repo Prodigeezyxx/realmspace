@@ -1,42 +1,51 @@
 @import "tailwindcss";
 
 /* ──────────────────────────────────────────────────────────────────
-   RealmSpace — Tesla in-car UI design system
+   RealmSpace — Tesla touchscreen design system (light)
+   Inspired by the daytime in-car UI: white surfaces, near-black text,
+   minimal accent colour, hairline borders, generous radii.
    ────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* Surfaces */
-  --bg-base: #050507;
-  --bg-canvas: #0a0a0c;
-  --bg-panel: #111114;
-  --bg-elevated: #16161a;
-  --bg-input: #1c1c20;
+  /* Surfaces — soft off-whites with the slightest cool cast */
+  --bg-base: #f4f4f6;
+  --bg-canvas: #ececef;
+  --bg-panel: #ffffff;
+  --bg-elevated: #fafafc;
+  --bg-input: #f1f1f4;
+  --bg-inverse: #111114;        /* used only for the video viewport */
 
-  /* Borders / dividers */
-  --border-hairline: #1c1c20;
-  --border-subtle: #25252b;
-  --border-strong: #34343c;
+  /* Borders — hairlines, very low contrast */
+  --border-hairline: #e6e6ea;
+  --border-subtle: #d9d9df;
+  --border-strong: #c2c2c9;
 
-  /* Text */
-  --text-primary: #ffffff;
-  --text-secondary: #b4b4bc;
-  --text-muted: #6c6c75;
-  --text-faint: #44444c;
+  /* Text — Apple-style near-black hierarchy */
+  --text-primary: #1d1d1f;
+  --text-secondary: #515154;
+  --text-muted: #86868b;
+  --text-faint: #b6b6bb;
+  --text-inverse: #ffffff;
 
-  /* Accents (Tesla-ish UI) */
-  --accent-blue: #3e83f7;        /* primary action / link */
-  --accent-blue-bright: #5b9bff; /* hover */
-  --accent-cyan: #00d4ff;        /* live / streaming */
-  --accent-green: #30d158;       /* positive / go */
-  --accent-amber: #ffd60a;       /* warn */
-  --accent-red: #ff453a;         /* alert */
-  --accent-violet: #bf5af2;      /* insight */
+  /* Accents — used sparingly, like Tesla's UI */
+  --accent-blue: #0a6dd6;          /* primary action */
+  --accent-blue-bright: #0a84ff;   /* hover / focus */
+  --accent-cyan: #0aa3d9;          /* "live" / streaming */
+  --accent-green: #1e9f3a;         /* positive / go */
+  --accent-amber: #c68a00;         /* warn */
+  --accent-red: #d70015;           /* alert / critical */
+  --accent-violet: #7a3ee0;        /* insight */
 
-  /* Glows */
-  --glow-cyan: 0 0 24px rgba(0, 212, 255, 0.45);
-  --glow-blue: 0 0 18px rgba(62, 131, 247, 0.4);
-  --glow-red: 0 0 18px rgba(255, 69, 58, 0.5);
-  --glow-green: 0 0 18px rgba(48, 209, 88, 0.45);
+  /* Subtle shadows — Tesla uses very faint elevation */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 16px -8px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 8px 24px -12px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.04);
+
+  /* Glows — only on live indicators */
+  --glow-cyan: 0 0 0 6px rgba(10, 163, 217, 0.12);
+  --glow-blue: 0 0 0 6px rgba(10, 109, 214, 0.12);
+  --glow-red: 0 0 0 6px rgba(215, 0, 21, 0.14);
+  --glow-green: 0 0 0 6px rgba(30, 159, 58, 0.14);
 
   /* Type */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
@@ -57,6 +66,7 @@
   --color-bg-panel: var(--bg-panel);
   --color-bg-elevated: var(--bg-elevated);
   --color-bg-input: var(--bg-input);
+  --color-bg-inverse: var(--bg-inverse);
 
   --color-border-hairline: var(--border-hairline);
   --color-border-subtle: var(--border-subtle);
@@ -66,6 +76,7 @@
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
   --color-text-faint: var(--text-faint);
+  --color-text-inverse: var(--text-inverse);
 
   --color-accent-blue: var(--accent-blue);
   --color-accent-blue-bright: var(--accent-blue-bright);
@@ -94,21 +105,20 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* ── Tabular figures everywhere by default for numbers */
+/* ── Tabular numbers */
 .tabular {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1, "lnum" 1;
 }
 
-/* ── A subtle radial vignette to give the canvas depth like a Tesla touchscreen */
+/* ── Canvas backdrop — very subtle gradient, like a Tesla map at dawn */
 .canvas-vignette {
   background:
     radial-gradient(
       120% 80% at 50% 0%,
-      rgba(62, 131, 247, 0.06),
+      rgba(10, 109, 214, 0.025),
       transparent 60%
     ),
-    radial-gradient(80% 60% at 100% 100%, rgba(0, 212, 255, 0.04), transparent 70%),
     var(--bg-base);
 }
 
@@ -117,22 +127,24 @@ body {
   background: var(--bg-panel);
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
 }
 
 .panel-elevated {
-  background: linear-gradient(180deg, #18181c 0%, #131316 100%);
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hairline);
   border-radius: var(--radius);
+  box-shadow: var(--shadow);
 }
 
-/* ── Live dot — pulsing cyan, the "recording" indicator */
-@keyframes pulse-cyan {
+/* ── Live dot — pulsing red recording indicator, the Tesla way */
+@keyframes pulse-red {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(0, 212, 255, 0.55);
+    box-shadow: 0 0 0 0 rgba(215, 0, 21, 0.45);
   }
   50% {
-    box-shadow: 0 0 0 6px rgba(0, 212, 255, 0);
+    box-shadow: 0 0 0 6px rgba(215, 0, 21, 0);
   }
 }
 .live-dot {
@@ -140,17 +152,17 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: var(--accent-cyan);
-  animation: pulse-cyan 1.6s ease-in-out infinite;
+  background: var(--accent-red);
+  animation: pulse-red 1.6s ease-in-out infinite;
 }
 
-@keyframes pulse-red {
+@keyframes pulse-cyan {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(255, 69, 58, 0.55);
+    box-shadow: 0 0 0 0 rgba(10, 163, 217, 0.45);
   }
   50% {
-    box-shadow: 0 0 0 8px rgba(255, 69, 58, 0);
+    box-shadow: 0 0 0 6px rgba(10, 163, 217, 0);
   }
 }
 .alert-dot {
@@ -158,56 +170,76 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: var(--accent-red);
-  animation: pulse-red 1.4s ease-in-out infinite;
+  background: var(--accent-cyan);
+  animation: pulse-cyan 1.4s ease-in-out infinite;
 }
 
-/* ── Scrollbars: minimal */
+/* ── Scrollbars: minimal, light */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2a2a30;
+  background: #d2d2d7;
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a3a42;
+  background: #b8b8bd;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* ── Grain — gives the surface that subtle Tesla anti-glare matte feel */
-.grain::after {
-  content: "";
-  pointer-events: none;
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  opacity: 0.025;
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.6'/></svg>");
-}
-
 /* ── Map grid — the dotted backdrop Tesla uses on its in-car map */
 .map-grid {
   background-image:
-    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.06) 1px, transparent 0);
+    radial-gradient(
+      circle at 1px 1px,
+      rgba(0, 0, 0, 0.06) 1px,
+      transparent 0
+    );
   background-size: 24px 24px;
 }
 
-/* ── Marquee for live event log */
-@keyframes marquee {
-  0% {
-    transform: translateY(0);
-  }
-  100% {
-    transform: translateY(-50%);
-  }
+/* ── Focus rings */
+:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
-/* ── Subtle scan line for the "video" feed */
+/* ── Selection */
+::selection {
+  background: rgba(10, 109, 214, 0.18);
+  color: var(--text-primary);
+}
+
+/* ── Range slider — Tesla-clean */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 24px;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  background: var(--border-subtle);
+  border-radius: 999px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 999px;
+  background: var(--accent-blue);
+  border: 2px solid #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+}
+
+/* ── Subtle scan line for the "video" viewport */
 @keyframes scan {
   0% {
     transform: translateY(-100%);
@@ -223,22 +255,9 @@ body {
   background: linear-gradient(
     180deg,
     transparent 0%,
-    rgba(0, 212, 255, 0.08) 50%,
+    rgba(10, 163, 217, 0.08) 50%,
     transparent 100%
   );
   animation: scan 4s linear infinite;
   pointer-events: none;
-}
-
-/* ── Focus rings */
-:focus-visible {
-  outline: 2px solid var(--accent-blue);
-  outline-offset: 2px;
-  border-radius: 6px;
-}
-
-/* ── Selection */
-::selection {
-  background: rgba(62, 131, 247, 0.35);
-  color: white;
 }

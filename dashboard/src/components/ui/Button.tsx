@@ -14,12 +14,13 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantStyles: Record<Variant, string> = {
   primary:
-    "bg-accent-blue text-white hover:bg-accent-blue-bright shadow-[0_8px_24px_-12px_rgba(62,131,247,0.7)]",
+    "bg-accent-blue text-white hover:bg-accent-blue-bright shadow-[0_1px_2px_rgba(10,109,214,0.25),0_8px_24px_-12px_rgba(10,109,214,0.45)]",
   secondary:
-    "bg-bg-elevated border border-border-subtle text-text-primary hover:border-border-strong hover:bg-[#1f1f24]",
-  ghost: "bg-transparent text-text-secondary hover:bg-bg-elevated hover:text-text-primary",
+    "bg-bg-panel border border-border-subtle text-text-primary hover:border-border-strong hover:bg-bg-elevated shadow-[var(--shadow-sm)]",
+  ghost:
+    "bg-transparent text-text-secondary hover:bg-bg-elevated hover:text-text-primary",
   danger:
-    "bg-accent-red/15 border border-accent-red/40 text-accent-red hover:bg-accent-red/25",
+    "bg-accent-red/10 border border-accent-red/30 text-accent-red hover:bg-accent-red/15",
 };
 
 const sizeStyles: Record<Size, string> = {

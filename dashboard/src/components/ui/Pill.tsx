@@ -15,13 +15,13 @@ interface PillProps {
 }
 
 const variants: Record<NonNullable<PillProps["variant"]>, string> = {
-  live: "bg-accent-cyan/10 text-accent-cyan border-accent-cyan/30",
+  live: "bg-accent-red/8 text-accent-red border-accent-red/25",
   alert: "bg-accent-red/10 text-accent-red border-accent-red/30",
-  info: "bg-accent-blue/10 text-accent-blue border-accent-blue/30",
+  info: "bg-accent-blue/8 text-accent-blue border-accent-blue/25",
   neutral: "bg-bg-elevated text-text-secondary border-border-subtle",
-  success: "bg-accent-green/10 text-accent-green border-accent-green/30",
-  warn: "bg-accent-amber/10 text-accent-amber border-accent-amber/30",
-  violet: "bg-accent-violet/10 text-accent-violet border-accent-violet/30",
+  success: "bg-accent-green/8 text-accent-green border-accent-green/25",
+  warn: "bg-accent-amber/8 text-accent-amber border-accent-amber/25",
+  violet: "bg-accent-violet/8 text-accent-violet border-accent-violet/25",
 };
 
 export function Pill({ children, variant = "neutral", className }: PillProps) {
