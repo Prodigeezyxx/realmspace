@@ -19,12 +19,12 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RealmSpace — Experiential Intelligence",
+  title: "RealmSpace — Measurement for Physical Experiences",
   description:
-    "Plug in any camera. Watch the room think. RealmSpace turns physical activations into a queryable graph of attention, dwell, and behavior — with a 3D digital twin you can replay and ask questions of.",
+    "The measurement, replay and intelligence layer for physical brand experiences. One camera. One laptop. A queryable graph of attention, dwell and behaviour — plus a 3D digital twin you can scrub through and ask questions of.",
   metadataBase: new URL("https://realmspace.io"),
   openGraph: {
-    title: "RealmSpace — Experiential Intelligence",
+    title: "RealmSpace — Measurement for Physical Experiences",
     description:
       "The measurement, replay and intelligence layer for physical brand experiences.",
     type: "website",

@@ -10,7 +10,7 @@ build those experiences. That changes everything about how we sell.
 
 ### Motion 1 — Embedded (months 0–6)
 
-RealmSpace ships inside every activation Yourself Creative delivers.
+RealmSpace ships inside every activation Floats XR delivers.
 
 - **No new sales motion required.** The agency's existing client conversations
   add a line item: "Measurement & Replay — $4,800 — includes live dashboard,
@@ -104,7 +104,7 @@ If we hit that, we're funded and we keep building. If we don't, we re-position.
 > free as a pilot.
 >
 > [Founder]
-> [Yourself Creative]
+> [Floats XR]
 
 ## Pricing — full table
 

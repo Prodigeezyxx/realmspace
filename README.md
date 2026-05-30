@@ -55,7 +55,7 @@ Stack:
 - Tailwind CSS v4 (CSS-first config in `globals.css`)
 - React Three Fiber + drei + three.js (the digital twin)
 - Recharts (charts) · motion (animations) · lucide-react (icons)
-- Inter + JetBrains Mono via `next/font/google`
+- Plus Jakarta Sans + JetBrains Mono via `next/font/google`
 
 ---
 
@@ -145,4 +145,4 @@ lands, swapping is a wiring change, not a redesign.
 
 ## License
 
-Internal · Yourself Creative · 2026.
+Internal · Floats XR · 2026.

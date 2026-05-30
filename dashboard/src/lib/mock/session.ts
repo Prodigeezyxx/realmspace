@@ -62,7 +62,7 @@ export const session: SessionMeta = {
   startedAt: "2026-05-18T09:00:00Z",
   endsAt: "2026-05-20T22:00:00Z",
   cameraCount: 2,
-  agencyName: "Yourself Creative",
+  agencyName: "Floats XR",
   boothSize: { width: 10, depth: 6 },
 };
 

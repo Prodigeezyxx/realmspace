@@ -77,7 +77,7 @@ every activation we deliver, plus license the kit to other agencies later.
 
 | Horizon | Time | Mode | Goal |
 |---|---|---|---|
-| **H1 — Service** | Months 0–6 | RealmSpace ships inside every activation Yourself Creative delivers | Prove the demo loop, refine the platform, build case studies, generate measurement revenue |
+| **H1 — Service** | Months 0–6 | RealmSpace ships inside every activation Floats XR delivers | Prove the demo loop, refine the platform, build case studies, generate measurement revenue |
 | **H2 — Productised service** | Months 6–18 | Sell the kit + dashboard to other agencies as a quarterly subscription | Recurring revenue, multi-agency benchmark dataset |
 | **H3 — Platform** | Year 2+ | License the perception engine + graph + twin to camera OEMs, venues, retail chains | Defensible category — "Mixpanel for physical space" |
 
@@ -256,7 +256,7 @@ posture document we send to compliance teams.
 
 See [docs/gtm.md](./gtm.md). Three motions:
 
-1. **Embedded** — RealmSpace ships in every activation Yourself Creative
+1. **Embedded** — RealmSpace ships in every activation Floats XR
    delivers, billed as a measurement line item.
 2. **Partner agencies** — 5–10 white-label kit deployments to peer agencies
    on a per-activation revenue share.
@@ -304,7 +304,7 @@ prototype is to validate desire, not to claim shipped product.
 | **Phase 3 — Ask the Room** | Claude/GPT-4o → Cypher pipeline, fully wired | 1 week |
 | **Phase 4 — Agents + insights** | Rule engine + LLM-generated insights every 10 minutes | 1–2 weeks |
 | **Phase 5 — Report + polish** | One-click PDF, onboarding, multi-camera, exports | 2 weeks |
-| **First paid activation** | Pavilion-tier pilot with a Yourself Creative client | Week 8 |
+| **First paid activation** | Pavilion-tier pilot with a Floats XR client | Week 8 |
 
 ---
 
@@ -354,6 +354,6 @@ prototype is to validate desire, not to claim shipped product.
 
 ---
 
-*Authored for Yourself Creative. v2 supersedes the original "intelligence layer
+*Authored for Floats XR. v2 supersedes the original "intelligence layer
 for the physical world" PRD, which mixed three products into one. v2 picks
 the wedge: experiential intelligence, sold inside our existing service.*

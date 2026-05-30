@@ -313,7 +313,7 @@ export default function NewSessionPage() {
                 <TextInput
                   value={agency}
                   onChange={(e) => setAgency(e.target.value)}
-                  placeholder="e.g. Yourself Creative"
+                  placeholder="e.g. Floats XR"
                 />
               </Field>
             </div>

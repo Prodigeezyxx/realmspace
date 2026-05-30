@@ -6,11 +6,7 @@ import {
   ChevronRight,
   Eye,
   Gauge,
-  Lock,
-  Package,
   Search,
-  Sparkles,
-  Wand2,
   Zap,
 } from "lucide-react";
 import Link from "next/link";
@@ -76,7 +72,7 @@ export default function LandingPage() {
               href="/live"
               className="inline-flex items-center gap-2 bg-accent text-text-inverse h-12 pl-5 pr-2.5 rounded-full font-semibold text-[13px] hover:bg-accent-bright transition-colors shadow-[var(--glow-green)]"
             >
-              Book a pilot
+              Try RealmSpace
               <span className="w-9 h-9 rounded-full bg-text-inverse text-accent inline-flex items-center justify-center">
                 <ArrowUpRight size={16} />
               </span>
@@ -90,11 +86,6 @@ export default function LandingPage() {
         <div className="grid lg:grid-cols-12 gap-12 lg:gap-16 items-start">
           {/* LHS — display headline */}
           <div className="lg:col-span-7">
-            <Pill variant="success" className="mb-7">
-              <span className="alert-dot" />
-              Live now · Pavilion No. 7, Lagos
-            </Pill>
-
             <h1 className="display text-[80px] md:text-[112px] leading-[0.92] tracking-[-0.04em] font-bold">
               <span className="block">
                 <span className="ghost-text" data-text="Watch the">
@@ -109,10 +100,9 @@ export default function LandingPage() {
             </h1>
 
             <p className="mt-10 text-lg md:text-xl text-text-secondary max-w-xl leading-relaxed">
-              The measurement, replay and intelligence layer for physical brand
-              experiences. One camera. One laptop. A queryable graph of
-              attention, dwell and behaviour — plus a 3D digital twin you can
-              scrub through and ask questions of.
+              A control room for physical brand experiences. A queryable graph of
+              every person, zone, and dwell in your activation. Replayable.
+              Askable. Deliverable.
             </p>
 
             <div className="mt-10 flex flex-wrap items-center gap-3">
@@ -126,7 +116,7 @@ export default function LandingPage() {
                     </span>
                   }
                 >
-                  Open the live demo
+                  Try RealmSpace
                 </Button>
               </Link>
               <Link href="/report">
@@ -137,8 +127,7 @@ export default function LandingPage() {
             </div>
 
             <p className="text-xs text-text-muted mt-6 tabular">
-              No signup · No backend · Real-time webcam detection runs in your
-              browser
+              Real-time detection in your browser. See it live.
             </p>
           </div>
 
@@ -165,21 +154,18 @@ export default function LandingPage() {
         <div className="max-w-[1400px] mx-auto px-5 py-24">
           <div className="grid md:grid-cols-2 gap-12 items-end mb-14">
             <div>
-              <Pill variant="outline" className="mb-5">
-                What it does
-              </Pill>
               <h2 className="display-sm text-5xl md:text-6xl">
-                Three surfaces. One platform.
-                <br />
+                Three surfaces.
                 <span className="text-text-faint">
-                  Built for the room, not the rack.
+                  One platform.
                 </span>
               </h2>
             </div>
             <p className="text-text-secondary text-lg leading-relaxed max-w-xl">
-              Capture the room in real time. Replay it in 3D. Ask it questions
-              in plain English. RealmSpace is what happens when measurement is
-              designed by the people who designed the activation.
+              During the activation, the system captures zone entries, dwell
+              times, and movement as structured events. Those events feed a live
+              operator view, a 3D replay, and a client report — all from the
+              same graph.
             </p>
           </div>
 
@@ -213,48 +199,44 @@ export default function LandingPage() {
       {/* ── The Loop */}
       <section id="loop" className="max-w-[1400px] mx-auto px-5 py-28">
         <div className="max-w-3xl">
-          <Pill variant="success" className="mb-5">
-            <Sparkles size={11} />
-            The loop
-          </Pill>
           <h2 className="display-sm text-5xl md:text-6xl">
-            Designed, built and measured
-            <br />
-            <span className="text-text-faint">by the same hands.</span>
+            Capture, structure,
+            <span className="text-text-faint">
+              and query.
+            </span>
           </h2>
           <p className="mt-6 text-text-secondary text-lg leading-relaxed max-w-2xl">
-            Most measurement vendors show up after the booth is built. We
-            don&apos;t. We design the activation, ship the interactive
-            experiences inside it, and instrument the whole thing — so the data
-            we deliver is structurally cleaner than anything a bolt-on tool can
-            produce.
+            Detection emits structured events during the activation. Events
+            accumulate in a session-scoped spatial graph. Downstream consumers
+            — the live view, the 3D twin, and the report — read from that graph
+            independently and in real time.
           </p>
         </div>
 
         <div className="mt-14 grid md:grid-cols-4 gap-4">
           <LoopStep
             i={1}
-            icon={<Package size={20} />}
-            title="Booth"
-            text="We design and fabricate the physical activation — modular, sponsor-ready, camera-aware."
+            icon={<Cctv size={20} />}
+            title="Capture"
+            text="Zone entries, dwell events, and movement paths are emitted from the perception layer as structured events."
           />
           <LoopStep
             i={2}
-            icon={<Wand2 size={20} />}
-            title="Experience"
-            text="AR mirrors, scent quizzes, RFID memory walls. We build the digital layer that gives visitors a reason to dwell."
+            icon={<Zap size={20} />}
+            title="Structure"
+            text="Events are written to a session graph. Every person, zone, and interaction becomes a queryable node."
           />
           <LoopStep
             i={3}
-            icon={<Cctv size={20} />}
-            title="Measure"
-            text="One laptop, one camera. Anonymous tracking, zone analytics, gaze, dwell, group dynamics."
+            icon={<Eye size={20} />}
+            title="Visualise"
+            text="The graph drives a live operator dashboard and a scrubbable 3D replay. Both surfaces read from the same store."
           />
           <LoopStep
             i={4}
-            icon={<Sparkles size={20} />}
-            title="Twin"
-            text="A 3D replay of the activation the client can scrub through — and ask questions of, in plain English."
+            icon={<Brain size={20} />}
+            title="Query"
+            text="Ask plain-English questions. The system translates them to graph queries and returns answers with charts."
           />
         </div>
       </section>
@@ -266,10 +248,6 @@ export default function LandingPage() {
       >
         <div className="max-w-[1400px] mx-auto px-5 py-24 grid lg:grid-cols-2 gap-16 items-center">
           <div>
-            <Pill variant="outline" className="mb-5">
-              <Lock size={11} />
-              Privacy first
-            </Pill>
             <h2 className="display-sm text-5xl md:text-6xl">
               No faces.
               <br />
@@ -305,18 +283,15 @@ export default function LandingPage() {
       {/* ── Pricing */}
       <section id="pricing" className="max-w-[1400px] mx-auto px-5 py-28">
         <div className="max-w-2xl mb-14">
-          <Pill variant="outline" className="mb-5">
-            Pricing
-          </Pill>
           <h2 className="display-sm text-5xl md:text-6xl">
             Per activation.
-            <br />
-            <span className="text-text-faint">Built for agency calendars.</span>
+            <span className="text-text-faint">
+              Built for agency calendars.
+            </span>
           </h2>
           <p className="mt-6 text-text-secondary text-lg leading-relaxed">
-            We deliver a kit, a live dashboard, a client-ready report and a
-            scrubbable 3D twin. You bill it through as a measurement line item
-            — or as part of the booth itself.
+            A live dashboard, a 3D replay, and a client report — delivered as a
+            measurement line item on any activation.
           </p>
         </div>
 
@@ -393,7 +368,7 @@ export default function LandingPage() {
               <span className="text-sm font-semibold">RealmSpace</span>
             </div>
             <div className="text-xs text-text-muted">
-              Experiential Intelligence · by Yourself Creative
+              by Floats XR
             </div>
             <div className="text-xs text-text-muted">
               © 2026 · Built for agencies, brand teams, and the venues that hold
@@ -452,7 +427,7 @@ function LoopStep({
       <div className="w-11 h-11 rounded-full bg-bg-elevated border border-border-subtle flex items-center justify-center text-accent">
         {icon}
       </div>
-      <h3 className="mt-5 text-xl font-semibold tracking-tight">{title}</h3>
+      <h3 className="text-xl font-semibold tracking-tight">{title}</h3>
       <p className="mt-2.5 text-sm text-text-secondary leading-relaxed">
         {text}
       </p>
