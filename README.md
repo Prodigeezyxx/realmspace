@@ -1,8 +1,8 @@
-# RealmSpace
+# realmspace
 
 > **Watch the room think.**
 >
-> RealmSpace is the measurement, replay, and intelligence layer for physical
+> realmspace is the measurement, replay, and intelligence layer for physical
 > brand experiences. One camera. One laptop. A queryable graph of attention,
 > dwell, and behaviour — plus a 3D digital twin you can scrub through and ask
 > questions of.
