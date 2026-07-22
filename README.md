@@ -15,7 +15,7 @@ This repository ships:
   person detection, and emits structured JSON events (`perception/`)
 - The **product spec and supporting documents** (`docs/`)
 
-It is **demo-ready tonight**. The live `/live` view performs **real, on-device
+. The live `/live` view performs **real, on-device
 person detection** from your webcam using TensorFlow.js + COCO-SSD with a
 custom centroid tracker — no backend, no cloud, no frames stored. Walk in
 front of your laptop and watch yourself get tracked with a persistent
@@ -137,7 +137,7 @@ realmspace/
 
 No data leaves the tab. The video element, the model, the canvas, the tracker — all live in your browser. Close the tab and everything is gone.
 
-**Demo this honestly.** The mocked pieces are wired against the exact
+ The mocked pieces are wired against the exact
 contract the real backend will produce. When the Phase-1 perception engine
 lands, swapping is a wiring change, not a redesign.
 
