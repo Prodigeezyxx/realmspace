@@ -6,6 +6,8 @@
 import type { Session, Zone } from "@/lib/session/types";
 
 export interface EventContext {
+  /** multi-tenant scope — see docs/multi-tenant.md */
+  tenantId: string;
   sessionId: string;
   eventName: string;
   venue: string;
@@ -16,8 +18,10 @@ export interface EventContext {
 }
 
 const DEFAULT_BOOTH = { width: 10, depth: 6 };
+const DEFAULT_TENANT = "t_floats";
 
 let context: EventContext = {
+  tenantId: DEFAULT_TENANT,
   sessionId: "default",
   eventName: "Untitled event",
   venue: "—",
@@ -30,8 +34,13 @@ export function getEventContext(): EventContext {
   return context;
 }
 
-export function setEventContextFromSession(session: Session, boothSize = DEFAULT_BOOTH) {
+export function setEventContextFromSession(
+  session: Session,
+  boothSize = DEFAULT_BOOTH,
+  tenantId = context.tenantId
+) {
   context = {
+    tenantId,
     sessionId: session.id,
     eventName: session.name,
     venue: session.venue,

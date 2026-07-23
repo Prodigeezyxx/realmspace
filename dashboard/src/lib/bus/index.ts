@@ -23,3 +23,4 @@ export {
   setCursor,
   clearPartition,
 } from "./log";
+export { emit, type EmitOptions } from "./emit";

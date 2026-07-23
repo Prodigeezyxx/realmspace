@@ -88,10 +88,10 @@ export interface RealmEvent<P = RealmEventPayload> {
   recordedAt: number; // ms epoch
 }
 
-/** Producer-facing input: the bus fills in seq/recordedAt. */
+/** Producer-facing input: the bus fills in seq/recordedAt; eventId/occurredAt optional. */
 export type RealmEventInput<P = RealmEventPayload> = Omit<
   RealmEvent<P>,
-  "seq" | "recordedAt"
+  "seq" | "recordedAt" | "eventId" | "occurredAt"
 > & { eventId?: string; occurredAt?: number };
 
 /* ─────────────────────────── payload shapes ─────────────────────────── */
