@@ -3,6 +3,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { processFrameTracks } from "@/lib/agent-engine";
+import { emit as busEmit } from "@/lib/bus";
 import type { HeatmapOutput } from "@/skills/heatmap";
 import type { TwinAvatarDelta } from "@/skills/twin-sync";
 
@@ -75,6 +76,7 @@ let lastHistoryTick = 0;
 let lastAgentTick = 0;
 let lastTwinEmit = 0;
 let lastHeatmapEmit = 0;
+let lastBusTick = 0;
 
 function ingestStats(s: DetectorStats) {
   const currentIds = new Set(s.activeTracks.map((t) => t.id));
@@ -91,8 +93,34 @@ function ingestStats(s: DetectorStats) {
         },
         ...liveEvents,
       ].slice(0, 40);
+      try {
+        busEmit("perception.detection", {
+          anonId: t.label,
+          bbox: t.bbox,
+          confidence: t.score,
+        });
+      } catch {
+        /* bus must never break the detector loop */
+      }
     }
   });
+
+  // Heartbeat detections ~2/sec so the edge graph stays warm while tracks live
+  const nowBus = Date.now();
+  if (s.activeTracks.length && nowBus - lastBusTick > 500) {
+    lastBusTick = nowBus;
+    for (const t of s.activeTracks.slice(0, 8)) {
+      try {
+        busEmit("perception.detection", {
+          anonId: t.label,
+          bbox: t.bbox,
+          confidence: t.score,
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+  }
 
   lastIds.forEach((id) => {
     if (!currentIds.has(id)) {

@@ -17,7 +17,8 @@ Legend: ✅ exists today · 🟡 mocked/partial · 🔲 to build.
 | Python perception stub (YOLO + ByteTrack → JSON) | 🟡 stub |
 | Docs: PRD, architecture, data-model, privacy, gtm | ✅ |
 | Docs: vision, brand, roi, integrations, consent, event-bus, tenancy, competition | ✅ (this set) |
-| Backend event bus / graph / API | 🔲 (in-memory only today) |
+| Backend event bus / graph / API | 🟡 FastAPI + SQLite bus/graph (`backend/`); Postgres schema ready |
+
 
 **Also parallel (founder-led, no code):** run the `gtm.md` validation sprint —
 90s Loom + landing + 50 cold emails. **Pass = 5 booked demos in 7 days.**
@@ -29,17 +30,18 @@ Legend: ✅ exists today · 🟡 mocked/partial · 🔲 to build.
 *Goal: replace the mocked/in-memory backend with a real, replayable event bus +
 graph, wired to the existing dashboard. Multi-tenant from the first commit.*
 
-- 🔲 FastAPI service + Postgres **append-only event bus** (`event-bus-spec.md`)
-- 🔲 Graph store + schema from `data-model.md`; `tenant_id` everywhere
-      (`multi-tenant.md`)
-- 🔲 Consumers: tracker, graph writer (edge, real-time)
-- 🔲 WebSocket: perception → bus → dashboard `/live` (replace mock feed)
-- 🔲 Harden perception stub: emit into bus, **offline buffer + replay**
-- 🔲 Auth resolves user → org → role (RBAC skeleton)
+- ✅ FastAPI service + **append-only event bus** (`event-bus-spec.md`) — SQLite locally; Postgres schema ready (`backend/`, `docker-compose.yml`)
+- ✅ Graph store + schema from `data-model.md`; `tenant_id` everywhere
+      (`multi-tenant.md`, `docs/adr/001-graph-store.md` — relational projection)
+- ✅ Consumers: graph writer (edge, near-real-time); tracker still browser/YOLO-side
+- 🟡 WebSocket: bus → dashboard (bridge via `NEXT_PUBLIC_BUS_URL`); perception can POST into bus
+- 🟡 Harden perception stub: emit into bus (`--bus-url`); **offline buffer + replay** still TODO
+- ✅ Auth resolves user → org → role (RBAC skeleton — `GET /v1/auth/resolve`)
 
 **Acceptance:** real camera → real event in Postgres log → real graph node → real
 `/live` KPI, tenant-scoped, works offline then replays on reconnect. `< 500ms`
-detection → dashboard.
+detection → dashboard. *(Partial tonight: SQLite log + graph nodes + WS bridge;
+full Postgres + `/live` KPI swap still open.)*
 
 ---
 
@@ -167,8 +169,10 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 
 ## Open technical decisions (to confirm as we build)
 
-1. **Graph store:** Neo4j (matches docs) vs. embedded SQLite/DuckDB graph for
-   the edge box (lighter, offline-friendly). *Lean: decide at start of P1.*
+1. **Graph store:** ✅ **DECIDED** — relational `graph_nodes` / `graph_edges` in the
+   same SQL DB as the event bus (SQLite edge default; Postgres when available).
+   Neo4j / Apache AGE deferred until Ask needs native Cypher.
+   See `docs/adr/001-graph-store.md`.
 2. **AI provider:** OpenAI / Anthropic / Gemini for Ask + SDR. *Needed for P2.*
 3. **First CRM confirmed:** HubSpot as reference adapter (P4).
 4. **Repo:** continue on `genspark_ai_developer` in the main `realmspace` repo.

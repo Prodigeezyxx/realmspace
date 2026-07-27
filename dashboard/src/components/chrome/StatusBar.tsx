@@ -27,6 +27,7 @@ import {
   useSessions,
 } from "@/lib/session/store";
 import { useLiveSession } from "@/lib/live-session/store";
+import { useRemoteBusBridge } from "@/hooks/useRemoteBusBridge";
 import { cn } from "@/lib/utils";
 
 export function StatusBar() {
@@ -34,6 +35,7 @@ export function StatusBar() {
   const pathname = usePathname();
   const active = useActiveSession();
   const sessions = useSessions();
+  const { state: busState, configured: busConfigured } = useRemoteBusBridge();
 
   const [now, setNow] = useState<Date | null>(null);
   const [open, setOpen] = useState(false);
@@ -227,6 +229,25 @@ export function StatusBar() {
             <span className="inline-flex items-center gap-1.5">
               <Cpu size={12} className="text-text-muted" />
               local
+            </span>
+            <span className="w-px h-3 bg-border-subtle" />
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5",
+                busConfigured && busState === "live"
+                  ? "text-accent"
+                  : busConfigured && busState === "error"
+                    ? "text-accent-amber"
+                    : "text-text-muted"
+              )}
+              title={
+                busConfigured
+                  ? `Edge bus: ${busState}`
+                  : "Edge bus off (set NEXT_PUBLIC_BUS_URL)"
+              }
+            >
+              <Wifi size={12} />
+              bus {busConfigured ? busState : "off"}
             </span>
             <span className="w-px h-3 bg-border-subtle" />
             <span className="inline-flex items-center gap-1.5">

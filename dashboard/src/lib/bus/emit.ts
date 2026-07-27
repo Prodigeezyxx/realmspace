@@ -15,6 +15,7 @@ import {
   isPiiEventType,
 } from "@/lib/contracts";
 import { append as logAppend } from "./log";
+import { isRemoteBusConfigured, remoteAppend } from "./remote";
 import { getTenantId } from "@/lib/tenant/context";
 import { getEventContext } from "@/lib/event-context";
 
@@ -61,5 +62,22 @@ export function emit<P = RealmEventPayload>(
     eventId: opts.eventId,
     occurredAt: opts.occurredAt,
   };
-  return logAppend<P>(input);
+  const local = logAppend<P>(input);
+
+  // Dual-write to the edge API when configured. Fire-and-forget so the UI
+  // path never blocks on network; local log remains the offline source of truth.
+  if (isRemoteBusConfigured()) {
+    void remoteAppend({
+      ...input,
+      eventId: local.eventId,
+      occurredAt: local.occurredAt,
+      consentProof: opts.consentProof,
+    } as RealmEventInput).catch((err) => {
+      if (typeof console !== "undefined") {
+        console.warn("[realmspace] remote bus append failed", err);
+      }
+    });
+  }
+
+  return local;
 }

@@ -30,8 +30,23 @@ This will:
 
 | Phase | Adds |
 |---|---|
-| 1 | Zone polygons + dwell calculation + Neo4j writer |
-| 2 | FastAPI WebSocket server + dashboard wiring |
-| 3 | LLM `/query` endpoint (Cypher generation) |
+| 1 | Emit RealmEvents into edge bus (`--bus-url`); zone polygons + dwell + graph writer (in `backend/`) |
+| 2 | Dashboard `/live` fully driven by bus WebSocket (mock KPIs removed) |
+| 3 | LLM `/query` endpoint (Cypher/SQL allow-list) |
 | 4 | Agent rule engine + insight generation |
 | 5 | Multi-camera + sensor fusion + RFID ingestion |
+| later | Offline buffer on disk when bus unreachable |
+
+### Emit into the edge bus
+
+```bash
+# terminal A
+cd backend && uvicorn app.main:app --reload --port 8000
+
+# terminal B
+cd perception
+python realmspace.py --bus-url http://127.0.0.1:8000 --tenant-id t_floats
+```
+
+Events land as `session.started` / `perception.detection` / `session.ended` and
+are projected into `graph_nodes` by the graph writer consumer.

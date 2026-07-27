@@ -24,3 +24,13 @@ export {
   clearPartition,
 } from "./log";
 export { emit, type EmitOptions } from "./emit";
+export {
+  getBusBaseUrl,
+  isRemoteBusConfigured,
+  remoteAppend,
+  remoteRead,
+  remoteGraphSnapshot,
+  remoteAuthResolve,
+  subscribeRemoteBus,
+  type BusConnectionState,
+} from "./remote";

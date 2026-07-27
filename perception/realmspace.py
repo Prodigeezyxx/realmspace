@@ -27,6 +27,9 @@ import argparse
 import json
 import sys
 import time
+import urllib.error
+import urllib.request
+import uuid
 from dataclasses import dataclass, asdict
 from typing import Iterable
 
@@ -41,6 +44,40 @@ class Detection:
     person_id: str
     bbox: list[float]
     confidence: float
+
+
+class BusClient:
+    """Optional HTTP bridge to the realmspace edge API event bus."""
+
+    def __init__(self, base_url: str, tenant_id: str, session_id: str) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.tenant_id = tenant_id
+        self.session_id = session_id
+        self.enabled = bool(base_url)
+
+    def post(self, event_type: str, payload: dict, event_id: str | None = None) -> None:
+        if not self.enabled:
+            return
+        body = {
+            "tenantId": self.tenant_id,
+            "sessionId": self.session_id,
+            "type": event_type,
+            "payload": payload,
+            "eventId": event_id or str(uuid.uuid4()),
+            "occurredAt": int(time.time() * 1000),
+        }
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/events",
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
+                resp.read()
+        except (urllib.error.URLError, TimeoutError) as exc:
+            # Offline buffer is a later P1 hardening step; for now log and continue.
+            print(json.dumps({"type": "bus_error", "error": str(exc)}), file=sys.stderr, flush=True)
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,6 +107,21 @@ def parse_args() -> argparse.Namespace:
         "--save",
         default=None,
         help="optional folder to save annotated frames",
+    )
+    p.add_argument(
+        "--bus-url",
+        default="",
+        help="optional edge API base URL, e.g. http://127.0.0.1:8000 — emits RealmEvents",
+    )
+    p.add_argument(
+        "--tenant-id",
+        default="t_floats",
+        help="tenant scope for bus events (default: t_floats)",
+    )
+    p.add_argument(
+        "--session-id",
+        default="",
+        help="session id for bus events (default: auto)",
     )
     return p.parse_args()
 
@@ -145,6 +197,8 @@ def main() -> int:
         return 1
 
     yolo = load_yolo(args.model)
+    session_id = args.session_id or f"s_perception_{uuid.uuid4().hex[:8]}"
+    bus = BusClient(args.bus_url, args.tenant_id, session_id)
 
     print(
         json.dumps(
@@ -154,15 +208,24 @@ def main() -> int:
                 "source": str(args.source),
                 "model": args.model,
                 "conf_min": args.conf,
+                "tenant_id": args.tenant_id,
+                "session_id": session_id,
+                "bus_url": args.bus_url or None,
             }
         ),
         flush=True,
+    )
+    bus.post(
+        "session.started",
+        {"name": "Perception stub", "venue": f"source:{args.source}"},
     )
 
     frame_id = 0
     fps_t0 = time.time()
     fps_frames = 0
     fps = 0.0
+    # Throttle bus posts: at most ~5 detection events/sec to avoid flooding.
+    last_bus_post = 0.0
     try:
         while True:
             ok, frame = cap.read()
@@ -176,6 +239,17 @@ def main() -> int:
             for d in detections_for_frame(results, frame_id, ts, args.conf):
                 print(json.dumps(asdict(d)), flush=True)
                 draw_overlay(frame, d)
+                if bus.enabled and (ts - last_bus_post) >= 0.2:
+                    bus.post(
+                        "perception.detection",
+                        {
+                            "anonId": d.person_id,
+                            "bbox": d.bbox,
+                            "confidence": d.confidence,
+                            "frameId": d.frame_id,
+                        },
+                    )
+                    last_bus_post = ts
 
             fps_frames += 1
             if time.time() - fps_t0 > 1.0:
@@ -206,6 +280,7 @@ def main() -> int:
         cap.release()
         if not args.headless:
             cv2.destroyAllWindows()
+        bus.post("session.ended", {"name": "Perception stub"})
         print(
             json.dumps({"type": "session_end", "ts": time.time(), "frames": frame_id}),
             flush=True,

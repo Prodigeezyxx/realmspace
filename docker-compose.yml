@@ -1,0 +1,18 @@
+# Optional Postgres for when Docker is available.
+# Local default remains SQLite (see backend/.env.example).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: realmspace
+      POSTGRES_PASSWORD: realmspace
+      POSTGRES_DB: realmspace
+    ports:
+      - "5432:5432"
+    volumes:
+      - rs_pg_data:/var/lib/postgresql/data
+      - ./backend/sql/postgres_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+
+volumes:
+  rs_pg_data:

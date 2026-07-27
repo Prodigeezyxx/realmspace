@@ -21,6 +21,7 @@ Start with `VISION.md`, then `roadmap.md`.
 |---|---|
 | [architecture.md](./architecture.md) | Agent architecture in the current app |
 | [event-bus-spec.md](./event-bus-spec.md) | Append-only, idempotent, replayable bus — the spine |
+| [adr/001-graph-store.md](./adr/001-graph-store.md) | Graph store decision (SQL projection; Neo4j deferred) |
 | [data-model.md](./data-model.md) | Graph schema (nodes, edges, Cypher) |
 | [integrations.md](./integrations.md) | CRM connector abstraction + bring-your-own |
 | [multi-tenant.md](./multi-tenant.md) | Tenancy, isolation, RBAC, billing hooks |

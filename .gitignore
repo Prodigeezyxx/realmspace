@@ -8,6 +8,13 @@
 !**/.yarn/releases
 !**/.yarn/versions
 
+# Python
+**/.venv/
+**/__pycache__/
+**/*.pyc
+**/data/*.db
+**/data/*.db-*
+
 # Build output
 **/.next/
 **/out/
@@ -48,3 +55,6 @@ Thumbs.db
 # Cursor / Claude noise
 **/CLAUDE.md
 **/AGENTS.md
+
+# YOLO weights
+**/*.pt

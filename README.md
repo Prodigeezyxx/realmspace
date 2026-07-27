@@ -11,9 +11,12 @@ This repository ships:
 
 - A polished **Next.js dashboard** with a Tesla-inspired in-car UI aesthetic,
   fully functional with mocked data (`dashboard/`)
+- An **edge API** — FastAPI append-only event bus + relational graph projection
+  (`backend/`) — see `docs/adr/001-graph-store.md`
 - A **Phase-0 Python perception stub** that opens any webcam, runs YOLO
-  person detection, and emits structured JSON events (`perception/`)
+  person detection, and can emit RealmEvents into the bus (`perception/`)
 - The **product spec and supporting documents** (`docs/`)
+- A living **CHANGELOG.md**
 
 . The live `/live` view performs **real, on-device
 person detection** from your webcam using TensorFlow.js + COCO-SSD with a
@@ -56,6 +59,36 @@ Stack:
 - React Three Fiber + drei + three.js (the digital twin)
 - Recharts (charts) · motion (animations) · lucide-react (icons)
 - Plus Jakarta Sans + JetBrains Mono via `next/font/google`
+
+---
+
+## Running the edge API (Phase 1 spine)
+
+```bash
+cd backend
+python -m venv .venv
+.venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+- API docs: http://localhost:8000/docs
+- Health: http://localhost:8000/health
+- Default DB: SQLite at `backend/data/realmspace.db`
+- Optional: `docker compose up -d` for Postgres (when Docker is installed)
+
+Point the dashboard at the bus:
+
+```bash
+# dashboard/.env.local
+NEXT_PUBLIC_BUS_URL=http://127.0.0.1:8000
+```
+
+Point perception at the bus:
+
+```bash
+python realmspace.py --bus-url http://127.0.0.1:8000 --headless
+```
 
 ---
 
