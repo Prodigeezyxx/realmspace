@@ -116,6 +116,9 @@ def apply_event(event: RealmEvent) -> None:
         anon = p.get("anonId") or p.get("anon_id")
         if not anon:
             return
+        # Note: firstSeen is deliberately NOT set here — the merge below keeps
+        # the earliest timestamp. upsert_node merges (overwrites), so setting
+        # firstSeen here would clobber it with the newest event time.
         upsert_node(
             t,
             s,
@@ -124,11 +127,10 @@ def apply_event(event: RealmEvent) -> None:
             {
                 "anonId": anon,
                 "lastSeen": ts,
-                "firstSeen": ts,  # merged; firstSeen kept if already set via merge order
                 "attentionScore": p.get("confidence", 0),
             },
         )
-        # Preserve firstSeen if node already existed
+        # Preserve firstSeen (min) / advance lastSeen (max) across events
         with db.get_conn() as conn:
             row = conn.execute(
                 """
@@ -139,9 +141,6 @@ def apply_event(event: RealmEvent) -> None:
             ).fetchone()
             if row:
                 props = json.loads(row["props"])
-                if "firstSeen" not in props or props.get("firstSeen", ts) > ts:
-                    # already handled; ensure firstSeen is min
-                    pass
                 props["firstSeen"] = min(props.get("firstSeen", ts), ts)
                 props["lastSeen"] = max(props.get("lastSeen", ts), ts)
                 conn.execute(

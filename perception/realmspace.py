@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -47,13 +48,92 @@ class Detection:
 
 
 class BusClient:
-    """Optional HTTP bridge to the realmspace edge API event bus."""
+    """Optional HTTP bridge to the realmspace edge API event bus.
 
-    def __init__(self, base_url: str, tenant_id: str, session_id: str) -> None:
+    Offline-tolerant: when the bus is unreachable, events are appended to a
+    local JSONL buffer file. Every time the bus answers again, the buffer is
+    replayed oldest-first before new events are posted. Nothing is lost when
+    the venue WiFi drops — the bus catches up on reconnect.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        tenant_id: str,
+        session_id: str,
+        buffer_file: str = ".bus-buffer.jsonl",
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.tenant_id = tenant_id
         self.session_id = session_id
         self.enabled = bool(base_url)
+        self.buffer_file = buffer_file
+
+    def _send(self, body: dict) -> bool:
+        """POST one event body. Returns True on HTTP 2xx."""
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/events",
+            data=json.dumps(body).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
+                resp.read()
+            return True
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return False
+
+    def _buffer(self, body: dict) -> None:
+        try:
+            with open(self.buffer_file, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(body) + "\n")
+        except OSError as exc:
+            print(json.dumps({"type": "bus_buffer_error", "error": str(exc)}), file=sys.stderr, flush=True)
+
+    def _replay_buffer(self) -> None:
+        """Flush buffered events oldest-first. Stops at first failure so order
+        is preserved; remaining lines stay in the file for the next attempt."""
+        if not os.path.exists(self.buffer_file):
+            return
+        try:
+            with open(self.buffer_file, "r", encoding="utf-8") as fh:
+                lines = [ln for ln in fh.read().splitlines() if ln.strip()]
+        except OSError:
+            return
+        if not lines:
+            self._drop_buffer()
+            return
+
+        remaining: list[str] = []
+        sent = 0
+        for i, line in enumerate(lines):
+            try:
+                body = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # corrupt line — drop it, keep going
+            if self._send(body):
+                sent += 1
+            else:
+                remaining = lines[i:]
+                break
+        if remaining:
+            try:
+                with open(self.buffer_file, "w", encoding="utf-8") as fh:
+                    fh.write("\n".join(remaining) + "\n")
+            except OSError:
+                pass
+            if sent:
+                print(json.dumps({"type": "bus_replay", "sent": sent, "pending": len(remaining)}), file=sys.stderr, flush=True)
+        else:
+            self._drop_buffer()
+            print(json.dumps({"type": "bus_replay_done", "sent": sent}), file=sys.stderr, flush=True)
+
+    def _drop_buffer(self) -> None:
+        try:
+            os.remove(self.buffer_file)
+        except OSError:
+            pass
 
     def post(self, event_type: str, payload: dict, event_id: str | None = None) -> None:
         if not self.enabled:
@@ -66,18 +146,11 @@ class BusClient:
             "eventId": event_id or str(uuid.uuid4()),
             "occurredAt": int(time.time() * 1000),
         }
-        req = urllib.request.Request(
-            f"{self.base_url}/v1/events",
-            data=json.dumps(body).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=2.0) as resp:
-                resp.read()
-        except (urllib.error.URLError, TimeoutError) as exc:
-            # Offline buffer is a later P1 hardening step; for now log and continue.
-            print(json.dumps({"type": "bus_error", "error": str(exc)}), file=sys.stderr, flush=True)
+        # Bus reachable again? Catch up first so events stay ordered.
+        self._replay_buffer()
+        if not self._send(body):
+            self._buffer(body)
+            print(json.dumps({"type": "bus_buffered", "event_type": event_type}), file=sys.stderr, flush=True)
 
 
 def parse_args() -> argparse.Namespace:
@@ -122,6 +195,12 @@ def parse_args() -> argparse.Namespace:
         "--session-id",
         default="",
         help="session id for bus events (default: auto)",
+    )
+    p.add_argument(
+        "--buffer-file",
+        default=".bus-buffer.jsonl",
+        help="offline buffer for bus events when the API is unreachable "
+        "(default: .bus-buffer.jsonl; replayed oldest-first on reconnect)",
     )
     return p.parse_args()
 
@@ -198,7 +277,7 @@ def main() -> int:
 
     yolo = load_yolo(args.model)
     session_id = args.session_id or f"s_perception_{uuid.uuid4().hex[:8]}"
-    bus = BusClient(args.bus_url, args.tenant_id, session_id)
+    bus = BusClient(args.bus_url, args.tenant_id, session_id, buffer_file=args.buffer_file)
 
     print(
         json.dumps(

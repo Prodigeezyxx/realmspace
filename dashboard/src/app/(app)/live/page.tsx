@@ -37,6 +37,7 @@ import {
 import type { Track } from "@/lib/tracker";
 import { formatDuration, formatNumber } from "@/lib/utils";
 import { useAgentAlerts } from "@/hooks/useAgentStream";
+import { useSessionBusStats } from "@/hooks/useSessionBusStats";
 
 export default function LivePage() {
   const activeSession = useActiveSession();
@@ -44,6 +45,7 @@ export default function LivePage() {
 
   const { stats, liveEvents, peopleHistory } = useLiveSessionStore();
   const alerts = useAgentAlerts();
+  const busStats = useSessionBusStats();
 
   const realPeopleNow = stats?.activeTracks.length ?? 0;
   const realTotalSeen = stats?.totalSeen ?? 0;
@@ -53,6 +55,10 @@ export default function LivePage() {
     ? Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000))
     : 0;
   const isDetectorRunning = useLiveSession((s) => s.status === "running");
+  const recordedSpanSec =
+    busStats.firstEventAt && busStats.lastEventAt
+      ? Math.max(0, Math.floor((busStats.lastEventAt - busStats.firstEventAt) / 1000))
+      : 0;
 
   return (
     <div className="p-5 space-y-5 max-w-[1600px] mx-auto">
@@ -90,7 +96,12 @@ export default function LivePage() {
                 }
               : isDemo
                 ? { value: "+2 in last 5m", direction: "up" }
-                : { value: "camera idle", direction: "flat" }
+                : busStats.hasData
+                  ? {
+                      value: `${busStats.uniqueVisitors} recorded on bus`,
+                      direction: "flat",
+                    }
+                  : { value: "camera idle", direction: "flat" }
           }
         />
         <KpiTile
@@ -98,21 +109,30 @@ export default function LivePage() {
           label={isDetectorRunning ? "Unique today" : "Today"}
           value={
             isDetectorRunning
-              ? realTotalSeen.toString()
+              ? Math.max(realTotalSeen, busStats.uniqueVisitors).toString()
               : isDemo
                 ? formatNumber(liveCounts.peopleToday)
-                : "0"
+                : busStats.hasData
+                  ? busStats.uniqueVisitors.toString()
+                  : "0"
           }
           series={isDetectorRunning ? peopleHistory : isDemo ? [] : []}
           delta={
             isDetectorRunning
-              ? { value: "this session", direction: "up" }
+              ? {
+                  value: busStats.hasData
+                    ? "this session · recorded on bus"
+                    : "this session",
+                  direction: "up",
+                }
               : isDemo
                 ? {
                     value: `+${Math.round(liveCounts.peopleVsYesterday * 100)}% vs yesterday`,
                     direction: "up",
                   }
-                : { value: "session not started", direction: "flat" }
+                : busStats.hasData
+                  ? { value: "from event bus · durable", direction: "up" }
+                  : { value: "session not started", direction: "flat" }
           }
         />
         <KpiTile
@@ -123,7 +143,9 @@ export default function LivePage() {
               ? formatDuration(sessionDurationSec)
               : isDemo
                 ? formatDuration(liveCounts.avgDwellSeconds)
-                : "—"
+                : busStats.hasData
+                  ? formatDuration(recordedSpanSec)
+                  : "—"
           }
           series={isDemo ? dwellSeries.slice(-12) : []}
           delta={
@@ -131,12 +153,14 @@ export default function LivePage() {
               ? { value: "live", direction: "up" }
               : isDemo
                 ? { value: "+12% wk", direction: "up" }
-                : activeSession.goals.targetDwellSec
-                  ? {
-                      value: `target ${formatDuration(activeSession.goals.targetDwellSec)}`,
-                      direction: "flat",
-                    }
-                  : { value: "no target set", direction: "flat" }
+                : busStats.hasData
+                  ? { value: "recorded session span", direction: "flat" }
+                  : activeSession.goals.targetDwellSec
+                    ? {
+                        value: `target ${formatDuration(activeSession.goals.targetDwellSec)}`,
+                        direction: "flat",
+                      }
+                    : { value: "no target set", direction: "flat" }
           }
         />
         <KpiTile
@@ -195,17 +219,27 @@ export default function LivePage() {
             </Panel>
 
             <Panel
-              title={isDetectorRunning ? "People · this session" : "Traffic · last 60 min"}
+              title={
+                isDetectorRunning
+                  ? "People · this session"
+                  : busStats.hasData && !isDemo
+                    ? "People · recorded"
+                    : "Traffic · last 60 min"
+              }
               subtitle={
                 isDetectorRunning
-                  ? `${realTotalSeen} unique IDs so far`
+                  ? `${Math.max(realTotalSeen, busStats.uniqueVisitors)} unique IDs so far`
                   : isDemo
                     ? `Peak ${liveCounts.peakConcurrent} concurrent visitors today`
-                    : "No traffic recorded yet"
+                    : busStats.hasData
+                      ? `${busStats.uniqueVisitors} unique on bus · ${formatNumber(busStats.totalDetections)} detections`
+                      : "No traffic recorded yet"
               }
             >
               {isDetectorRunning ? (
                 <LiveTrafficChart history={peopleHistory} />
+              ) : busStats.hasData && !isDemo ? (
+                <LiveTrafficChart history={busStats.peopleSeries} />
               ) : (
                 <TrafficChart />
               )}

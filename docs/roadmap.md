@@ -25,7 +25,7 @@ Legend: ✅ exists today · 🟡 mocked/partial · 🔲 to build.
 
 ---
 
-## Phase 1 — The Spine (make the backend real) · ~2 weeks
+## Phase 1 — The Spine (make the backend real) · ~2 weeks · ✅ DONE 2026-07-27
 
 *Goal: replace the mocked/in-memory backend with a real, replayable event bus +
 graph, wired to the existing dashboard. Multi-tenant from the first commit.*
@@ -34,14 +34,19 @@ graph, wired to the existing dashboard. Multi-tenant from the first commit.*
 - ✅ Graph store + schema from `data-model.md`; `tenant_id` everywhere
       (`multi-tenant.md`, `docs/adr/001-graph-store.md` — relational projection)
 - ✅ Consumers: graph writer (edge, near-real-time); tracker still browser/YOLO-side
-- 🟡 WebSocket: bus → dashboard (bridge via `NEXT_PUBLIC_BUS_URL`); perception can POST into bus
-- 🟡 Harden perception stub: emit into bus (`--bus-url`); **offline buffer + replay** still TODO
+- ✅ WebSocket: bus → dashboard (bridge via `NEXT_PUBLIC_BUS_URL`); perception POSTs into bus
+- ✅ Perception stub hardened: emits into bus (`--bus-url`) with **offline buffer +
+      ordered replay** (`--buffer-file`) when the API is unreachable
+- ✅ `/live` KPIs read from the durable bus/graph when the camera is idle — unique
+      visitors, recorded session span, and the recorded traffic curve are no longer
+      mock-derived (`useSessionBusStats`)
 - ✅ Auth resolves user → org → role (RBAC skeleton — `GET /v1/auth/resolve`)
 
 **Acceptance:** real camera → real event in Postgres log → real graph node → real
 `/live` KPI, tenant-scoped, works offline then replays on reconnect. `< 500ms`
-detection → dashboard. *(Partial tonight: SQLite log + graph nodes + WS bridge;
-full Postgres + `/live` KPI swap still open.)*
+detection → dashboard. *(Met on the SQLite edge default: offline buffer + ordered
+replay verified; `/live` KPIs bus-derived; full Postgres swap is one
+`docker compose up` away and remains a deploy-time choice.)*
 
 ---
 
