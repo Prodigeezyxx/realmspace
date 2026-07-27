@@ -93,7 +93,7 @@ a session and replay its events through `apply_event()`.
 - PowerShell: no heredocs; write Python test scripts to a temp file and run them.
 - Remote URL is lowercase: `https://github.com/Prodigeezyxx/realmspace.git`.
 
-## What's next — Phase 2: Prove ROI (~2 weeks)
+## What's next — Phase 2: Prove ROI (~2 weeks) · next sprint prepped
 
 Roadmap absorbs the external 6-week pod doc (2026-07-23, unchanged); pod-week
 refs (`W1`–`W6`) annotated inline in `docs/roadmap.md`. Our sequence keeps
@@ -102,20 +102,26 @@ refs (`W1`–`W6`) annotated inline in `docs/roadmap.md`. Our sequence keeps
 1. **Spatial-event deriver (linchpin)** — zone polygons + `perception.detection`
    → `spatial.zone_enter/zone_exit/dwell/passby` onto the bus. Scorecard, rules
    engine, and graph zone edges all depend on it. Nothing emits spatial.* today.
-2. **Report from real session data** — 4-layer scorecard consumer + session
-   outcome API + templated report with figures traceable to event seqs.
-3. **Twin replays recorded sessions** — data swap from bus, not a rebuild.
-4. **Ask the Room for real** — LLM → constrained, validated SQL templates over
+2. **Session-hygiene heuristics** in the deriver (CHI '26 lesson: 71% of raw
+   sessions invalid) — bounds, duration sanity, track-merge, dropout flags.
+3. **4-layer scorecard + session outcome API + report from real data** — figures
+   traceable to event seqs; Visitor-Studies vocabulary (attracting power /
+   holding time); **per-touchpoint-type normalization** (vs. expected-for-type).
+4. **Twin replays recorded sessions** — data swap from bus, not a rebuild.
+5. **Ask the Room for real** — LLM → constrained, validated SQL templates over
    the relational projection (NOT Cypher — ADR-001 decided relational; NLQ
    approach needs its own ADR first). **OPEN DECISION: AI provider key.**
-5. Then P3: rules engine (edge, <3s), dispatchers with per-dispatch idempotency
+6. Then P3: rules engine (edge, <3s), dispatchers with per-dispatch idempotency
    (keyed on `rule.fired` eventId), DLQ+HITL, cost telemetry, contract additions
    (`rfid.read`, `spatial.tagged`, `intent.scored`, `drift.detected`,
    `calibration.updated`, `crm.retract`), ADR-002 (rule spec as JSON; edge
    fires, browser previews), RFID producer (hardware-gated).
 
-Parallel (founder-led, no code): GTM validation sprint in `docs/gtm.md`
-(90s Loom + landing + 50 cold emails; pass = 5 booked demos in 7 days).
+**Research layer:** `~/.agents/skills/realmspace-analyst` skill produces dated
+analyses in `docs/research/` (first: CHI '26 + CV/events dump — validation of
+the thesis, Cvent claiming the benchmark moat, privacy-no-images now table
+stakes, ICO guidance cited in `privacy.md`). Founder GTM: museums/cultural
+institutions added to the 50-email sprint (they speak the metric vocabulary).
 
 ## Git state
 

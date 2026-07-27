@@ -71,6 +71,38 @@ masked before any model runs.
 - **NIS2 / DORA / sector-specific** — out of scope for typical activations;
   on-prem deployment available for regulated industries.
 
+## UK ICO biometric recognition guidance — why we sit outside it
+
+The UK ICO's *Biometric data guidance: Biometric recognition* treats biometric
+recognition as **special category** data: it expects a DPIA, demands explicit
+consent or another Article 9 condition, imposes accuracy and anti-discrimination
+duties, and names *systematic monitoring of public spaces* as a risk factor.
+
+realmspace performs **no biometric recognition**, in the regulator's own terms:
+
+- **No unique identification.** Session-scoped anonymous IDs (P-211) are
+  destroyed at session close and cannot be regenerated — identification of a
+  natural person is architecturally impossible, not merely disabled.
+- **No biometric templates.** No face embeddings, no gait signatures, no
+  feature vectors are ever computed or stored.
+- **No persisted samples.** Raw frames live in a ≤60-second RAM ring buffer;
+  only derived, anonymous spatial events survive.
+
+We therefore operate outside the special-category biometric regime entirely.
+This document, plus the DPIA template, gives client compliance teams the
+argument in the regulator's vocabulary. *(Guidance noted as under review
+following the Data (Use and Access) Act — re-verify at Phase 4.)*
+
+## Visitor rights, including post-visit opt-out
+
+Visitors are informed at entry (signage, below) and may opt out **at any time,
+including after their visit**: a post-visit request (event name + approximate
+visit time) triggers the same withdrawal flow as an on-site one — any
+consent-linked records are retracted and the anonymous path is erased per the
+client's retention policy. This follows emerging field-study best practice
+(CHI '26, Wieland et al.) and costs us nothing, because anonymous paths carry
+no identity to begin with.
+
 ## What signage we recommend
 
 Per most jurisdictions you should display a visible sign at the entry

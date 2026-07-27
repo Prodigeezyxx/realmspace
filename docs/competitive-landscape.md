@@ -12,9 +12,14 @@
 |---|---|---|---|
 | **Retail/space analytics** | RetailNext, Trax, Placer.ai, Wavetec | Footfall, dwell, store traffic | Not built for activations; measure, don't act, don't attribute to pipeline |
 | **Venue / event digital twins** | VenueTwin, Smart Spatial, Event Twins, museum twin integrators | 3D visualisation of spaces | Visualise, don't measure behaviour or prove ROI |
+| **Privacy-safe occupancy sensors** | XY Sense, Cisco Spaces, VergeSense | Real-time occupancy + dwell at building scale, no images, on-device processing, HVAC automation | IT/facilities-sold **permanent installs**; measure occupancy, not behaviour→pipeline; no per-activation shape (our flight-case bypasses IT review) |
+| **Event platform incumbents** | Cvent (iCapture, Jifflenow), Bizzabo, ZoomInfo Events | Registration, badging, lead capture, event-wide engagement data; **Cvent now claims a cross-event anonymised benchmark** ($1B invest 2026–29) | No spatial behaviour signal — their benchmark is registration metadata, not what visitors *did*. Most dangerous long-term; also a P4 integration target |
+| **Lead-capture apps** | Popl, Captello, momencio | Universal badge scan → enrich (Apollo) → CRM sync | Badge ≠ behaviour. Ingestion targets for our consent surfaces (BYO webhook), not just competitors |
+| **Verified-behaviour / loyalty wallets** | Delphize | Privacy-safe persistent identity + verified-action rewards, auditable attribution | Loyalty mechanics, not spatial measurement. Monitor: could become the consent-capture surface of record for consumer brands |
 | **Generic computer vision** | AWS Rekognition, Google Vision, VisionPlatform, Incoresoft | CV toolkits/APIs | Toolkits not products; **do face recognition** — the opposite of our privacy moat |
 | **Trade-show / event ROI tools** | ZoomInfo (event), Bizzabo, badge-scan lead tools | Lead capture + pipeline attribution | No *spatial* signal — they know a badge scanned, not what the visitor did in the space |
 | **Experiential agencies** | Jack Morton, MKG, Sparks, etc. (and Floats) | Design & build activations | Ship the experience, not the measurement layer |
+| **Academic/research tools** | ReLive, Argus Vision (Konstanz group), MIRIA, MRAT | Situated replay + spatio-temporal analytics for researchers | Research-grade, not commercial products; validation + talent pool, not competition (CHI '26) |
 
 ---
 
@@ -41,8 +46,12 @@ product.
 
 1. **Full-loop ownership** — spatial behaviour → consent-gated identity →
    attributed CRM outcome → ROI proof. Every competitor owns one column above.
-2. **Privacy as architecture** — anonymous-by-default, local-first, no faces.
-   Generic-CV incumbents *cannot* claim this; it's their business model.
+2. **Consent-gated identity bridge** — anonymous-by-default, local-first, no
+   faces *plus* the thing occupancy sensors don't have: a consent event that
+   bridges anonymous spatial paths to identified pipeline. Note (2026-07
+   research): "no images" privacy alone is now **table stakes** — XY Sense,
+   the CHI '26 exhibition literature, and the ICO biometric guidance all
+   converge on it. Privacy is the qualifier; the bridge is the differentiator.
 3. **Vertical stack (Floats)** — we design the booth + experience + measurement,
    so install is free, surfaces emit events for free, and CAC ≈ 0 on embedded.
 4. **Integration-neutral** — all top CRMs + BYO means we're the default

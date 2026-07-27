@@ -37,6 +37,11 @@ Start with `VISION.md`, then `roadmap.md`.
 |---|---|
 | [brand.md](./brand.md) | Canonical brand reference (logo, type, colour, voice) |
 
+## Research
+| Doc | What it covers |
+|---|---|
+| [research/](./research/) | Dated deep-dive analyses from the realmspace-analyst skill — link dumps benchmarked against the product, thesis, and roadmap (first: `2026-07-27-chi26-digital-twins-and-cv-dump.md`) |
+
 ---
 
 ### Reading order for a new engineer

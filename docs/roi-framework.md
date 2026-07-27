@@ -41,6 +41,7 @@ Each metric below maps to a layer, states its formula, and notes whether it need
 |---|---|
 | Unique visitors | `count(distinct anon person)` per session |
 | Footfall / entries | `count(ENTERED entry-zone)` |
+| **Attracting power** *(Visitor Studies standard)* | `% of passers-by who stop at a zone/exhibit` — per-zone and per-touchpoint; the museum-buyer vocabulary (CHI '26) |
 | Pass-by (negative signal) | people detected adjacent who never entered — captures "skip" signal |
 | Peak concurrency | max simultaneous people in space |
 | Impressions (physical) | dwell-weighted exposure to branded surfaces |
@@ -49,11 +50,17 @@ Each metric below maps to a layer, states its formula, and notes whether it need
 | Metric | Formula / definition |
 |---|---|
 | Avg dwell time | `avg(DWELLED_IN.duration)` overall and per zone |
+| **Holding time** *(Visitor Studies standard)* | avg dwell per exhibit/touchpoint — reported **normalised vs. expected-for-type** (AR/game/screen/RFID/product carry dwell targets in presets). This per-type normalisation is what lets us compare heterogeneous exhibits statistically — the exact problem field research couldn't solve (CHI '26, C3) |
 | **Dwell-weighted attention** | `Σ(dwell × zone_weight)` — our signature metric; not all dwell is equal |
 | Engagement rate | `engaged_visitors / total_visitors` (engaged = dwell > threshold or surface interaction) |
 | Zone participation | % of visitors reaching each zone (the funnel) |
 | Repeat / return rate | visitors with ≥2 separate visit sessions |
 | Surface interactions | `count(INTERACTED_WITH surface)` per surface |
+
+> **Session hygiene (quality gate before any metric):** sessions are filtered
+> before scoring — bounds, duration sanity, fragmented-track merge, dropout
+> flags. Field research shows up to ~70% of raw capture sessions can be invalid
+> (CHI '26: 1303 → 381); our metrics must never inherit that noise.
 
 ### Layer 3 — Affinity (survey / opt-in)
 | Metric | Formula / definition |

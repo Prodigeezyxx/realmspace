@@ -6,7 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Each entry explains what changed **in plain words** first, then the technical detail.
 Sections are dated (with time, local timezone +0100) so you can see when things landed.
 
-## [Unreleased] — last updated 2026-07-27, 22:15 +0100
+## [Unreleased] — last updated 2026-07-27, 23:05 +0100
+
+### Added — 2026-07-27 (night)
+
+- **The research brain is now part of the repo.** A reusable "analyst" skill
+  turns dumps of links and papers into dated, written deep-dives stored in
+  `docs/research/` — each one checked against what we've actually built, not
+  just summarised. The first one analysed a CHI '26 academic paper plus ~40
+  links and found: strong independent validation of the whole product idea, a
+  big competitor (Cvent) moving toward our benchmark story, and proof that
+  "we don't store images" is no longer a unique claim.
+  *`~/.agents/skills/realmspace-analyst/SKILL.md` (global skill);
+  `docs/research/2026-07-27-chi26-digital-twins-and-cv-dump.md`.*
+
+### Changed — 2026-07-27 (night) — next sprint prepped from research findings
+
+- **Privacy now reads like a regulator wrote it.** The privacy doc explicitly
+  cites the UK ICO's biometric-recognition guidance and explains, in
+  compliance vocabulary, why realmspace sits outside that strict regime —
+  plus visitors can now opt out even *after* their visit.
+  *`docs/privacy.md`: ICO section + post-visit opt-out.*
+- **The competitor map got four new rows and a sharper moat.** Added the
+  privacy-safe occupancy category (XY Sense, Cisco Spaces), event-platform
+  incumbents (Cvent — flagged claiming our cross-event benchmark moat),
+  lead-capture apps (Popl — integration target), and loyalty wallets
+  (Delphize — monitor). Our #2 moat is reworded from "privacy" to the
+  consent-gated identity bridge, since no-images is now table stakes.
+  *`docs/competitive-landscape.md`.*
+- **Phase 2 absorbed the academic lessons.** Two new task lines: session-hygiene
+  heuristics (the CHI paper threw away 71% of raw sessions — ours won't poison
+  the metrics) and per-touchpoint-type metric normalisation (comparing unlike
+  exhibits fairly — the problem academia couldn't solve). The ROI framework
+  now also speaks the museum buyer's vocabulary: *attracting power* and
+  *holding time*.
+  *`docs/roadmap.md` P2; `docs/roi-framework.md` Layers 1–2.*
+- **Museums are now a named sales target.** The 50-email validation sprint
+  reserves 8–10 slots for museum/cultural-institution leads, and the demo
+  Loom script cites the CHI '26 paper as independent proof.
+  *`docs/gtm.md`; `docs/README.md` research index; `AGENTS.md` handoff updated.*
 
 ### Changed — 2026-07-27 (late evening)
 

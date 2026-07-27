@@ -70,13 +70,19 @@ wrong.
 
 1. Friday — record a 90-second Loom walking through the dashboard, the
    twin, the ask-the-room, and the report. Total time: 4 hours.
+   *Include the CHI '26 citation: "peer-reviewed field research (CHI '26,
+   2,000-visitor exhibition) proves situated twin replay finds the fixes —
+   we productise it."* (`docs/research/2026-07-27-chi26-digital-twins-and-cv-dump.md`)
 2. Friday → Sunday — push to a landing page (`realmspace.io`) with three
    pricing tiers and a "Book a pilot" CTA. Total time: 6 hours.
 3. Sunday → Monday — $500 of LinkedIn ads targeting *"Head of Experiential
    Marketing"*, *"Brand Experience Director"*, *"Activation Producer"* in
    the US and UK. Run for 5 days.
 4. In parallel — 50 personal cold emails to specific people at agencies
-   and brands. Template below.
+   and brands. Template below. **Reserve 8–10 slots for museum / cultural-
+   institution experience leads** (they already speak our metric vocabulary —
+   attracting power, holding time — per the CHI '26 visitor-studies lineage;
+   museums are a named secondary ICP in `PRD.md` §1.2).
 
 **Pass criteria for the experiment:** 5 booked demo calls within 7 days.
 If we hit that, we're funded and we keep building. If we don't, we re-position.

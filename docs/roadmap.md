@@ -72,8 +72,19 @@ tile, twin replay.)*
       `perception.detection` → `spatial.zone_enter` / `zone_exit` / `dwell` /
       `passby` onto the bus. The scorecard, the rules engine (P3), and the graph
       writer's zone edges all depend on this. Edge-side consumer.
+- 🔲 **Session-hygiene heuristics** in the deriver (from `docs/research/
+      2026-07-27-chi26-digital-twins-and-cv-dump.md` — the CHI '26 field study
+      discarded 71% of raw sessions): session bounds, duration sanity,
+      fragmented-track merge, dropout flags. Pre-empts "report contradicts the
+      door count."
 - 🔲 **4-layer scorecard consumer** (Reach/Engagement/Affinity/Pipeline) —
-      real formulas from `roi-framework.md`, computed over the graph
+      real formulas from `roi-framework.md`, computed over the graph; adopts
+      Visitor-Studies vocabulary (*attracting power*, *holding time*) alongside
+      our layer names
+- 🔲 **Per-touchpoint-type metric normalization** in the scorecard — holding
+      time vs. expected-for-type (AR/game/screen/RFID/product carry dwell
+      targets in presets). The cross-exhibit comparison problem academia
+      explicitly couldn't solve (CHI '26 C3) is our product feature.
 - 🔲 **Session outcome API** — REST endpoint returning the full scorecard per
       session, tenant-filtered; powers report + live tile + external pulls
 - 🔲 Report generator: templated from **real session data** (same layout, real
