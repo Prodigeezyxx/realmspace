@@ -6,7 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Each entry explains what changed **in plain words** first, then the technical detail.
 Sections are dated (with time, local timezone +0100) so you can see when things landed.
 
-## [Unreleased] — last updated 2026-07-27, 21:30 +0100
+## [Unreleased] — last updated 2026-07-27, 22:15 +0100
+
+### Changed — 2026-07-27 (late evening)
+
+- **The plan grew teeth.** We merged a detailed 6-week team plan (the "pod
+  roadmap") into our own roadmap without changing ours at its core: proving ROI
+  to clients still comes second, right after the spine. Everything the pod plan
+  added — RFID tag reading, a rules engine that pings Slack in under 3 seconds,
+  consent capture flows, CRM sync, calibration tools, and quality targets — is
+  now slotted into the right phase with notes on what depends on what. We also
+  caught three things the pod plan forgot: nothing in the system yet turns raw
+  camera detections into zone enter/dwell events (now the first task of Phase
+  2), retried actions could post to Slack twice (dispatchers now dedupe), and
+  six event types needed later are now registered up front so nobody has to
+  rework the schema mid-build.
+  *`docs/roadmap.md` rewritten: pod-week refs (W1–W6) annotated per phase;
+  spatial-event deriver added as P2 linchpin; contract additions
+  (`rfid.read`, `spatial.tagged`, `intent.scored`, `drift.detected`,
+  `calibration.updated`, `crm.retract`) queued for P3; ADR-002 (rule spec as
+  JSON, edge fires / browser previews) + auth unification + NLQ-templates-vs-
+  Cypher added to open decisions; standing SLO table added; AGENTS.md updated.*
 
 ### Added — 2026-07-27 (evening)
 

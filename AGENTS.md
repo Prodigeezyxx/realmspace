@@ -95,13 +95,24 @@ a session and replay its events through `apply_event()`.
 
 ## What's next — Phase 2: Prove ROI (~2 weeks)
 
-1. **Report from real session data** — template `/report` from bus/graph, no static
-   numbers (no external deps; good first task).
-2. **Twin replays recorded sessions** — swap seed paths for bus-recorded tracks.
-3. **Ask the Room for real** — LLM → constrained Cypher (allow-list, validated) →
-   graph. **OPEN DECISION: AI provider key** (OpenAI / Anthropic / Gemini) — ask user.
-4. **4-layer ROI scorecard** (Reach/Engagement/Affinity/Pipeline) on real events —
-   `docs/roi-framework.md`; `lib/roi/scorecard.ts` exists, wire to bus.
+Roadmap absorbs the external 6-week pod doc (2026-07-23, unchanged); pod-week
+refs (`W1`–`W6`) annotated inline in `docs/roadmap.md`. Our sequence keeps
+**Prove ROI second** (the wedge) — pod W5's measurement items live in P2.
+
+1. **Spatial-event deriver (linchpin)** — zone polygons + `perception.detection`
+   → `spatial.zone_enter/zone_exit/dwell/passby` onto the bus. Scorecard, rules
+   engine, and graph zone edges all depend on it. Nothing emits spatial.* today.
+2. **Report from real session data** — 4-layer scorecard consumer + session
+   outcome API + templated report with figures traceable to event seqs.
+3. **Twin replays recorded sessions** — data swap from bus, not a rebuild.
+4. **Ask the Room for real** — LLM → constrained, validated SQL templates over
+   the relational projection (NOT Cypher — ADR-001 decided relational; NLQ
+   approach needs its own ADR first). **OPEN DECISION: AI provider key.**
+5. Then P3: rules engine (edge, <3s), dispatchers with per-dispatch idempotency
+   (keyed on `rule.fired` eventId), DLQ+HITL, cost telemetry, contract additions
+   (`rfid.read`, `spatial.tagged`, `intent.scored`, `drift.detected`,
+   `calibration.updated`, `crm.retract`), ADR-002 (rule spec as JSON; edge
+   fires, browser previews), RFID producer (hardware-gated).
 
 Parallel (founder-led, no code): GTM validation sprint in `docs/gtm.md`
 (90s Loom + landing + 50 cold emails; pass = 5 booked demos in 7 days).
