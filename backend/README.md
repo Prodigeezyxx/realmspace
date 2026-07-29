@@ -71,22 +71,16 @@ application layer today; database-level row security is Phase 6 hardening.
 Runs against the real `realmspace_test` database, not a mock — the point is to
 prove Postgres constraints behave the way the spec claims.
 
-## Two things to know before writing a consumer
+## Before writing a consumer
 
-**`seq` is ordered but not contiguous.** `BIGSERIAL` draws its number *before*
-the conflict check, so a deduped insert burns a number and leaves a permanent
-gap (1, 3, 4…). Rolled-back transactions do the same. Poll with
-`WHERE seq > last_seq` — a consumer asking for `last_seq + 1` stalls forever on
-an event that will never exist. `repository.read_events()` already does this
-correctly; use it rather than hand-rolling the query.
+Read the ordering guarantees in
+[`../docs/event-bus-spec.md`](../docs/event-bus-spec.md) §2 first — in
+particular that **`seq` is ordered but not contiguous**, and that commit order
+is not `seq` order under concurrent producers. Both have non-obvious
+consequences for cursor handling.
 
-**Commit ordering is not `seq` ordering.** `seq` is assigned at INSERT, but the
-row only becomes visible at COMMIT. With concurrent producers a consumer can
-read `seq` 6 while 5 is still uncommitted, advance its cursor past 5, and
-silently never see it. Not a live risk today — the edge box has one writer — but
-it becomes real when a second producer appears (`surface.interaction` in
-`../docs/event-bus-spec.md` §3). Fixes when needed: keep a single writer, or lag
-the cursor by a few seconds so in-flight transactions land first.
+Use `repository.read_events()` rather than hand-rolling the query; it already
+polls `seq > last_seq` and scopes by tenant.
 
 ## Layout
 

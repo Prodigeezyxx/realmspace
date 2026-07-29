@@ -64,6 +64,18 @@ CREATE TABLE dead_letter (
   Consumers must also be idempotent on `event_id` (upserts, not blind inserts).
 - **Replay:** a consumer replays by resetting `consumer_cursor.last_seq`.
 - **Ordering:** `seq` is the single source of truth for order per tenant/session.
+- **`seq` is ordered but NOT contiguous.** `BIGSERIAL` draws its number *before*
+  the conflict check, so a deduped insert burns a number and leaves a permanent
+  gap (1, 3, 4…); rolled-back transactions do the same. Consumers must poll
+  `WHERE seq > last_seq`. A consumer asking for `last_seq + 1` stalls forever on
+  an event that will never exist.
+- **Commit ordering ≠ `seq` ordering.** `seq` is assigned at INSERT; the row
+  only becomes visible at COMMIT. With concurrent producers a consumer can read
+  `seq` 6 while 5 is still uncommitted, advance its cursor past 5, and silently
+  never process it. Not a live risk while the edge box has a single writer, but
+  it becomes real the moment a second producer appears (e.g. `surface.interaction`
+  in §3). Mitigations: keep one writer per tenant, or have consumers lag their
+  cursor by a few seconds so in-flight transactions land first.
 
 ---
 
