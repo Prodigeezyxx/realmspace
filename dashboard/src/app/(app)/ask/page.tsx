@@ -15,7 +15,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
 import { runNlqQuery } from "@/lib/agent-engine";
-import { answers, suggestedQueries } from "@/lib/mock/ask-answers";
+import { suggestedQueries } from "@/lib/mock/ask-answers";
 import type { NlqOutput } from "@/skills/nlq";
 import { useActiveSession } from "@/lib/session/store";
 import { cn } from "@/lib/utils";

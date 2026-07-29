@@ -272,7 +272,7 @@ function ZoneTile({ zone, w, d }: { zone: Zone; w: number; d: number }) {
     });
     s.closePath();
     return s;
-  }, [zone.polygon]);
+  }, [zone.polygon, w, d]);
 
   const outlinePoints = useMemo(() => {
     const pts: [number, number, number][] = zone.polygon.map(([nx, ny]) => [

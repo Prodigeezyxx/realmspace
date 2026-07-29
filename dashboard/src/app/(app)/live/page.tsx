@@ -10,6 +10,7 @@ import {
   Users,
   Zap,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { EventTimeline } from "@/components/viz/EventTimeline";
 import { Heatmap } from "@/components/viz/Heatmap";
@@ -47,12 +48,22 @@ export default function LivePage() {
   const alerts = useAgentAlerts();
   const busStats = useSessionBusStats();
 
+  // Ticking clock — lazily initialized, updated only from the interval
+  // callback (never synchronously in the effect body) so every
+  // elapsed-time display below stays a pure render of state, not a direct
+  // Date.now() read during render.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const realPeopleNow = stats?.activeTracks.length ?? 0;
   const realTotalSeen = stats?.totalSeen ?? 0;
   const realFps = stats?.fps ?? 0;
   const sessionStartedAt = stats?.sessionStartedAt;
   const sessionDurationSec = sessionStartedAt
-    ? Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000))
+    ? Math.max(0, Math.floor((nowMs - sessionStartedAt) / 1000))
     : 0;
   const isDetectorRunning = useLiveSession((s) => s.status === "running");
   const recordedSpanSec =
@@ -288,7 +299,7 @@ export default function LivePage() {
             >
               <ul className="space-y-1.5">
                 {stats.activeTracks.map((t) => (
-                  <TrackRow key={t.id} track={t} />
+                  <TrackRow key={t.id} track={t} nowMs={nowMs} />
                 ))}
               </ul>
             </Panel>
@@ -543,8 +554,8 @@ function Insight({
   );
 }
 
-function TrackRow({ track }: { track: Track }) {
-  const lifespanSec = (Date.now() - track.firstSeen) / 1000;
+function TrackRow({ track, nowMs }: { track: Track; nowMs: number }) {
+  const lifespanSec = (nowMs - track.firstSeen) / 1000;
   return (
     <li className="flex items-center gap-3 px-2.5 py-2 rounded-md hover:bg-bg-elevated transition-colors">
       <span

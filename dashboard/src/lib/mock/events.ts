@@ -112,7 +112,7 @@ const sample: Omit<SessionEvent, "id" | "timestamp">[] = [
 
 // Deterministic jitter so the rendered times match between SSR and CSR
 function jitter(i: number) {
-  let s = ((i + 1) * 48271) % 2147483647;
+  const s = ((i + 1) * 48271) % 2147483647;
   return (s % 3000);
 }
 

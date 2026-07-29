@@ -30,27 +30,22 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
   const configured = isFirebaseConfigured();
+  // getFirebaseAuth() returns a cached module-level singleton (or null when
+  // unconfigured) — safe to read during render, unlike the subscription below.
+  const auth = configured ? getFirebaseAuth() : null;
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(() => !!auth);
 
   useEffect(() => {
-    if (!configured) {
-      setLoading(false);
-      return;
-    }
-
-    const auth = getFirebaseAuth();
-    if (!auth) {
-      setLoading(false);
-      return;
-    }
-
+    if (!auth) return;
+    // setState only inside the subscription callback — never synchronously
+    // in the effect body — so this stays a pure "sync external system" effect.
     return onAuthStateChanged(auth, (next) => {
       setUser(next);
       setLoading(false);
     });
-  }, [configured]);
+  }, [auth]);
 
   const value = useMemo(
     () => ({ user, loading, configured }),

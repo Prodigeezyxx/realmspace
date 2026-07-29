@@ -10,7 +10,7 @@ import {
   Webhook,
   Zap,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { listAgents, setAgentEnabled } from "@/agents/registry";
 import type { AgentDefinition } from "@/agents/types";
@@ -117,11 +117,11 @@ const ACTION_META: Record<Action, { label: string; icon: React.ReactNode }> = {
 export default function AgentsPage() {
   const activeSession = useActiveSession();
   const isDemo = activeSession.isDemo;
-  const [registryVersion, setRegistryVersion] = useState(0);
-  const registryAgents = useMemo(
-    () => listAgents(),
-    [registryVersion]
-  );
+  // Registry mutates module-level state (setAgentEnabled); this setter exists
+  // only to force a re-render after that mutation — listAgents() is read
+  // fresh on every render, so no memoization/dependency array is needed.
+  const [, setRegistryVersion] = useState(0);
+  const registryAgents = listAgents();
   const alerts = useAgentAlerts();
   // Fresh sessions start with no rules. The demo keeps the curated seed.
   const [agents, setAgents] = useState(isDemo ? seed : []);

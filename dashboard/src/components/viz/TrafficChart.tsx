@@ -1,7 +1,6 @@
 "use client";
 
 import { Activity } from "lucide-react";
-import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -13,6 +12,7 @@ import {
 } from "recharts";
 
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useHydrated } from "@/hooks/useHydrated";
 import { peopleSeries } from "@/lib/mock/session";
 import { useActiveSession } from "@/lib/session/store";
 
@@ -24,9 +24,8 @@ export function TrafficChart() {
   }));
   // Recharts cannot measure the container during SSR — only render after mount
   // to avoid the "width(-1) height(-1)" warning and the related hydration noise.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-  if (!mounted) {
+  const hydrated = useHydrated();
+  if (!hydrated) {
     return <div className="h-44 -mx-2 -mb-2" aria-hidden />;
   }
   if (!active.isDemo) {

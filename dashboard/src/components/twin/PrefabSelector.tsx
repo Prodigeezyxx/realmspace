@@ -40,6 +40,9 @@ export function PrefabSelector({ onSelect }: { onSelect?: (id: string) => void }
 
     await dispatchTrigger({
       type: "twin_layout_loaded",
+      // Inside the onClick handler `load`, never called during render; the
+      // static lint rule can't see that, hence the disable below.
+      // eslint-disable-next-line react-hooks/purity
       timestamp: Date.now(),
       payload: {
         layout: {

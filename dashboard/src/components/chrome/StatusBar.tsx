@@ -37,15 +37,15 @@ export function StatusBar() {
   const sessions = useSessions();
   const { state: busState, configured: busConfigured } = useRemoteBusBridge();
 
-  const [now, setNow] = useState<Date | null>(null);
+  const [now, setNow] = useState<Date>(() => new Date());
   const [open, setOpen] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const switcherRef = useRef<HTMLDivElement>(null);
 
-  // Clock (effect that registers an interval is allowed by lint rule because
-  // it's syncing an external system — the wall clock — into React state).
+  // Clock — lazily initialized above; the effect only subscribes to the
+  // interval and updates state from its callback (never synchronously in the
+  // effect body), which is what syncs an external system — the wall clock.
   useEffect(() => {
-    setNow(new Date());
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
@@ -266,14 +266,12 @@ export function StatusBar() {
           )}
 
           <div className="hidden md:inline-flex pill-group h-10 px-4 font-mono text-xs tabular text-text-primary tracking-wider">
-            {now
-              ? now.toLocaleTimeString("en-US", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                  hour12: false,
-                })
-              : "--:--:--"}
+            {now.toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              hour12: false,
+            })}
           </div>
 
           {active.status === "live" && !active.isDemo ? (
@@ -316,7 +314,7 @@ export function StatusBar() {
             <p className="mt-3 text-sm text-text-secondary leading-relaxed">
               The session moves to Completed at{" "}
               <span className="text-text-primary tabular">
-                {now?.toLocaleTimeString("en-GB", {
+                {now.toLocaleTimeString("en-GB", {
                   hour: "2-digit",
                   minute: "2-digit",
                 })}

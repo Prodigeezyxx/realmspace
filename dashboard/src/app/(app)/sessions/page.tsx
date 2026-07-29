@@ -30,7 +30,7 @@ import {
   useActiveSessionId,
   useSessions,
 } from "@/lib/session/store";
-import type { Session, SessionStatus } from "@/lib/session/types";
+import type { Session } from "@/lib/session/types";
 import { cn } from "@/lib/utils";
 
 type Filter = "all" | "live" | "scheduled" | "completed" | "demo";
