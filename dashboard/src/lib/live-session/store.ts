@@ -7,6 +7,8 @@ import { emit as busEmit } from "@/lib/bus";
 import type { HeatmapOutput } from "@/skills/heatmap";
 import type { TwinAvatarDelta } from "@/skills/twin-sync";
 
+import { spatialDeriver } from "./spatial-deriver";
+
 import {
   getModelLoadStage,
   preloadDetectionModel,
@@ -140,6 +142,43 @@ function ingestStats(s: DetectorStats) {
   currentIds.forEach((id) => lastIds.add(id));
 
   const now = Date.now();
+
+  // Spatial deriver: tracked persons + zone polygons → spatial.* bus events.
+  // Transitions also surface in the live event feed.
+  if (state.status === "running") {
+    try {
+      const transitions = spatialDeriver.update(
+        s.tracks,
+        s.frameWidth,
+        s.frameHeight,
+        now
+      );
+      transitions.forEach((tr, i) => {
+        const text =
+          tr.kind === "enter"
+            ? `${tr.anonId} entered ${tr.zoneName}`
+            : tr.kind === "exit"
+              ? `${tr.anonId} left ${tr.zoneName}`
+              : tr.kind === "dwell"
+                ? `${tr.anonId} dwelled in ${tr.zoneName} (${tr.durationSec}s)`
+                : `${tr.anonId} passed by ${tr.zoneName}`;
+        const color =
+          tr.kind === "enter"
+            ? "#00d4aa"
+            : tr.kind === "dwell"
+              ? "#ffc83d"
+              : tr.kind === "passby"
+                ? "#b66bff"
+                : "#86868b";
+        liveEvents = [
+          { id: `zone_${tr.kind}_${tr.anonId}_${now}_${i}`, ts: now, text, color },
+          ...liveEvents,
+        ].slice(0, 40);
+      });
+    } catch {
+      /* deriver must never break the detector loop */
+    }
+  }
   let peopleHistory = state.peopleHistory;
   if (now - lastHistoryTick > 500) {
     lastHistoryTick = now;
@@ -198,6 +237,13 @@ export const liveSessionActions = {
   },
 
   resetSession() {
+    // Close out open zone memberships as exits/dwells before wiping state, so
+    // the final visits of the session are not lost (session bounds hygiene).
+    try {
+      spatialDeriver.flushAll("session_end");
+    } catch {
+      /* ignore */
+    }
     lastIds.clear();
     lastHistoryTick = 0;
     lastAgentTick = 0;

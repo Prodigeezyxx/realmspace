@@ -6,7 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Each entry explains what changed **in plain words** first, then the technical detail.
 Sections are dated (with time, local timezone +0100) so you can see when things landed.
 
-## [Unreleased] — last updated 2026-07-27, 23:05 +0100
+## [Unreleased] — last updated 2026-07-29 (night)
+
+### Added — 2026-07-29 (night) — Phase 2 linchpin: the spatial-event deriver
+
+- **The system now knows when someone actually visits a zone, not just that a
+  camera saw a person somewhere.** Until tonight, nothing turned raw camera
+  detections into "entered the display," "stayed for 40 seconds," "left." That
+  translation — the thing the whole ROI report depends on — now runs live in
+  the browser next to the existing tracker, using the same zone maps drawn
+  during onboarding. It emits directly onto the durable bus, so the graph and
+  (soon) the scorecard see real zone activity the moment a session runs.
+  *New `dashboard/src/lib/live-session/spatial-deriver.ts`; wired into
+  `lib/live-session/store.ts` (`ingestStats` + `resetSession`) and
+  `detector-runtime.ts`; emits `spatial.zone_enter`/`zone_exit`/`dwell`/
+  `passby` via the existing `emit()` path. `backend/app/graph_writer.py`
+  already projects enter/exit/dwell into graph edges — no backend change
+  needed.*
+- **Built-in noise filtering, so a flaky camera frame doesn't invent a fake
+  visit.** A zone change only counts once it holds for 600ms (kills boundary
+  flicker), visits under a second are dropped as noise, and if someone
+  disappears mid-visit the exit is flagged `"dropout"` so later reporting can
+  discount it. Ending a session closes out anyone still "inside" a zone so
+  the last few visits of the night aren't silently lost.
+  *Confirm-window state machine + `flushAll("session_end")`; timestamps for
+  dwell duration use the real crossing time, not the delayed confirm time, so
+  durations stay accurate despite the anti-flicker delay.*
+- **A one-frame camera hiccup no longer looks like someone leaving.** The
+  detector already tolerates brief missed frames; the new zone logic now sees
+  that same tolerant track list instead of only the strictly-confirmed one, so
+  it doesn't misread a hiccup as a dropout.
+  *`DetectorStats.tracks` added alongside `activeTracks`
+  (`lib/live-session/types.ts`), threaded through both detector runtimes
+  (`detector-runtime.ts`, `components/viz/WebcamDetector.tsx`).*
+- **Checked by hand before trusting it**: 34 scripted scenarios (entry
+  confirmation, dwell accuracy, flicker suppression, dropout flagging, passby
+  radius, zone switching, sub-second-dwell rejection, session-end flush,
+  unconfirmed-track filtering) run against the real deriver source in an
+  isolated harness — all pass.
+
+### Fixed — 2026-07-29 (night) — dashboard lint/type hygiene
+
+- Cleared every `eslint` error in the dashboard (7 → 0): three components were
+  reading `Date.now()`/`new Date()` directly during render or calling
+  `setState` synchronously inside an effect body, both of which React's newer
+  purity rules correctly flag as unstable. Fixed with the proper idiom in each
+  case — a ticking clock seeded once and only ever updated from an interval
+  callback (`StatusBar.tsx`, `live/page.tsx`), an initial-state computed from
+  the subscription target instead of set inside the effect (`AuthProvider.tsx`),
+  and a `useSyncExternalStore`-based hydration hook replacing a `mounted`
+  state+effect pair (`TrafficChart.tsx`, new `hooks/useHydrated.ts`). One
+  remaining flag (`PrefabSelector.tsx`) is a false positive — the call is
+  inside an `onClick` handler, never render — and is suppressed with a
+  one-line, reasoned `eslint-disable`.
+  *Also: a stale `useMemo` dependency masking direct state reads
+  (`agents/page.tsx`), two unused imports, one `let`→`const`, and a missing
+  `useMemo` dependency pair in the twin's zone geometry (`TwinScene.tsx`).*
 
 ### Added — 2026-07-27 (night)
 

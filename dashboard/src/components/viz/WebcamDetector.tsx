@@ -30,7 +30,7 @@ import {
   useState,
 } from "react";
 
-import { getDetectionModel, getModelLoadStage } from "@/lib/live-session/model-cache";
+import { getDetectionModel } from "@/lib/live-session/model-cache";
 import { liveSessionActions } from "@/lib/live-session/store";
 import type { LiveDetectorStatus } from "@/lib/live-session/store";
 import type { DetectorStats } from "@/lib/live-session/types";
@@ -92,6 +92,8 @@ export const WebcamDetector = forwardRef<WebcamDetectorHandle, Props>(
   const [modelMs, setModelMs] = useState(0);
   const [activeTracks, setActiveTracks] = useState<Track[]>([]);
   const [totalSeen, setTotalSeen] = useState(0);
+  /** Full retained track set (incl. hiccup frames) for the spatial deriver. */
+  const tracksRef = useRef<Track[]>([]);
 
   const sessionStartedAtRef = useRef<number | null>(null);
   const lastFpsTickRef = useRef<number>(0);
@@ -220,6 +222,7 @@ export const WebcamDetector = forwardRef<WebcamDetectorHandle, Props>(
 
       const tracks = trackerRef.current.update(detections, Date.now());
       const confirmed = trackerRef.current.active();
+      tracksRef.current = tracks;
       setActiveTracks(confirmed);
       setTotalSeen(trackerRef.current.totalAssigned());
 
@@ -266,6 +269,7 @@ export const WebcamDetector = forwardRef<WebcamDetectorHandle, Props>(
       modelMs,
       classCounts: counts,
       activeTracks,
+      tracks: tracksRef.current,
       totalSeen,
       sessionStartedAt: sessionStartedAtRef.current,
       frameWidth: video?.videoWidth || 640,

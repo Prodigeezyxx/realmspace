@@ -3,6 +3,7 @@
  * Survives React remounts so leaving /live does not stop the session.
  */
 import { getDetectionModel } from "@/lib/live-session/model-cache";
+import { spatialDeriver } from "@/lib/live-session/spatial-deriver";
 import { liveSessionActions } from "@/lib/live-session/store";
 import type { DetectorStats } from "@/lib/live-session/types";
 import { CentroidTracker } from "@/lib/tracker";
@@ -81,6 +82,7 @@ class DetectorRuntime {
       }
 
       this.tracker.reset();
+      spatialDeriver.reset();
       this.sessionStartedAt = Date.now();
       this.totalSeen = 0;
       this.fps = 0;
@@ -196,6 +198,7 @@ class DetectorRuntime {
       modelMs: this.modelMs,
       classCounts: counts,
       activeTracks,
+      tracks,
       totalSeen: this.totalSeen,
       sessionStartedAt: this.sessionStartedAt,
       frameWidth,

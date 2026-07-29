@@ -18,7 +18,7 @@ export interface ZoneDetectOutput {
   occupancy: Record<string, number>;
 }
 
-function pointInPolygon(
+export function pointInPolygon(
   x: number,
   y: number,
   poly: [number, number][]
