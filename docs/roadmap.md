@@ -17,7 +17,9 @@ Legend: ✅ exists today · 🟡 mocked/partial · 🔲 to build.
 | Python perception stub (YOLO + ByteTrack → JSON) | 🟡 stub |
 | Docs: PRD, architecture, data-model, privacy, gtm | ✅ |
 | Docs: vision, brand, roi, integrations, consent, event-bus, tenancy, competition | ✅ (this set) |
-| Backend event bus / graph / API | 🔲 (in-memory only today) |
+| Backend event bus (durable, Postgres) | ✅ (`backend/` — see Phase 1) |
+| Backend graph / API beyond the bus | 🔲 |
+| Browser-side in-memory bus (live UI fan-out) | ✅ (`dashboard/src/lib/event-bus.ts`) |
 
 **Also parallel (founder-led, no code):** run the `gtm.md` validation sprint —
 90s Loom + landing + 50 cold emails. **Pass = 5 booked demos in 7 days.**
@@ -29,7 +31,10 @@ Legend: ✅ exists today · 🟡 mocked/partial · 🔲 to build.
 *Goal: replace the mocked/in-memory backend with a real, replayable event bus +
 graph, wired to the existing dashboard. Multi-tenant from the first commit.*
 
-- 🔲 FastAPI service + Postgres **append-only event bus** (`event-bus-spec.md`)
+- ✅ FastAPI service + Postgres **append-only event bus** (`event-bus-spec.md`)
+      — `backend/`; schema per §2, idempotent on `event_id`, cursor reads,
+      tested against real Postgres. Nothing produces into it or consumes from
+      it yet; `consumer_cursor` and `dead_letter` exist but are still inert.
 - 🔲 Graph store + schema from `data-model.md`; `tenant_id` everywhere
       (`multi-tenant.md`)
 - 🔲 Consumers: tracker, graph writer (edge, real-time)
