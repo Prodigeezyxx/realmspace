@@ -35,8 +35,13 @@ graph, wired to the existing dashboard. Multi-tenant from the first commit.*
       — `backend/`; schema per §2, idempotent on `event_id`, cursor reads,
       tested against real Postgres. Nothing produces into it or consumes from
       it yet; `consumer_cursor` and `dead_letter` exist but are still inert.
-- 🔲 Graph store + schema from `data-model.md`; `tenant_id` everywhere
-      (`multi-tenant.md`)
+- ✅ Graph store + schema from `data-model.md`; `tenant_id` everywhere
+      (`multi-tenant.md`) — Neo4j (open decision #1 resolved in favour of the
+      docs); `backend/app/graph/`. Constraints keyed on `tenant_id` first,
+      migration runner, all Cypher confined to one repository module.
+      **Caveat:** Community edition cannot enforce tenant isolation at the DB
+      layer, so it is application-enforced — see `data-model.md` → "Store
+      decision". Nothing writes the graph yet; that is the consumers item.
 - 🔲 Consumers: tracker, graph writer (edge, real-time)
 - 🔲 WebSocket: perception → bus → dashboard `/live` (replace mock feed)
 - 🔲 Harden perception stub: emit into bus, **offline buffer + replay**

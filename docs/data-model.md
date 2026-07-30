@@ -5,61 +5,114 @@ a node or edge. Every interactive surface emits structured events into the
 same graph. Every LLM-generated insight is persisted as a first-class node
 linked back to the events that triggered it.
 
+Implemented in `backend/app/graph/` — see `schema.py` for the constraints and
+`repository.py` for the only place Cypher is written.
+
+## `tenant_id` is on every node
+
+`multi-tenant.md` §2: "every table carries `tenant_id`; every query is
+tenant-scoped." That applies here — **every node below carries `tenant_id`**,
+and it is the first element of every uniqueness key so a lookup for one tenant
+never touches another's nodes, and two tenants can independently use the same
+zone id without colliding.
+
+Neo4j Community **cannot enforce this** (see "Store decision" at the bottom), so
+`backend/app/graph/repository.py` is the only thing that does. Every function
+there takes `tenant_id` as a required argument.
+
 ## Nodes
 
 ```cypher
 (:Session {
+  tenant_id,                // required on every node — multi-tenant.md §2
   id, client, campaign, venue, city,
   started_at, ends_at,
   agency_name, booth_width_m, booth_depth_m,
   camera_count
 })
+// key: (tenant_id, id)
 
 (:Person {
+  tenant_id,
+  session_id,               // part of the key: anon_id means nothing without it
   anon_id,                  // session-scoped ("P-211"), never re-used across sessions
   first_seen, last_seen,
   total_dwell_seconds,
   attention_score,          // 0..1, rolling
   appearance_summary        // VLM-derived: "person in red coat", never biometric
 })
+// key: (tenant_id, session_id, anon_id)
 
 (:Zone {
-  id, name, type,           // 'entry'|'experience'|'product'|'lounge'|'exit'
-  polygon,                  // normalized booth coords
+  tenant_id, session_id,
+  id, name, type,           // see ZoneType below
+  polygon,                  // normalized booth coords, flattened [x1,y1,x2,y2,…]
   color,
   capacity                  // optional, for crowding alerts
 })
+// key: (tenant_id, id)
 
 (:Object {
+  tenant_id, session_id,
   id, label,                // 'Bottle Wall', 'Mannequin', 'Display Plinth'
   class,                    // YOLO class
   position,                 // world coords
   first_seen, last_seen
 })
+// key: (tenant_id, id)
 
 (:Surface {
+  tenant_id, session_id,
   id, label, type,          // 'ar'|'game'|'screen'|'rfid'|'scent'|'product'
   zone_id, position,
   trigger_count,
   active                    // currently powered / responding
 })
+// key: (tenant_id, id)
+
+(:Group {                   // co-visiting people — roadmap.md blind-spot "Group visits"
+  tenant_id, session_id,
+  id,
+  size,                     // member count at last evaluation
+  first_seen, last_seen,
+  cohesion                  // 0..1, how consistently they moved together
+})
+// key: (tenant_id, id)
 
 (:Event {
+  tenant_id, session_id,
   id, type,                 // 'enter'|'exit'|'dwell'|'gaze'|'trigger'|'group'
   timestamp, confidence,
   meta
 })
+// key: (tenant_id, id)
 
 (:Insight {
+  tenant_id, session_id,
   id, text,
   generated_by,             // 'llm' | 'rule' | 'manual'
   timestamp, confidence
 })
+// key: (tenant_id, id)
 
 (:Frame {                   // optional, only for opt-in replay debugging
+  tenant_id, session_id,
   timestamp, frame_id, masked_image_url
 })
 ```
+
+### ZoneType
+
+The canonical list is `ZoneType` in `dashboard/src/lib/session/types.ts` — the
+session wizard writes these today, so the app is the source of truth:
+
+```
+entry | reveal | engagement | lounge | retail
+sponsor | demo | press | exit | privacy_masked | other
+```
+
+`privacy_masked` matters beyond taxonomy: it marks zones where detection is
+suppressed or frames are never retained (`privacy.md`).
 
 ## Relationships
 
@@ -83,10 +136,24 @@ linked back to the events that triggered it.
 (Insight)-[:ABOUT]->(Zone|Surface|Person|Group)
 ```
 
+Relationships are written with `MERGE`, never `CREATE`. Graph writes come from
+bus consumers, which are at-least-once (`event-bus-spec.md` §4) — and because
+the graph is a separate store from the log, a graph write and a cursor advance
+cannot share a transaction, so replay after a crash *will* re-apply writes.
+`MERGE` makes that harmless. Both endpoints are always matched with `tenant_id`,
+so an edge can never be drawn between two tenants.
+
 ## Example Cypher queries
 
 These are the queries the "Ask the Room" LLM is prompted with. The LLM picks
 from a constrained library to avoid hallucinating bad Cypher.
+
+> **These examples are illustrative and are not tenant-scoped.** They predate
+> `multi-tenant.md` and none of them filters on `tenant_id`, so running one
+> as-written against a shared instance would read across tenants. Before the
+> allow-list is built in Phase 2, every entry needs `{tenant_id: $tenant_id}` on
+> each matched node. `backend/app/graph/repository.py:dwell_by_zone` is the
+> scoped version of the second example and shows the shape.
 
 ### Unique visitors today
 
@@ -176,6 +243,53 @@ near-trivial because the query mirrors the natural-language structure.
 Postgres still holds the timeseries and the report cache. Neo4j holds the
 graph. Qdrant holds embeddings of all `Insight` and `appearance_summary`
 fields for semantic search.
+
+## Store decision (Phase 1)
+
+`roadmap.md` open decision #1 — Neo4j vs. an embedded/Postgres graph — was
+**resolved in favour of Neo4j**, matching what was already written in
+`PRD.md:156`, `PRD.md:302`, `privacy.md:48` and this document. `privacy.md` is
+client-facing, which set the bar for deviating above an engineering preference.
+
+Two consequences are being carried knowingly rather than buried:
+
+**1. Tenant isolation is application-enforced, not database-enforced.**
+`multi-tenant.md` §2 asks for isolation "enforced at the DB layer, not just the
+app". Neo4j Community cannot do that. Verified against the running instance:
+
+```
+CREATE CONSTRAINT … REQUIRE z.tenant_id IS NOT NULL
+→ 51N27: Property existence constraint is not supported in community edition
+SHOW DATABASES → only `neo4j` and `system`   (multi-database is Enterprise)
+```
+
+So nothing at the database layer stops a node being written without a
+`tenant_id`, or a query reading across tenants. The compensating control is that
+`backend/app/graph/repository.py` holds every Cypher statement in the system and
+requires `tenant_id` on every function. **If Cypher leaks out of that module,
+the guarantee is gone silently.** Closing this properly needs a Neo4j Enterprise
+licence or a different store — open for the supervisor.
+
+Not a live risk in Phase 1: an edge kit runs one tenant's activation at a time
+(`multi-tenant.md` §2). It becomes one when tenants share a cloud instance.
+
+**2. Packaging deviates from `PRD.md:315`.** That line specifies
+`docker compose up` for Neo4j + Postgres + Qdrant. Both stores are installed via
+Homebrew instead (`brew services`), because Postgres was already set up that way
+in the previous item and it avoids a Docker Desktop dependency on the edge box.
+The architecture is unchanged — only the packaging. Qdrant is not installed;
+nothing needs embeddings before Phase 2.
+
+Schema is applied by a small migration runner rather than by hand:
+
+```bash
+backend/.venv/bin/python -m app.graph.migrations upgrade
+backend/.venv/bin/python -m app.graph.migrations status
+```
+
+Versions are recorded as `(:_SchemaVersion)` nodes in the graph, so the command
+is re-runnable and the applied state is queryable — the same contract Alembic
+gives the Postgres side.
 
 ## Anonymisation invariants
 
