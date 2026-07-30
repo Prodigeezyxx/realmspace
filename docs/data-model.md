@@ -99,7 +99,14 @@ there takes `tenant_id` as a required argument.
   tenant_id, session_id,
   timestamp, frame_id, masked_image_url
 })
+// no key — see note below
 ```
+
+**`Frame` has no uniqueness key and is therefore the one node type with no
+constraint in `backend/app/graph/schema.py`.** It is the only node declared
+without an `id`, and `frame_id` alone is not unique across sessions. Before
+anything writes `Frame` nodes (opt-in replay debugging, Phase 5) it needs a key
+— `(tenant_id, session_id, frame_id)` is the obvious candidate.
 
 ### ZoneType
 

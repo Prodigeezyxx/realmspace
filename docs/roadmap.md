@@ -37,11 +37,17 @@ graph, wired to the existing dashboard. Multi-tenant from the first commit.*
       it yet; `consumer_cursor` and `dead_letter` exist but are still inert.
 - ✅ Graph store + schema from `data-model.md`; `tenant_id` everywhere
       (`multi-tenant.md`) — Neo4j (open decision #1 resolved in favour of the
-      docs); `backend/app/graph/`. Constraints keyed on `tenant_id` first,
-      migration runner, all Cypher confined to one repository module.
+      docs); `backend/app/graph/`. Schema covers 8 of the 9 node types, every
+      key starting with `tenant_id`; migration runner; all Cypher confined to
+      one repository module. `Frame` is unconstrained because `data-model.md`
+      gives it no id to key on.
       **Caveat:** Community edition cannot enforce tenant isolation at the DB
       layer, so it is application-enforced — see `data-model.md` → "Store
-      decision". Nothing writes the graph yet; that is the consumers item.
+      decision".
+      Write functions exist for `Person`/`Zone`/`Session` and the `ENTERED` /
+      `DWELLED_IN` edges — the subset the next item needs first. The remaining
+      upserts and relationships land with the consumers that call them, rather
+      than as code nothing exercises.
 - 🔲 Consumers: tracker, graph writer (edge, real-time)
 - 🔲 WebSocket: perception → bus → dashboard `/live` (replace mock feed)
 - 🔲 Harden perception stub: emit into bus, **offline buffer + replay**
