@@ -35,6 +35,15 @@ class Settings(BaseSettings):
     # echo SQL to stdout — useful while learning what SQLAlchemy actually emits
     sql_echo: bool = False
 
+    # Neo4j holds the graph (data-model.md; PRD.md §architecture). Postgres keeps
+    # the event log and timeseries — they are separate stores on purpose.
+    neo4j_uri: str = "bolt://localhost:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = ""
+    # Community edition is single-database; this exists so a future Enterprise
+    # deployment can point tests or tenants at a different one without a refactor.
+    neo4j_database: str = "neo4j"
+
 
 @lru_cache
 def get_settings() -> Settings:
