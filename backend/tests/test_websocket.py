@@ -78,17 +78,41 @@ def ws_client():
     original = app_db.SessionLocal
     app_db.SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
+    creds: dict[str, str] = {}
+
     async def reset() -> None:
+        """Wipe, then mint the credentials these tests authenticate with.
+
+        Auth is not optional any more, so a socket test that did not
+        authenticate would only ever prove the handshake gets refused.
+        """
+        from app.auth.models import ApiKey, AuthUser
+        from app.auth.tokens import generate_api_key, issue_token
+
         async with app_db.SessionLocal() as s:
             await s.execute(
-                text("TRUNCATE event_log, consumer_cursor, dead_letter RESTART IDENTITY")
+                text(
+                    "TRUNCATE event_log, consumer_cursor, dead_letter, "
+                    "auth_user, api_key RESTART IDENTITY"
+                )
             )
+            user = AuthUser(user_id="u_ws", email="ws@floats.demo",
+                            display_name="WS", tenant_id=T, role="admin")
+            s.add(user)
+            key_id, plaintext, key_hash = generate_api_key()
+            s.add(ApiKey(key_id=key_id, key_hash=key_hash, tenant_id=T, label="ws test"))
             await s.commit()
+
+        creds["token"] = issue_token(subject="u_ws", tenant_id=T, role="admin")
+        creds["key"] = plaintext
 
     asyncio.run(reset())
 
     # `with` runs startup and shutdown, so the consumers really are live.
-    with TestClient(app) as client:
+    with TestClient(app, headers={"Authorization": f"Bearer {creds['token']}"}) as client:
+        # stash for building socket URLs and for the negative tests
+        client.token = creds["token"]          # type: ignore[attr-defined]
+        client.api_key = creds["key"]          # type: ignore[attr-defined]
         yield client
 
     app_db.SessionLocal = original
@@ -127,7 +151,7 @@ def _expect(ws, predicate, *, limit: int = 40):
 
 
 def test_connecting_yields_a_hello(ws_client: TestClient) -> None:
-    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as ws:
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}?token={ws_client.token}") as ws:
         hello = ws.receive_json()
     assert hello["type"] == "hello"
     assert hello["tenantId"] == T
@@ -140,7 +164,7 @@ def test_hello_replays_what_the_client_missed(ws_client: TestClient) -> None:
     for i in range(3):
         assert ws_client.post("/events", json=make_event(payload={"i": i})).status_code == 201
 
-    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as ws:
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}?token={ws_client.token}") as ws:
         hello = ws.receive_json()
 
     assert [e["payload"]["i"] for e in hello["replay"]] == [0, 1, 2]
@@ -156,10 +180,10 @@ def test_since_seq_is_a_real_cursor(ws_client: TestClient) -> None:
     for i in range(3):
         ws_client.post("/events", json=make_event(payload={"i": i}))
 
-    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as ws:
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}?token={ws_client.token}") as ws:
         first_seq = ws.receive_json()["replay"][0]["seq"]
 
-    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}?since_seq={first_seq}") as ws:
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}?since_seq={first_seq}&token={ws_client.token}") as ws:
         hello = ws.receive_json()
 
     assert hello["sinceSeq"] == first_seq
@@ -171,7 +195,7 @@ def test_since_seq_is_a_real_cursor(ws_client: TestClient) -> None:
 
 def test_an_event_posted_after_connect_arrives(ws_client: TestClient) -> None:
     """The whole point of the item: POST here, appears in the browser."""
-    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as ws:
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}?token={ws_client.token}") as ws:
         assert ws.receive_json()["type"] == "hello"
 
         event = make_event(payload={"marker": "live"})
@@ -190,7 +214,7 @@ def test_wire_shape_matches_the_dashboard_contract(ws_client: TestClient) -> Non
     """dashboard/src/lib/contracts/events.ts declares itself canonical: camelCase
     keys, ms-epoch numbers. A mismatch means POD 3 writes a mapper for this
     track and not the other, which biases the comparison on nothing."""
-    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as ws:
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}?token={ws_client.token}") as ws:
         ws.receive_json()
         ws_client.post("/events", json=make_event(payload={"marker": "shape"}))
         frame = _expect(
@@ -220,23 +244,86 @@ def test_a_socket_never_sees_another_tenants_events(ws_client: TestClient) -> No
     the other tenant's event is posted FIRST, then our own as a sentinel. If
     isolation leaked, the foreign event would arrive before the sentinel.
     """
-    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as ws:
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}?token={ws_client.token}") as ws:
         ws.receive_json()
 
-        ws_client.post("/events", json=make_event(tenant_id=OTHER,
-                                                  payload={"marker": "foreign"}))
-        ws_client.post("/events", json=make_event(payload={"marker": "mine"}))
+        # Two things matter about the ordering here, both learned the hard way:
+        #
+        # 1. The foreign event is inserted straight into the log rather than
+        #    POSTed. Auth refuses a cross-tenant write with 403, so posting it
+        #    would create nothing and this test would pass while testing air.
+        # 2. It is inserted *after* the socket is connected. Inserting it before
+        #    means the broadcast consumer has already passed it by the time
+        #    anyone is listening — which also passes, and also proves nothing.
+        #
+        # Both were verified by breaking the hub on purpose and checking this
+        # test fails.
+        _insert_foreign_event()
+        # Wait until the broadcast consumer has definitely handled it. Without
+        # this the test is a race it usually wins for the wrong reason:
+        # list_tenants() returns tenants sorted, so "mine" (t_ws) is broadcast
+        # ahead of the foreign event (t_ws_other) in the same pass and arrives
+        # first even when the hub is leaking.
+        _wait_until_broadcast_passed(OTHER)
 
+        ws_client.post("/events", json=make_event(payload={"marker": "mine"}))
         frame = _expect(ws, lambda f: f["type"] == "event")
 
     assert frame["event"]["tenantId"] == T
     assert frame["event"]["payload"]["marker"] == "mine"
 
 
+def _wait_until_broadcast_passed(tenant_id: str, *, tries: int = 100) -> None:
+    """Block until the broadcast consumer's cursor for `tenant_id` has moved.
+
+    Polling the real cursor rather than sleeping a guessed interval: it is both
+    faster in the common case and deterministic in the slow one.
+    """
+    import time
+
+    from app import db as app_db
+    from app import repository
+
+    async def cursor() -> int:
+        async with app_db.SessionLocal() as s:
+            return await repository.get_cursor(
+                s, consumer="broadcast", tenant_id=tenant_id
+            )
+
+    for _ in range(tries):
+        if asyncio.run(cursor()) > 0:
+            return
+        time.sleep(0.05)
+    raise AssertionError(f"broadcast consumer never processed {tenant_id}")
+
+
+def _insert_foreign_event() -> None:
+    """Put an event for another tenant into the log, bypassing the API."""
+    from app import db as app_db
+    from app import repository
+    from app.schemas import EventIn
+
+    async def go() -> None:
+        async with app_db.SessionLocal() as s:
+            await repository.append_event(
+                s,
+                EventIn(
+                    event_id=uuid.uuid4(), tenant_id=OTHER, session_id=S,
+                    type="perception.detection",
+                    payload={"marker": "foreign", "person_id": "P-9",
+                             "bbox": [1, 1, 2, 2], "frame_width": 10, "frame_height": 10},
+                    occurred_at=BASE,
+                ),
+            )
+            await s.commit()
+
+    asyncio.run(go())
+
+
 def test_a_socket_never_sees_another_sessions_events(ws_client: TestClient) -> None:
     """Same technique, one level down. Two activations for the same tenant must
     not bleed into each other's live view."""
-    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as ws:
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}?token={ws_client.token}") as ws:
         ws.receive_json()
 
         ws_client.post("/events", json=make_event(session_id="s_elsewhere",
@@ -255,10 +342,10 @@ def test_a_socket_never_sees_another_sessions_events(ws_client: TestClient) -> N
 def test_a_disconnected_client_does_not_break_the_feed(ws_client: TestClient) -> None:
     """A closed tab must not take the live view down for everyone else in the
     booth — the hub drops dead sockets instead of raising."""
-    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as survivor:
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}?token={ws_client.token}") as survivor:
         survivor.receive_json()
 
-        with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as doomed:
+        with ws_client.websocket_connect(f"/v1/ws/{T}/{S}?token={ws_client.token}") as doomed:
             doomed.receive_json()
         # doomed is now closed
 

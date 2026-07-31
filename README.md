@@ -13,8 +13,8 @@ This repository ships:
   fully functional with mocked data (`dashboard/`)
 - A **Phase-0 Python perception stub** that opens any webcam, runs YOLO
   person detection, and emits structured JSON events (`perception/`)
-- A **FastAPI + Postgres event bus** — the durable, append-only, idempotent log
-  that everything else will hang off (`backend/`)
+- A **FastAPI backend** — the durable append-only event bus, the Neo4j spatial
+  graph, the consumers that connect them, and a live WebSocket feed (`backend/`)
 - The **product spec and supporting documents** (`docs/`)
 
 The live `/live` view performs **real, on-device
@@ -94,25 +94,34 @@ createdb realmspace && createdb realmspace_test
 cd backend
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-cp .env.example .env               # adjust the Postgres role if yours differs
+cp .env.example .env               # Postgres role, NEO4J_PASSWORD, JWT_SECRET
 .venv/bin/alembic upgrade head     # create the tables
+.venv/bin/python -m app.auth.seed  # prints a dev key and token
 .venv/bin/uvicorn app.main:app --reload
 ```
 
 Open `http://localhost:8000/docs` for a clickable API console generated from
 the code.
 
-| Endpoint | Does |
-|---|---|
-| `POST /events` | Append one event. `201` if created, `200` if that `event_id` was already in the log. |
-| `GET /events?tenant_id=…&since_seq=…` | Read forward from a cursor, ordered by `seq`. |
-| `GET /health` | Liveness. |
+| Endpoint | Auth | Does |
+|---|---|---|
+| `POST /v1/auth/token` | none | `{"email": …}` → a signed token |
+| `POST /events` | key or token | Append one event. `201` if created, `200` if that `event_id` was already in the log. |
+| `GET /events?since_seq=…` | token | Read your tenant's log forward from a cursor. |
+| `WS /v1/ws/{tenant}/{session}?token=…` | token | Live feed, `<60ms` typical. |
+| `GET /health` | none | Liveness for both stores and the consumers. |
 
 Writes are **idempotent on a producer-assigned `event_id`**, so a producer that
-retries after a timeout cannot create a duplicate. Run `.venv/bin/pytest` to see
-that proven against a real Postgres.
+retries after a timeout cannot create a duplicate.
 
-Stack: FastAPI · SQLAlchemy 2.0 (async) · asyncpg · Alembic · pytest
+**`tenant_id` is never something the caller supplies** — it comes from the
+credential. People use `Authorization: Bearer`, devices (cameras, RFID readers,
+kiosks) use `X-API-Key` and can only write. Both are verified locally with no
+network call, so the edge box still authenticates when the venue wifi drops.
+
+Run `.venv/bin/pytest` — 57 tests against a real Postgres and a real Neo4j.
+
+Stack: FastAPI · SQLAlchemy 2.0 (async) · asyncpg · Alembic · Neo4j · PyJWT · pytest
 
 ---
 
@@ -143,11 +152,14 @@ realmspace/
 ├── perception/               ← Python · YOLO + ByteTrack + OpenCV
 │   ├── realmspace.py
 │   └── requirements.txt
-├── backend/                  ← FastAPI · the durable event bus
+├── backend/                  ← FastAPI · event bus + graph + consumers
 │   ├── app/
 │   │   ├── models.py         ← event_log / consumer_cursor / dead_letter
 │   │   ├── repository.py     ← all SQL against the log
-│   │   └── routers/          ← POST /events, GET /events
+│   │   ├── auth/             ← JWT + device keys; tenant derived, never supplied
+│   │   ├── graph/            ← Neo4j schema, migrations, all Cypher
+│   │   ├── consumers/        ← tracker, graph writer, broadcast
+│   │   └── routers/          ← events, live WebSocket, auth
 │   ├── alembic/versions/     ← schema migrations
 │   └── tests/
 └── dashboard/                ← Next.js · the demo artifact
@@ -185,7 +197,7 @@ realmspace/
 | **Replay safety** | ✅ rewind a cursor and nothing duplicates | |
 | Producers writing into the bus | | 🔲 perception still prints to stdout |
 | Gaze / group / pass-by events | | 🔲 gaze needs pose data; pass-by is Phase 2 |
-| **Auth on the backend API** | | 🔲 **unauthenticated — localhost only** |
+| **Auth on the backend API** | ✅ JWT for people, API keys for devices; tenant derived from the credential | 🔲 DB-level row security still to come |
 
 ### Live tab — how the camera actually works
 

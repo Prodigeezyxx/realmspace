@@ -86,25 +86,30 @@ async def test_read_forward_from_cursor(client: AsyncClient) -> None:
         r = await client.post("/events", json=make_event(payload={"i": i}))
         assert r.status_code == 201, r.text
 
-    r = await client.get("/events", params={"tenant_id": "t_floats", "since_seq": 0})
+    r = await client.get("/events", params={"since_seq": 0})
     rows = r.json()
     assert [row["payload"]["i"] for row in rows] == [0, 1, 2]
     assert [row["seq"] for row in rows] == sorted(row["seq"] for row in rows)
 
     # since_seq is exclusive — the cursor is "the last seq I already handled"
-    r = await client.get(
-        "/events", params={"tenant_id": "t_floats", "since_seq": rows[0]["seq"]}
-    )
+    r = await client.get("/events", params={"since_seq": rows[0]["seq"]})
     assert [row["payload"]["i"] for row in r.json()] == [1, 2]
 
 
 async def test_reads_are_tenant_scoped(client: AsyncClient) -> None:
-    """multi-tenant.md §2 — one tenant's events are never visible to another."""
-    await client.post("/events", json=make_event(tenant_id="t_floats"))
-    await client.post("/events", json=make_event(tenant_id="t_other"))
+    """multi-tenant.md §2 — one tenant's events are never visible to another.
 
-    r = await client.get("/events", params={"tenant_id": "t_floats"})
-    rows = r.json()
+    Since auth landed this is enforced twice over: writing for another tenant is
+    refused outright, and reads take their tenant from the credential rather
+    than a parameter. See test_auth.py for the enforcement itself.
+    """
+    assert (await client.post("/events", json=make_event(tenant_id="t_floats"))).status_code == 201
+
+    # the credential is for t_floats, so this write is refused rather than
+    # landing somewhere it should not
+    assert (await client.post("/events", json=make_event(tenant_id="t_other"))).status_code == 403
+
+    rows = (await client.get("/events")).json()
     assert len(rows) == 1
     assert all(row["tenantId"] == "t_floats" for row in rows)
 
@@ -114,10 +119,8 @@ async def test_filters_by_type_and_session(client: AsyncClient) -> None:
     await client.post("/events", json=make_event(type="spatial.zone_enter"))
     await client.post("/events", json=make_event(session_id="s_other"))
 
-    r = await client.get(
-        "/events", params={"tenant_id": "t_floats", "type": "spatial.zone_enter"}
-    )
+    r = await client.get("/events", params={"type": "spatial.zone_enter"})
     assert len(r.json()) == 1
 
-    r = await client.get("/events", params={"tenant_id": "t_floats", "session_id": "s_demo"})
+    r = await client.get("/events", params={"session_id": "s_demo"})
     assert len(r.json()) == 2

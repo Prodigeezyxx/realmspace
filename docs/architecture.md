@@ -53,9 +53,10 @@ write is a `MERGE` and every consumer must be idempotent.
 the browser-side fan-out for live UI; the Postgres log is the durable backend
 behind it (`event-bus-spec.md` §7). Same event shapes.
 
-**Known gap:** the backend API has no authentication yet — `tenant_id` is
-caller-supplied and unverified. Localhost only until the RBAC item in
-[`roadmap.md`](./roadmap.md) Phase 1 lands.
+**Auth** — `app/auth/`: JWT for people, API keys for devices, verified
+locally so the edge box authenticates with no network. `tenant_id` is derived
+from the credential; there is no parameter to supply one. Postgres row-level
+security is the remaining piece.
 
 ---
 

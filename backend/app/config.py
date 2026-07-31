@@ -76,6 +76,22 @@ class Settings(BaseSettings):
     # across a multi-day activation; eviction costs one spurious zone_enter.
     tracker_max_tracked_people: int = 10_000
 
+    # ── auth (multi-tenant.md §3, Week 1 tasks 1.6/1.7) ───────────────────────
+    # Tokens are issued and verified locally with this secret. Deliberately not
+    # Firebase-verified on the hot path: event-bus-spec.md §1 requires the edge
+    # box to survive going offline, and checking a Firebase ID token needs
+    # Google's JWKS. A kit that cannot authenticate when the wifi drops is not
+    # fit for a conference floor.
+    #
+    # No default. A blank secret would sign tokens anyone could forge, and a
+    # shipped default is worse than none — the app refuses to start without it.
+    jwt_secret: str
+    jwt_ttl_seconds: int = 3600  # short: WS tokens travel in the query string
+
+    # Roles from multi-tenant.md §3. "producer" is not a human role — it is what
+    # a device API key carries, and it can only write.
+    default_role: str = "viewer"
+
 
 @lru_cache
 def get_settings() -> Settings:

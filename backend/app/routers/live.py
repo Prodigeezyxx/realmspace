@@ -28,24 +28,29 @@ came after. Conference wifi drops constantly — this is the same cursor
 discipline the consumers use (`event-bus-spec.md` §2), carried to the last hop,
 so a reconnect has no gap and no duplicates.
 
-## Not authenticated yet
+## Authentication
 
-The tenant comes from the URL, so anyone who can reach this process can watch
-any tenant's live feed by guessing an id. Same as the other track today. This is
-Week 1 tasks 1.6/1.7; when they land, `tenant_id` comes from the verified token
-and the path parameter is checked against it — a dependency change here, not a
-reshape of the contract.
+`?token=<jwt>` is required, and the tenant in the path must match the tenant in
+the token or the handshake is refused with HTTP 403 — the connection is never
+accepted. The path parameter survives only for contract parity with the other
+track; it is checked against the token, never trusted.
+
+The token travels in the query string because browsers cannot set headers on a
+WebSocket handshake. That is the standard workaround and it has a real cost:
+query strings end up in proxy and server logs in a way headers do not. Mitigated
+by a short token TTL rather than pretended away.
 """
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import repository
 from app import db
+from app.auth.principal import principal_for_socket
 from app.hub import hub
 from app.schemas import to_wire
 
@@ -67,7 +72,31 @@ async def live_socket(
     since_seq: int = Query(
         0, ge=0, alias="since_seq", description="highest seq the client already has"
     ),
+    token: str | None = Query(
+        None, description="JWT — query string because browsers can't set WS headers"
+    ),
 ) -> None:
+    # Authenticate BEFORE accepting. A rejected handshake never becomes a
+    # socket, so an unauthorised client cannot occupy a connection or reach the
+    # hub at all.
+    #
+    # Closing before accept makes Starlette reject the upgrade with **HTTP 403**
+    # rather than sending a WebSocket close code — verified, not assumed. A
+    # close code would need the handshake to succeed first, which would mean
+    # briefly accepting a connection we have already decided to refuse.
+    #
+    # Nothing is lost by that: a browser's WebSocket API cannot read the status
+    # of a failed handshake either, so a close code would not have reached the
+    # client in a usable form regardless. The reason is logged server-side,
+    # which is where someone debugging this will actually look.
+    async with db.SessionLocal() as auth_session:
+        try:
+            await principal_for_socket(auth_session, token, tenant_id)
+        except HTTPException as exc:
+            log.info("socket rejected for %s/%s: %s", tenant_id, session_id, exc.detail)
+            await websocket.close()
+            return
+
     await websocket.accept()
 
     # Catch up BEFORE joining the room. Joining first would let a broadcast

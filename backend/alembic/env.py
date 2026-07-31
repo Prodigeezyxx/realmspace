@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.config import get_settings  # noqa: E402
 from app.db import Base  # noqa: E402
 from app import models  # noqa: E402,F401  (import registers the tables on Base)
+from app.auth import models as auth_models  # noqa: E402,F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

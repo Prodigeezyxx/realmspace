@@ -30,6 +30,8 @@ from neo4j import AsyncSession as Neo4jAsyncSession
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.auth.models import ApiKey, AuthUser
+from app.auth.tokens import generate_api_key, issue_token
 from app.config import get_settings
 from app.db import get_session, make_engine
 from app.main import app
@@ -81,17 +83,68 @@ async def db_session() -> AsyncIterator[AsyncSession]:
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
         await session.execute(
-            text("TRUNCATE event_log, consumer_cursor, dead_letter RESTART IDENTITY;")
+            text(
+                "TRUNCATE event_log, consumer_cursor, dead_letter, "
+                "auth_user, api_key RESTART IDENTITY;"
+            )
         )
         await session.commit()
         yield session
     await engine.dispose()
 
 
+# ── credentials ───────────────────────────────────────────────────────────────
+
+#: The tenant almost every test works in. `t_other` exists only to be
+#: unreachable — see test_auth.py.
+TENANT = "t_floats"
+
+
 @pytest.fixture
-async def client(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
-    """HTTP client wired to the app, with every request sharing db_session so a
-    test can inspect the same data the endpoint just wrote."""
+async def dev_user(db_session: AsyncSession) -> AuthUser:
+    user = AuthUser(
+        user_id="u_test",
+        email="test@floats.demo",
+        display_name="Test",
+        tenant_id=TENANT,
+        role="admin",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    return user
+
+
+@pytest.fixture
+async def user_token(dev_user: AuthUser) -> str:
+    return issue_token(
+        subject=dev_user.user_id, tenant_id=dev_user.tenant_id, role=dev_user.role
+    )
+
+
+@pytest.fixture
+async def device_key(db_session: AsyncSession) -> str:
+    """A producer credential for TENANT. Returns the plaintext."""
+    key_id, plaintext, key_hash = generate_api_key()
+    db_session.add(
+        ApiKey(key_id=key_id, key_hash=key_hash, tenant_id=TENANT, label="test device")
+    )
+    await db_session.commit()
+    return plaintext
+
+
+@pytest.fixture
+async def client(db_session: AsyncSession, user_token: str) -> AsyncIterator[AsyncClient]:
+    """HTTP client wired to the app, sharing db_session, **authenticated**.
+
+    Carries a user token only. A user may both read and write, so one credential
+    covers every existing test; sending a device key alongside it would actually
+    break reads, because `get_principal` prefers the API key and devices are
+    write-only. Device behaviour has its own tests in test_auth.py.
+
+    There is no unauthenticated mode. Enforcement having no off switch is the
+    point of the task; a suite with a bypass would be testing a configuration
+    nobody runs.
+    """
 
     async def override_get_session() -> AsyncIterator[AsyncSession]:
         yield db_session
@@ -99,7 +152,11 @@ async def client(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
 
     app.dependency_overrides[get_session] = override_get_session
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {user_token}"},
+    ) as ac:
         yield ac
     app.dependency_overrides.clear()
 

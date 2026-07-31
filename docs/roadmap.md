@@ -62,7 +62,17 @@ graph, wired to the existing dashboard. Multi-tenant from the first commit.*
       Swapping `/live` over to it is POD 3's job; perception → bus is the next
       item, so the feed carries HTTP-posted events until then.
 - 🔲 Harden perception stub: emit into bus, **offline buffer + replay**
-- 🔲 Auth resolves user → org → role (RBAC skeleton)
+- ✅ Auth resolves user → org → role (RBAC skeleton) — `backend/app/auth/`.
+      JWT for people, API keys for devices (a camera cannot log in), both signed
+      and verified locally so the edge box still authenticates with no network.
+      **`tenant_id` is now derived from the credential, not supplied**: the
+      query parameter is gone, cross-tenant writes are refused, and the socket
+      checks the path against the token. Week 1 1.6's outcome — "cross-tenant
+      read fails" — holds at the application layer.
+      **Not yet:** Postgres row-level security (1.6's stated mechanism, next
+      item — and it can only cover the Postgres half, since Neo4j Community has
+      no equivalent), and `POST /v1/auth/token` still trusts the email it is
+      given rather than verifying a Firebase login.
 
 **Acceptance:** real camera → real event in Postgres log → real graph node → real
 `/live` KPI, tenant-scoped, works offline then replays on reconnect. `< 500ms`

@@ -7,7 +7,7 @@ Two stores, one service:
 - **Neo4j** — the spatial graph
   ([`../docs/data-model.md`](../docs/data-model.md))
 
-Roadmap Phase 1, items 1–3. The tracker and graph-writer consumers
+Roadmap Phase 1, items 1–4 and 6. The tracker and graph-writer consumers
 (`app/consumers/`) bridge the two stores in-process, without going over HTTP.
 
 > **This is the `neo4j-track`.** Phase 1's backend is being built twice on
@@ -17,9 +17,9 @@ Roadmap Phase 1, items 1–3. The tracker and graph-writer consumers
 > [`../CHANGELOG.md`](../CHANGELOG.md), which is updated every session and where
 > each entry says which track it belongs to.
 
-> **Not authenticated yet.** `tenant_id` is caller-supplied and unverified, so
-> anything that can reach this process can read any tenant's log and write forged
-> events. Localhost only until the RBAC item in `../docs/roadmap.md` lands.
+> **Authenticated.** Every endpoint except `/health` requires a credential, and
+> `tenant_id` is derived from it rather than supplied by the caller. See
+> "Credentials" below.
 
 ## Setup
 
@@ -39,7 +39,16 @@ cypher-shell -u neo4j -p neo4j -d system \
 
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-cp .env.example .env      # set NEO4J_PASSWORD and the Postgres role
+cp .env.example .env      # set NEO4J_PASSWORD, the Postgres role, and JWT_SECRET
+.venv/bin/alembic upgrade head
+.venv/bin/python -m app.auth.seed          # prints a dev key and token
+```
+
+`JWT_SECRET` has no default and the app will not start without one. A shipped
+default would be a token anyone could forge; generate your own:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
 Neo4j browser: `http://localhost:7474` · Bolt: `bolt://localhost:7687`
@@ -74,6 +83,40 @@ A graph database has no CREATE TABLE — it will store any property on any node.
 The schema *is* the constraints and indexes; the node shapes in `data-model.md`
 are a contract the application keeps, not something the database checks.
 
+## Credentials
+
+Two kinds of caller, because they authenticate differently and want different
+things — a camera cannot do an interactive login.
+
+| | Humans | Devices (perception, RFID, kiosk) |
+|---|---|---|
+| Header | `Authorization: Bearer <jwt>` | `X-API-Key: <key>` |
+| Get one | `POST /v1/auth/token` with `{"email": …}` | `python -m app.auth.seed` |
+| Can | read and write | **write only** |
+
+```bash
+curl -H "X-API-Key: $KEY" -X POST localhost:8000/events -d '…'
+curl -H "Authorization: Bearer $JWT" localhost:8000/events
+```
+
+The WebSocket takes `?token=<jwt>` instead of a header, because browsers cannot
+set headers on a WebSocket handshake. That means the token appears in URLs and
+therefore in logs, which is why the TTL is short.
+
+**`tenant_id` is never an input.** `GET /events` has no tenant parameter at all —
+it comes from the credential. `POST /events` rejects a body whose tenant
+disagrees with the credential rather than silently re-homing the event. This is
+the whole point of the auth item, and deleting the parameter is a stronger
+guarantee than validating it.
+
+Tokens are signed and verified **locally**, with no network call. `event-bus-spec.md`
+§1 requires the edge box to keep working when the conference wifi does not, and
+verifying a Firebase ID token needs Google's keys. Firebase is still how the
+dashboard establishes identity; the intended flow is to exchange a Firebase
+login once at `POST /v1/auth/token`. **That exchange is not built yet** — the
+endpoint currently trusts the email it is given, which is fine for local
+development and is not authentication. It is the next thing to close.
+
 ## Tenant isolation — read this before writing graph code
 
 Every uniqueness key starts with `tenant_id`, but Neo4j Community **cannot
@@ -101,11 +144,14 @@ item in `data-model.md` → "Store decision".
 # http://localhost:8000/docs
 ```
 
-| Endpoint | Does |
-|---|---|
-| `POST /events` | Append one event. 201 if created, 200 if the `event_id` was already in the log. |
-| `GET /events?tenant_id=…&since_seq=…` | Read forward from a cursor, ordered by `seq`. Also accepts `session_id`, `type`, `limit`. |
-| `GET /health` | Liveness for **both** stores, reported separately. |
+| Endpoint | Auth | Does |
+|---|---|---|
+| `POST /v1/auth/token` | none | `{"email": …}` → a signed token |
+| `GET /v1/auth/resolve` | none | email → org + role (lookup only; grants nothing) |
+| `POST /events` | key or token | Append one event. 201 if created, 200 if the `event_id` was already in the log. |
+| `GET /events?since_seq=…` | token | Read your tenant's log forward from a cursor. Also accepts `session_id`, `type`, `limit`. **No tenant parameter.** |
+| `WS /v1/ws/{tenant}/{session}?token=…` | token | Live feed. `since_seq` for gapless reconnect. |
+| `GET /health` | none | Liveness for **both** stores plus the consumers. |
 
 The graph has no HTTP surface yet — it is written by in-process consumers, not
 by clients. `app/graph/repository.py` is the API.
@@ -115,9 +161,11 @@ retries safe: a producer whose POST times out resends the same `event_id` and
 gets the same `seq` back, with no second row. Valid `type` values are the
 taxonomy in `../docs/event-bus-spec.md` §3.
 
-`tenant_id` is required on reads — there is deliberately no way to query the log
-unscoped (`../docs/multi-tenant.md` §2). Isolation is enforced at the
-application layer today; database-level row security is Phase 6 hardening.
+There is deliberately no way to query the log unscoped, or scoped to a tenant
+you do not hold a credential for (`../docs/multi-tenant.md` §2). Isolation is
+enforced in the application today. Postgres row-level security — what
+`multi-tenant.md` §2 literally asks for — is the next item; note that it can only
+ever cover the Postgres half, since Neo4j Community has no equivalent.
 
 ## Test
 
@@ -149,8 +197,14 @@ polls `seq > last_seq` and scopes by tenant.
 ## Layout
 
 ```
-app/config.py            settings from .env (both stores)
-app/main.py              app + lifespan that opens/closes the graph driver
+app/config.py            settings from .env (both stores, auth)
+app/main.py              app + lifespan: graph driver and consumer tasks
+
+  auth
+app/auth/models.py       auth_user / api_key
+app/auth/tokens.py       sign + verify; key hashing
+app/auth/principal.py    Principal and the dependencies that derive tenant_id
+app/auth/seed.py         `python -m app.auth.seed` — local dev credentials
 
   the event bus — Postgres
 app/db.py                async engine, session factory, request dependency

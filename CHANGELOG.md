@@ -17,7 +17,46 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-07-31 (late)
+## [Unreleased] — last updated 2026-07-31 (overnight)
+
+### Added — 2026-07-31 (overnight) — `[neo4j-track]` the backend stopped trusting whoever asks
+
+- **Until tonight, anything that could reach the backend could read any client's
+  data.** The tenant was simply whatever the caller typed in the URL — so on a
+  venue's wifi, someone could have pulled a client's entire event log, written
+  fake events into it, or watched their live feed, by guessing a name. That is
+  now closed: every request must carry a credential, and **which client's data
+  you get is decided by that credential, not by what you asked for.**
+  *The `tenant_id` query parameter is deleted rather than validated. A check you
+  have to remember to write is a check somebody eventually forgets; a parameter
+  that does not exist cannot be forged. `backend/app/auth/`.*
+
+- **Cameras and people log in differently, because they have to.** A person gets
+  a token by signing in. A camera, an RFID reader or a kiosk gets a key, because
+  none of them can type a password — and those keys can only *write* events,
+  never read them back. A key taped inside a booth kit is the credential most
+  likely to walk out of a venue, so it carries as little as possible.
+  *`Authorization: Bearer <jwt>` for humans, `X-API-Key` for devices. Both
+  verified locally with no network call — `event-bus-spec.md` §1 requires the
+  edge box to keep working when the conference wifi does not, and checking a
+  Firebase token needs Google's servers.*
+
+- **A producer pointed at the wrong client is told immediately.** Sending an
+  event for a tenant your credential does not cover is refused outright rather
+  than quietly re-filed under the right one — the second would be discovered
+  weeks later as a hole in a report.
+
+- **Verified by trying to break it**, not by reading the code: unauthenticated
+  requests, forged signatures, expired tokens, revoked keys, a token signed with
+  the wrong secret, and a deleted user's still-valid token are each rejected,
+  with a test apiece. Live latency re-measured with signature checking in the
+  path — **60ms typical**, unchanged against the 500ms target.
+
+- **Still to do, and worth being plain about:** the login endpoint currently
+  believes the email address it is handed, which is fine on a laptop and is not
+  authentication. Wiring it to the Firebase sign-in the dashboard already has is
+  the next step. And database-level isolation (Postgres row security) is not on
+  yet — today the guarantee is enforced by the application.
 
 ### Added — 2026-07-31 (late) — `[neo4j-track]` live events reach the browser
 
@@ -182,9 +221,8 @@ split and belong to neither.
 
 Stated plainly so the two tracks are compared honestly, not on impressions:
 
-- **No authentication.** `tenant_id` is supplied by the caller and not verified, so
-  anything that can reach the machine can read any tenant's log and write forged
-  events. Localhost only until the RBAC roadmap item lands.
+- ~~No authentication~~ — landed 2026-07-31 (overnight). Application-enforced;
+  database-level row security is still to come.
 - **Perception is not wired in.** `realmspace.py` still prints to stdout; no
   offline buffer yet.
 - ~~No WebSocket bridge~~ — landed 2026-07-31 (late). The dashboard still has to

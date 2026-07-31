@@ -286,7 +286,7 @@ See [docs/gtm.md](./gtm.md). Three motions:
 | **Graph store** | ✅ Real — Neo4j, schema and constraints from `data-model.md`, every key tenant-scoped. |
 | **Tracker + graph-writer consumers** | ✅ Real — detections become `spatial.*` events and then `Person`/`Zone` nodes and edges. Replay is a proven no-op. |
 | Perception → bus wiring | 🔲 The stub still prints to stdout. Next Phase-1 item, with the offline buffer. |
-| Backend API auth | 🔲 **Unauthenticated.** `tenant_id` is caller-supplied and unverified — localhost only until the RBAC item lands. |
+| Backend API auth | ✅ Real — JWT for people, API keys for devices, both verified locally so the edge box works offline. `tenant_id` comes from the credential, never the caller. Postgres row-level security still to come. |
 
 **The headline change vs. v0 prototype:** the live tab is no longer a stylised
 mock. Walk in front of the laptop, watch yourself get a persistent anonymous
