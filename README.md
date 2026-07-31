@@ -179,9 +179,13 @@ realmspace/
 | Report numbers | | 🟡 static for the demo |
 | Server-side perception (Phase 0) | 🟡 Python stub in `perception/` | |
 | **Durable event bus (Postgres)** | ✅ append-only log, idempotent writes, cursor reads | |
+| **Graph store (Neo4j)** | ✅ schema from `data-model.md`, tenant-scoped | |
+| **Tracker consumer** | ✅ detections → `spatial.zone_enter` / `zone_exit` / `dwell` | |
+| **Graph writer consumer** | ✅ events → `Person` / `Zone` nodes and edges | |
+| **Replay safety** | ✅ rewind a cursor and nothing duplicates | |
 | Producers writing into the bus | | 🔲 perception still prints to stdout |
-| Consumers reading from the bus | | 🔲 tracker + graph writer not built yet |
-| Graph store (Neo4j / embedded) | | 🔲 next Phase-1 item |
+| Gaze / group / pass-by events | | 🔲 gaze needs pose data; pass-by is Phase 2 |
+| **Auth on the backend API** | | 🔲 **unauthenticated — localhost only** |
 
 ### Live tab — how the camera actually works
 

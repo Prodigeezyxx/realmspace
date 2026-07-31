@@ -282,12 +282,22 @@ See [docs/gtm.md](./gtm.md). Three motions:
 | Agents | 🟡 UI is real, rule storage is in-memory. Production persists to Postgres + subscribes to graph changes. |
 | Report | 🟡 Static numbers. Production templates from session data. |
 | Server-side perception (Phase 0) | 🟡 Python stub in `perception/realmspace.py` — the Python equivalent of what the browser detector does today. |
+| **Durable event bus** | ✅ Real — Postgres append-only log, idempotent on `event_id`, cursor reads (`backend/`). |
+| **Graph store** | ✅ Real — Neo4j, schema and constraints from `data-model.md`, every key tenant-scoped. |
+| **Tracker + graph-writer consumers** | ✅ Real — detections become `spatial.*` events and then `Person`/`Zone` nodes and edges. Replay is a proven no-op. |
+| Perception → bus wiring | 🔲 The stub still prints to stdout. Next Phase-1 item, with the offline buffer. |
+| Backend API auth | 🔲 **Unauthenticated.** `tenant_id` is caller-supplied and unverified — localhost only until the RBAC item lands. |
 
 **The headline change vs. v0 prototype:** the live tab is no longer a stylised
 mock. Walk in front of the laptop, watch yourself get a persistent anonymous
 ID with a bounding box, see the KPI strip and event log update in real time
 from your actual camera feed. Detection, tracking and event emission all run
-on-device — no backend, no cloud, no frames stored.
+on-device — no cloud, no frames stored.
+
+**Note on "no backend":** that was true of the *live tab*, and still is — the
+browser detector needs nothing behind it. A real backend now exists alongside it
+(`backend/`), but nothing in the dashboard reads from it yet; the WebSocket
+bridge is a later Phase-1 item.
 
 This document is honest. If you demo it, demo it honestly. The point of the
 prototype is to validate desire, not to claim shipped product.

@@ -48,7 +48,13 @@ graph, wired to the existing dashboard. Multi-tenant from the first commit.*
       `DWELLED_IN` edges — the subset the next item needs first. The remaining
       upserts and relationships land with the consumers that call them, rather
       than as code nothing exercises.
-- 🔲 Consumers: tracker, graph writer (edge, real-time)
+- ✅ Consumers: tracker, graph writer (edge, real-time) — `backend/app/consumers/`.
+      Both run as tasks in the API process and are reported by `/health`.
+      Tracker emits `spatial.zone_enter` / `zone_exit` / `dwell`;
+      `gaze` / `group` / `passby` are not built (gaze needs pose data perception
+      doesn't emit; passby is P2 per the blind-spots table below).
+      Replay is a proven no-op — derived event ids plus `on_replay` state
+      clearing, both verified by deliberately breaking them.
 - 🔲 WebSocket: perception → bus → dashboard `/live` (replace mock feed)
 - 🔲 Harden perception stub: emit into bus, **offline buffer + replay**
 - 🔲 Auth resolves user → org → role (RBAC skeleton)
