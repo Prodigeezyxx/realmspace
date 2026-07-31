@@ -66,6 +66,16 @@ class Settings(BaseSettings):
     # "dwelled" across edge and browser.
     dwell_threshold_seconds: float = 30.0
 
+    # How long the tracker may reuse cached zone polygons. Operators redraw
+    # zones mid-session, so an unexpiring cache silently scores dwell against
+    # stale boundaries. Short enough that a redraw takes effect quickly, long
+    # enough that the hot path isn't doing a graph round trip per frame.
+    tracker_zone_cache_seconds: float = 30.0
+
+    # Cap on people the tracker holds position for, per process. Bounds memory
+    # across a multi-day activation; eviction costs one spurious zone_enter.
+    tracker_max_tracked_people: int = 10_000
+
 
 @lru_cache
 def get_settings() -> Settings:

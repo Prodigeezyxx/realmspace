@@ -13,7 +13,35 @@ import datetime as dt
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+# The namespaces in event-bus-spec.md §3. Deliberately a prefix check, not an
+# allow-list of full type names: §3 says the taxonomy is "namespaced and
+# additive-only", so a new spatial.* type must not need a code change here.
+#
+# Be clear about what this does and does not buy. It rejects an unknown or
+# misspelled *namespace* — "spatal.zone_enter", or a type from a system that
+# has no business on this bus. It does **not** catch a typo in the suffix:
+# "spatial.zone_entr" starts with "spatial." and passes.
+#
+# That residual gap is real. Such an event is accepted, stored forever in an
+# append-only table, and then matched by no consumer's `handles`, so it is
+# silently never processed. Closing it properly means an allow-list of full
+# type names, which trades the additive-only property for strictness — worth
+# revisiting once the taxonomy stops growing.
+EVENT_NAMESPACES = (
+    "perception.",
+    "spatial.",
+    "surface.",
+    "consent.",
+    "identity.",
+    "rule.",
+    "handoff.",
+    "insight.",
+    "cost.",
+    "session.",
+)
 
 
 class EventIn(BaseModel):
@@ -30,6 +58,17 @@ class EventIn(BaseModel):
     type: str = Field(min_length=1)
     payload: dict[str, Any]
     occurred_at: dt.datetime
+
+    @field_validator("type")
+    @classmethod
+    def type_is_in_a_known_namespace(cls, value: str) -> str:
+        if not value.startswith(EVENT_NAMESPACES):
+            raise ValueError(
+                f"unknown event namespace in {value!r}; "
+                f"expected one of {', '.join(EVENT_NAMESPACES)} "
+                "(taxonomy: docs/event-bus-spec.md §3)"
+            )
+        return value
 
 
 class EventOut(EventIn):

@@ -12,6 +12,7 @@ Run it:
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -25,6 +26,7 @@ from app.db import engine
 from app.graph import driver as graph_driver
 from app.routers import events
 
+log = logging.getLogger(__name__)
 settings = get_settings()
 
 
@@ -96,14 +98,19 @@ async def health() -> dict[str, object]:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         stores["postgres"] = "ok"
-    except Exception as exc:  # noqa: BLE001 — health must report, not raise
-        stores["postgres"] = f"error: {type(exc).__name__}"
+    except Exception:  # noqa: BLE001 — health must report, not raise
+        # Deliberately not the exception class or message: /health is
+        # unauthenticated, and there is no reason to tell an unauthenticated
+        # caller which driver failed and how.
+        log.exception("postgres health check failed")
+        stores["postgres"] = "error"
 
     try:
         await graph_driver.get_driver().verify_connectivity()
         stores["neo4j"] = "ok"
-    except Exception as exc:  # noqa: BLE001
-        stores["neo4j"] = f"error: {type(exc).__name__}"
+    except Exception:  # noqa: BLE001
+        log.exception("neo4j health check failed")
+        stores["neo4j"] = "error"
 
     # A consumer task that has died silently is the failure mode that loses data
     # without anything looking broken, so report them by name.

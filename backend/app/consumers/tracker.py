@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import time
 
 from app import repository
 from app.config import get_settings
@@ -70,9 +71,24 @@ class TrackerConsumer(Consumer):
     def __init__(self) -> None:
         super().__init__()
         # (tenant_id, session_id, anon_id) -> (zone_id, entered_at_iso)
+        #
+        # Bounded: dicts keep insertion order, so when this exceeds the cap the
+        # oldest entries are evicted first. Without a cap it only ever shrinks
+        # when somebody leaves *every* zone, so anyone whose last known position
+        # was inside one stays here for the life of the process — a slow leak
+        # across a multi-day activation with thousands of visitors.
+        #
+        # Evicting someone still standing in a zone costs one spurious
+        # zone_enter on their next detection, which is the same, already
+        # documented consequence as a restart. Better than unbounded growth.
         self._where: dict[tuple[str, str, str], tuple[str, str]] = {}
-        # (tenant_id, session_id) -> zones, cached; polygons change rarely
-        self._zones: dict[tuple[str, str], list[dict]] = {}
+        # (tenant_id, session_id) -> (zones, fetched_at_monotonic)
+        self._zones: dict[tuple[str, str], tuple[list[dict], float]] = {}
+
+    def _prune_where(self) -> None:
+        cap = get_settings().tracker_max_tracked_people
+        while len(self._where) > cap:
+            self._where.pop(next(iter(self._where)))
 
     async def on_replay(self, tenant_id: str) -> None:
         """Forget where everyone was, so the replay reconstructs it from the log.
@@ -90,17 +106,36 @@ class TrackerConsumer(Consumer):
             del self._where[key]
 
     async def zones_for(self, tenant_id: str, session_id: str) -> list[dict]:
+        """Zone polygons for a session, cached with a short TTL.
+
+        The cache exists because this is the hot path — a graph round trip per
+        detection would be absurd at 20fps. The TTL exists because operators
+        redraw zones mid-session (multi-tenant.md §4, and the session wizard
+        allows it). Without expiry the tracker would keep scoring detections
+        against the old polygons until the process restarted, silently
+        attributing dwell to the wrong zone with nothing to indicate a problem.
+
+        A TTL rather than event-driven invalidation because no event in the §3
+        taxonomy announces a zone edit. When one exists, subscribe to it and
+        drop the TTL.
+        """
+        settings = get_settings()
         key = (tenant_id, session_id)
-        if key not in self._zones:
-            settings = get_settings()
-            async with get_driver().session(database=settings.neo4j_database) as gs:
-                self._zones[key] = await graph_repo.zones_for_session(
-                    gs, tenant_id=tenant_id, session_id=session_id
-                )
-        return self._zones[key]
+        now = time.monotonic()
+
+        cached = self._zones.get(key)
+        if cached is not None and now - cached[1] < settings.tracker_zone_cache_seconds:
+            return cached[0]
+
+        async with get_driver().session(database=settings.neo4j_database) as gs:
+            zones = await graph_repo.zones_for_session(
+                gs, tenant_id=tenant_id, session_id=session_id
+            )
+        self._zones[key] = (zones, now)
+        return zones
 
     def forget_zones(self, tenant_id: str, session_id: str) -> None:
-        """Drop the cache — call when an operator edits zones mid-session."""
+        """Drop a session's cached polygons immediately, ahead of the TTL."""
         self._zones.pop((tenant_id, session_id), None)
 
     async def handle(self, event: EventLog) -> None:
@@ -185,6 +220,7 @@ class TrackerConsumer(Consumer):
                 )
             )
             self._where[key] = (now_zone, at)
+            self._prune_where()
         else:
             self._where.pop(key, None)
 

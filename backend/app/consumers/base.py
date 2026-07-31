@@ -114,19 +114,30 @@ class Consumer(ABC):
 
             for event in events:
                 if self.wants(event):
-                    ok = await self._handle_with_retries(session, event)
-                    if not ok:
-                        # already dead-lettered; fall through and skip past it
-                        pass
+                    await self._handle_with_retries(session, event)
+                    # a dead-lettered event falls through and is skipped past
+                self._high_water[tenant_id] = event.seq
+                consumed += 1
+
+            # One cursor write and one commit for the whole batch, rather than
+            # one per event. Per-event commits meant an fsync per detection —
+            # at 20fps with several people in frame that is hundreds a second,
+            # and it is the first thing that would miss the <500ms Phase 1
+            # latency target under real load.
+            #
+            # The trade is that a crash mid-batch replays the whole batch
+            # instead of one event. That is safe here and only here: handlers
+            # are idempotent, derived event ids make re-emission a no-op, and a
+            # crash means a fresh process with no stale in-memory state. The
+            # batch is bounded by consumer_batch_size.
+            if events:
                 await repository.advance_cursor(
                     session,
                     consumer=self.name,
                     tenant_id=tenant_id,
-                    last_seq=event.seq,
+                    last_seq=events[-1].seq,
                 )
                 await session.commit()
-                self._high_water[tenant_id] = event.seq
-                consumed += 1
 
         return consumed
 

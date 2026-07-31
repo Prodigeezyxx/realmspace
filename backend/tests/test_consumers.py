@@ -13,6 +13,7 @@ rather than the background loop, so nothing races a sleep.
 from __future__ import annotations
 
 import datetime as dt
+import time
 import uuid
 
 import pytest
@@ -414,3 +415,84 @@ async def test_cursor_never_moves_backwards(db_session: AsyncSession) -> None:
     assert await repository.get_cursor(
         db_session, consumer="tracker", tenant_id=T
     ) == 100
+
+
+# ── hardening (Phase 1 review findings) ───────────────────────────────────────
+
+
+def test_event_type_must_be_in_a_known_namespace() -> None:
+    """An unknown namespace is rejected rather than stored forever in an
+    append-only table where no consumer will ever match it.
+
+    Note the limit of this check: it catches a bad *namespace*, not a typo in
+    the suffix — "spatial.zone_entr" still starts with "spatial." and passes.
+    See the note in schemas.py.
+    """
+    import pydantic
+
+    for bad in ("spatal.zone_enter", "detection", "evil.injected"):
+        with pytest.raises(pydantic.ValidationError, match="unknown event namespace"):
+            EventIn(
+                event_id=uuid.uuid4(), tenant_id=T, session_id=S,
+                type=bad, payload={}, occurred_at=BASE,
+            )
+
+
+def test_new_types_in_a_known_namespace_are_accepted() -> None:
+    """§3 says the taxonomy is additive-only, so the check is a namespace
+    prefix, not an allow-list — a type nothing implements yet must still pass."""
+    e = EventIn(
+        event_id=uuid.uuid4(), tenant_id=T, session_id=S,
+        type="spatial.passby",  # P2, no producer or consumer today
+        payload={}, occurred_at=BASE,
+    )
+    assert e.type == "spatial.passby"
+
+
+async def test_zone_cache_expires_so_redrawn_zones_take_effect(
+    db_session: AsyncSession, graph_session: GraphSession, monkeypatch
+) -> None:
+    """Operators redraw zones mid-session. An unexpiring cache would keep
+    scoring detections against the old polygons until a restart, silently
+    attributing dwell to the wrong zone."""
+    await seed_zones(graph_session)
+    tracker = TrackerConsumer()
+
+    first = await tracker.zones_for(T, S)
+    assert {z["id"] for z in first} == {"z_left", "z_right"}
+
+    # operator adds a zone
+    await graph_repo.upsert_zone(
+        graph_session, tenant_id=T, session_id=S, zone_id="z_new",
+        name="Demo Pod", type="demo", polygon=[[0.0, 0.0], [0.1, 0.0], [0.1, 0.1]],
+    )
+
+    # still cached — the whole point of the cache
+    assert {z["id"] for z in await tracker.zones_for(T, S)} == {"z_left", "z_right"}
+
+    # once the TTL lapses, the new zone appears without a restart
+    # capture the real clock first — patching with a lambda that calls the
+    # patched name recurses forever
+    real_monotonic = time.monotonic
+    monkeypatch.setattr(
+        "app.consumers.tracker.time.monotonic", lambda: real_monotonic() + 3600
+    )
+    assert "z_new" in {z["id"] for z in await tracker.zones_for(T, S)}
+
+
+async def test_tracked_people_are_bounded(
+    db_session: AsyncSession, graph_session: GraphSession, monkeypatch
+) -> None:
+    """Position state only shrank when someone left every zone, so anyone whose
+    last known position was inside one leaked for the life of the process."""
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "tracker_max_tracked_people", 3)
+    await seed_zones(graph_session)
+
+    for i in range(10):
+        await detect(db_session, bbox=LEFT_PX, at=BASE, anon_id=f"P-{i:03d}")
+    tracker = TrackerConsumer()
+    await tracker.run_once()
+
+    assert len(tracker._where) <= 3
