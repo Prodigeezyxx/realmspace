@@ -66,15 +66,23 @@ def migrated_database() -> None:
 
 @pytest.fixture
 async def db_session() -> AsyncIterator[AsyncSession]:
-    """A session on the test database, with the log emptied first.
+    """A session on the test database, with all three bus tables emptied first.
 
     RESTART IDENTITY resets the BIGSERIAL, so seq starts at 1 in every test and
     assertions about ordering stay readable.
+
+    consumer_cursor and dead_letter must be truncated too, not just event_log.
+    Leaving cursors behind is a nasty failure: the next test resets seq to 1 but
+    a consumer's cursor still points at the previous test's high-water mark, so
+    it silently skips every event and the test fails with an empty graph and no
+    hint as to why. Tests would pass alone and fail in a suite.
     """
     engine = make_engine(_test_url())
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as session:
-        await session.execute(text("TRUNCATE event_log RESTART IDENTITY;"))
+        await session.execute(
+            text("TRUNCATE event_log, consumer_cursor, dead_letter RESTART IDENTITY;")
+        )
         await session.commit()
         yield session
     await engine.dispose()
@@ -125,6 +133,39 @@ def graph_schema_applied() -> None:
             await disconnect()
 
     asyncio.run(run())
+
+
+# ── consumers ─────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+async def consumer_wiring() -> AsyncIterator[None]:
+    """Point the consumers at the test database and open the graph driver.
+
+    Consumers open their own sessions via `db.SessionLocal` — they are loops, not
+    request handlers, so there is no dependency to override the way the HTTP
+    tests override get_session. Swapping the factory is the equivalent seam.
+
+    They also call `graph.driver.get_driver()`, which is normally opened by the
+    FastAPI lifespan. That isn't running under pytest, so open it here.
+
+    Autouse because forgetting it wouldn't fail loudly — the consumers would
+    quietly read and write the *dev* databases instead.
+    """
+    from app import db as app_db
+    from app.graph.driver import connect, disconnect
+
+    engine = make_engine(_test_url())
+    original = app_db.SessionLocal
+    app_db.SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+
+    await connect()
+    try:
+        yield
+    finally:
+        await disconnect()
+        app_db.SessionLocal = original
+        await engine.dispose()
 
 
 @pytest.fixture
