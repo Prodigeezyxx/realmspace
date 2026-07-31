@@ -127,8 +127,19 @@ async def test_device_key_can_write_but_not_read(
 async def test_tampered_token_is_rejected(
     db_session: AsyncSession, user_token: str
 ) -> None:
-    """Flip one character of the signature and it stops verifying."""
-    bad = user_token[:-1] + ("a" if user_token[-1] != "a" else "b")
+    """Alter the payload and the signature stops matching.
+
+    The payload segment, not the last character of the signature. Base64url
+    encodes 6 bits per character, so the final character of a segment carries
+    "don't care" bits — several different characters decode to identical bytes,
+    and flipping it is a no-op a good fraction of the time. This test was flaky
+    for exactly that reason before it was pinned to a mutation that always
+    changes the signed content.
+    """
+    header, payload, signature = user_token.split(".")
+    tampered_payload = ("A" if payload[0] != "A" else "B") + payload[1:]
+    bad = f"{header}.{tampered_payload}.{signature}"
+
     async with client_with(db_session, Authorization=f"Bearer {bad}") as c:
         assert (await c.get("/events")).status_code == 401
     app.dependency_overrides.clear()
