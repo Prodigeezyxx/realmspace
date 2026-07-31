@@ -219,6 +219,35 @@ async def link_entered(
     )
 
 
+async def link_left(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str,
+    anon_id: str,
+    zone_id: str,
+    at: str,
+) -> None:
+    """(Person)-[:LEFT]->(Zone) — data-model.md relationships.
+
+    Declared in the doc from the start but never implemented until the tracker
+    needed somewhere to record a zone exit. Same MERGE-on-timestamp shape as
+    link_entered, so replaying the exit event does not draw a second edge.
+    """
+    await session.run(
+        """
+        MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
+        MATCH (z:Zone   {tenant_id: $tenant_id, id: $zone_id})
+        MERGE (p)-[r:LEFT {at: $at}]->(z)
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        anon_id=anon_id,
+        zone_id=zone_id,
+        at=at,
+    )
+
+
 async def link_dwelled_in(
     session: AsyncSession,
     *,
@@ -254,6 +283,43 @@ async def link_dwelled_in(
 
 
 # ── reads ─────────────────────────────────────────────────────────────────────
+
+
+async def zones_for_session(
+    session: AsyncSession, *, tenant_id: str, session_id: str
+) -> list[dict[str, Any]]:
+    """Zones with their polygons, for the tracker to test detections against.
+
+    Rebuilds the flat [x1,y1,x2,y2,…] stored by upsert_zone back into
+    [[x1,y1],[x2,y2],…] pairs, so callers never see the storage shape.
+
+    Zones without a polygon are skipped — an operator can create a zone before
+    drawing it, and a zone with no boundary can't contain anyone.
+    """
+    result = await session.run(
+        """
+        MATCH (z:Zone {tenant_id: $tenant_id, session_id: $session_id})
+        WHERE z.polygon IS NOT NULL
+        RETURN z.id AS id, z.name AS name, z.type AS type, z.polygon AS polygon
+        ORDER BY z.id
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+    )
+    zones: list[dict[str, Any]] = []
+    async for record in result:
+        flat = record["polygon"] or []
+        zones.append(
+            {
+                "id": record["id"],
+                "name": record["name"],
+                "type": record["type"],
+                "polygon": [
+                    [flat[i], flat[i + 1]] for i in range(0, len(flat) - 1, 2)
+                ],
+            }
+        )
+    return zones
 
 
 async def dwell_by_zone(
