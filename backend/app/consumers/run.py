@@ -1,0 +1,86 @@
+"""
+Registry of consumers, plus a CLI to run one on its own.
+
+The API process starts all of them as background tasks (app/main.py). This entry
+point exists for the times you want one in isolation — watching the tracker's
+logs without the API's noise, or replaying a cursor and seeing exactly what one
+consumer does with it.
+
+    python -m app.consumers.run tracker
+    python -m app.consumers.run graph_writer --once
+    python -m app.consumers.run --list
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+import sys
+
+from app.consumers.base import Consumer
+from app.consumers.graph_writer import GraphWriterConsumer
+from app.consumers.tracker import TrackerConsumer
+from app.graph.driver import connect, disconnect
+
+# Order matters when running them all in one pass: the tracker produces the
+# spatial events the graph writer consumes, so running it first means a single
+# pass carries a detection all the way to the graph.
+CONSUMER_CLASSES: list[type[Consumer]] = [TrackerConsumer, GraphWriterConsumer]
+
+
+def build_all() -> list[Consumer]:
+    return [cls() for cls in CONSUMER_CLASSES]
+
+
+def build(name: str) -> Consumer:
+    for cls in CONSUMER_CLASSES:
+        if cls.name == name:
+            return cls()
+    raise SystemExit(
+        f"unknown consumer {name!r}; known: {[c.name for c in CONSUMER_CLASSES]}"
+    )
+
+
+async def _main(name: str | None, once: bool) -> int:
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s"
+    )
+    # Consumers touch the graph, and the driver is normally opened by the API's
+    # lifespan — which isn't running here.
+    await connect()
+    try:
+        consumers = [build(name)] if name else build_all()
+        if once:
+            for c in consumers:
+                consumed = await c.run_once()
+                print(f"{c.name}: consumed {consumed}")
+        else:
+            await asyncio.gather(*(c.run_forever() for c in consumers))
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await disconnect()
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="run a realmspace bus consumer")
+    parser.add_argument("consumer", nargs="?", help="consumer name; omit to run all")
+    parser.add_argument("--once", action="store_true", help="one pass, then exit")
+    parser.add_argument("--list", action="store_true", help="list consumers and exit")
+    args = parser.parse_args()
+
+    if args.list:
+        for cls in CONSUMER_CLASSES:
+            print(f"{cls.name:14} handles: {', '.join(cls.handles) or 'everything'}")
+        return 0
+
+    try:
+        return asyncio.run(_main(args.consumer, args.once))
+    except KeyboardInterrupt:
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

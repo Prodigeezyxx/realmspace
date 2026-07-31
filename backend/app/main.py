@@ -11,6 +11,7 @@ Run it:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -19,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.config import get_settings
+from app.consumers.run import build_all
 from app.db import engine
 from app.graph import driver as graph_driver
 from app.routers import events
@@ -26,17 +28,39 @@ from app.routers import events
 settings = get_settings()
 
 
+#: Live consumer tasks, so /health can report them and shutdown can cancel them.
+_consumer_tasks: list[asyncio.Task[None]] = []
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Open the Neo4j driver once at boot, close it on shutdown.
+    """Open the Neo4j driver and start the bus consumers; tear both down after.
 
-    Connecting here rather than at import time means a wrong password fails the
-    boot loudly instead of surfacing as a 500 on the first graph request.
+    Connecting the driver here rather than at import time means a wrong password
+    fails the boot loudly instead of surfacing as a 500 on the first graph
+    request.
+
+    The consumers run as tasks in this process — event-bus-spec.md §4 puts both
+    the tracker and the graph writer on the edge, and sharing one event loop is
+    what justified the async stack in the first place.
     """
     await graph_driver.connect()
+
+    if settings.consumers_enabled:
+        for consumer in build_all():
+            _consumer_tasks.append(
+                asyncio.create_task(consumer.run_forever(), name=f"consumer:{consumer.name}")
+            )
+
     try:
         yield
     finally:
+        for task in _consumer_tasks:
+            task.cancel()
+        # Wait for them to actually stop, so nothing is mid-write when the
+        # driver closes underneath it.
+        await asyncio.gather(*_consumer_tasks, return_exceptions=True)
+        _consumer_tasks.clear()
         await graph_driver.disconnect()
 
 
@@ -81,5 +105,19 @@ async def health() -> dict[str, object]:
     except Exception as exc:  # noqa: BLE001
         stores["neo4j"] = f"error: {type(exc).__name__}"
 
-    healthy = all(v == "ok" for v in stores.values())
-    return {"status": "ok" if healthy else "degraded", "env": settings.env, "stores": stores}
+    # A consumer task that has died silently is the failure mode that loses data
+    # without anything looking broken, so report them by name.
+    consumers = {
+        (t.get_name().removeprefix("consumer:")): ("running" if not t.done() else "stopped")
+        for t in _consumer_tasks
+    }
+
+    healthy = all(v == "ok" for v in stores.values()) and all(
+        v == "running" for v in consumers.values()
+    )
+    return {
+        "status": "ok" if healthy else "degraded",
+        "env": settings.env,
+        "stores": stores,
+        "consumers": consumers or "disabled",
+    }

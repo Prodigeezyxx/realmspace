@@ -44,6 +44,28 @@ class Settings(BaseSettings):
     # deployment can point tests or tenants at a different one without a refactor.
     neo4j_database: str = "neo4j"
 
+    # ── consumers (event-bus-spec.md §4) ──────────────────────────────────────
+    # Busy interval is small because §4 calls the tracker real-time and roadmap
+    # Phase 1 acceptance is < 500ms detection → dashboard. Idle backs off so an
+    # empty log isn't hammered.
+    consumer_busy_interval_seconds: float = 0.1
+    consumer_idle_interval_seconds: float = 0.5
+    consumer_batch_size: int = 200
+
+    # Attempts before an event is parked in dead_letter and skipped. Spec §5:
+    # "after N tries it surfaces in the HITL review screen".
+    consumer_max_attempts: int = 3
+    consumer_retry_delay_seconds: float = 0.2
+
+    # Start consumer loops with the API process. Off in tests, which drive
+    # run_once() directly instead of racing a background task.
+    consumers_enabled: bool = True
+
+    # Dwell threshold, matching the browser: agents/definitions/dwell.ts uses
+    # thresholdSec: 30 and agent-engine.ts:81 uses 30_000ms. One definition of
+    # "dwelled" across edge and browser.
+    dwell_threshold_seconds: float = 30.0
+
 
 @lru_cache
 def get_settings() -> Settings:

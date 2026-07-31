@@ -1,0 +1,81 @@
+"""
+Zone geometry — a port of dashboard/src/skills/zone-detect.ts.
+
+Deliberately a port, not a reimplementation. The browser already decides who is
+inside a zone (`pointInPolygon`, lines 21–38 there) and the dashboard's live view
+runs on that logic today. If the edge used a different rule, the same person
+could be "in the Lounge" on screen and "in the Atrium" in the report, and nobody
+would be able to say which was right.
+
+Keep the two in sync. If one changes, change both.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Sequence
+
+Point = Sequence[float]
+Polygon = Sequence[Point]
+
+
+def point_in_polygon(x: float, y: float, polygon: Polygon) -> bool:
+    """Ray-casting: count edge crossings to the left of the point.
+
+    Odd number of crossings → inside. Line-for-line the same algorithm as
+    zone-detect.ts:21–38, including its behaviour on the boundary, so the two
+    never disagree about a person standing exactly on a zone edge.
+    """
+    inside = False
+    n = len(polygon)
+    if n < 3:  # not a polygon
+        return False
+
+    j = n - 1
+    for i in range(n):
+        xi, yi = polygon[i][0], polygon[i][1]
+        xj, yj = polygon[j][0], polygon[j][1]
+        if (yi > y) != (yj > y):
+            if x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+                inside = not inside
+        j = i
+    return inside
+
+
+def normalize(cx: float, cy: float, frame_width: float, frame_height: float) -> tuple[float, float]:
+    """Pixel coords → 0..1, matching zone-detect.ts:41.
+
+    Zone polygons are stored normalized so a zone drawn once survives a change
+    of camera resolution. Detections arrive in pixels, so every comparison has
+    to go through here first.
+    """
+    if frame_width <= 0 or frame_height <= 0:
+        raise ValueError(
+            f"frame dimensions must be positive, got {frame_width}x{frame_height}"
+        )
+    return cx / frame_width, cy / frame_height
+
+
+def centroid(bbox: Sequence[float]) -> tuple[float, float]:
+    """Centre of an [x1, y1, x2, y2] box.
+
+    Note the format: perception/realmspace.py emits xyxy (corner-to-corner),
+    while the browser's tracker.ts uses [x, y, width, height]. Same picture,
+    different convention — the bus carries xyxy, which is what YOLO returns
+    natively, so nothing has to convert on the way in.
+    """
+    x1, y1, x2, y2 = bbox[0], bbox[1], bbox[2], bbox[3]
+    return (x1 + x2) / 2.0, (y1 + y2) / 2.0
+
+
+def zone_for_point(nx: float, ny: float, zones: Sequence[dict[str, Any]]) -> str | None:
+    """Which zone contains this normalized point, or None.
+
+    First match wins, as in zone-detect.ts:66–72 which `break`s on the first
+    containing zone. Overlapping zones are therefore resolved by order, not by
+    area — worth knowing if an operator draws a zone inside another one.
+    """
+    for zone in zones:
+        polygon = zone.get("polygon") or []
+        if point_in_polygon(nx, ny, polygon):
+            return zone["id"]
+    return None
