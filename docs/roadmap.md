@@ -61,7 +61,14 @@ graph, wired to the existing dashboard. Multi-tenant from the first commit.*
       **Measured 58ms median / 175ms worst** against the <500ms target.
       Swapping `/live` over to it is POD 3's job; perception → bus is the next
       item, so the feed carries HTTP-posted events until then.
-- 🔲 Harden perception stub: emit into bus, **offline buffer + replay**
+- ✅ Harden perception stub: emit into bus, **offline buffer + replay** —
+      `perception/bus_client.py` (ported from the `postgres-track`, plus auth and
+      the frame dimensions the tracker needs) wired into `realmspace.py` behind
+      `--bus-url`. Kill the backend mid-run and events buffer to a local JSONL;
+      restart it and they replay oldest-first. **Verified: 11 events posted
+      across an outage → 11 rows, 11 distinct ids, in order.** The `event_id` is
+      assigned when the event happens, not when it is sent, which is what makes
+      the reconnect idempotent rather than duplicating.
 - ✅ Auth resolves user → org → role (RBAC skeleton) — `backend/app/auth/`.
       JWT for people, API keys for devices (a camera cannot log in), both signed
       and verified locally so the edge box still authenticates with no network.

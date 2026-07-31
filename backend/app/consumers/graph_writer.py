@@ -61,9 +61,9 @@ class GraphWriterConsumer(Consumer):
                 await self._on_dwell(gs, event)
 
     async def _on_detection(self, gs, event: EventLog) -> None:
-        anon_id = event.payload.get("person_id")
+        anon_id = event.payload.get("anon_id") or event.payload.get("person_id")
         if not anon_id:
-            raise ValueError(f"perception.detection seq={event.seq} has no person_id")
+            raise ValueError(f"perception.detection seq={event.seq} has no anon_id/person_id")
 
         seen = event.occurred_at.isoformat()
         # first_seen and last_seen both get this timestamp; upsert_person only

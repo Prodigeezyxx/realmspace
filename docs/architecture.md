@@ -5,7 +5,7 @@ Two halves that meet at the event bus:
 ```
  EDGE (one laptop, works offline)
 
- camera → perception (YOLO + ByteTrack)          [Phase 1, not yet wired]
+ camera → perception (YOLO + ByteTrack)          offline buffer + replay
             │ perception.detection
             ▼
       ┌──────────────────────────────┐

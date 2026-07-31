@@ -87,6 +87,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(events.router)
+app.include_router(events.alias_router)
 app.include_router(live.router)
 
 

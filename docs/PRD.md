@@ -285,7 +285,7 @@ See [docs/gtm.md](./gtm.md). Three motions:
 | **Durable event bus** | ✅ Real — Postgres append-only log, idempotent on `event_id`, cursor reads (`backend/`). |
 | **Graph store** | ✅ Real — Neo4j, schema and constraints from `data-model.md`, every key tenant-scoped. |
 | **Tracker + graph-writer consumers** | ✅ Real — detections become `spatial.*` events and then `Person`/`Zone` nodes and edges. Replay is a proven no-op. |
-| Perception → bus wiring | 🔲 The stub still prints to stdout. Next Phase-1 item, with the offline buffer. |
+| Perception → bus wiring | ✅ Real — `--bus-url` posts detections into the log, with a local buffer that replays in order after a network drop and is idempotent on reconnect. |
 | Backend API auth | ✅ Real — JWT for people, API keys for devices, both verified locally so the edge box works offline. `tenant_id` comes from the credential, never the caller. Postgres row-level security still to come. |
 
 **The headline change vs. v0 prototype:** the live tab is no longer a stylised

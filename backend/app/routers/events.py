@@ -19,12 +19,21 @@ from app.schemas import EventIn, EventOut
 router = APIRouter(prefix="/events", tags=["events"])
 
 
+#: The `postgres-track` exposes this endpoint at `/v1/events`. Aliasing it here
+#: means one producer, pointed at one `--bus-url`, works against either backend
+#: — `perception/realmspace.py` is a file both tracks share, and it should not
+#: need to know which one it is talking to. Hidden from the schema so `/events`
+#: stays the single documented path.
+alias_router = APIRouter(include_in_schema=False)
+
+
 @router.post(
     "",
     response_model=EventOut,
     status_code=status.HTTP_201_CREATED,
     summary="Append an event to the log (idempotent on event_id)",
 )
+@alias_router.post("/v1/events", response_model=EventOut, status_code=status.HTTP_201_CREATED)
 async def post_event(
     event: EventIn,
     response: Response,

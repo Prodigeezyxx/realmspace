@@ -17,7 +17,46 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-07-31 (overnight)
+## [Unreleased] — last updated 2026-08-01 (early)
+
+### Added — 2026-08-01 (early) — `[neo4j-track]` Phase 1 complete: the camera feeds the system
+
+- **A real webcam now produces real rows.** Point the perception script at the
+  backend and every person it sees becomes an event in the permanent log, then a
+  node in the graph — the loop the whole phase has been building toward. Run it
+  with `--bus-url` and a device key; leave them off and it behaves exactly as it
+  did before, printing to the terminal.
+  *`perception/bus_client.py` wired into `realmspace.py`. Detections carry the
+  frame dimensions the tracker needs to place someone in a zone.*
+
+- **Unplugging the network costs nothing.** If the backend goes away mid-session
+  the script keeps running and writes events to a local file instead. When the
+  connection comes back they are sent oldest-first, and the log recognises them
+  as things it already has rather than recording them twice. Tested by actually
+  doing it: 11 events posted across an outage produced 11 rows, all distinct, in
+  order.
+  *The event's id is assigned when it happens, not when it is sent — that one
+  detail is what makes a reconnect idempotent instead of duplicating everything
+  buffered during the drop. Guarded by a test that fails if the id is minted
+  later.*
+
+- **A flaky connection can't scramble the queue.** Replay stops at the first
+  failure and leaves the rest in order rather than draining past it, and a
+  half-written line from a hard power cut is skipped rather than jamming the
+  buffer forever.
+
+- **Built on POD 1's work rather than around it.** The offline client was ported
+  from the other track, which had already got the hard parts right, then given
+  authentication and the missing frame fields. `realmspace.py` is a file both
+  tracks share — it should not fork.
+  *Our backend also learned the other track's `/v1/events` path and accepts
+  either `anon_id` or `person_id`, so one script and one URL work against either
+  backend. The comparison should turn on the graph store, not on whose spelling
+  the camera happened to use.*
+
+- **This closes Phase 1.** Event bus, graph store, consumers, live WebSocket,
+  perception with offline replay, and authentication are all in.
+
 
 ### Added — 2026-07-31 (overnight) — `[neo4j-track]` the backend stopped trusting whoever asks
 

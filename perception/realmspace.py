@@ -5,7 +5,8 @@ Open the webcam, detect people with YOLOv8, draw bounding boxes with
 persistent IDs (ByteTrack), and emit structured event JSON to stdout.
 
 Usage:
-    python realmspace.py                       # uses default camera
+    python realmspace.py                       # uses default camera, stdout only
+    python realmspace.py --bus-url http://127.0.0.1:8000 --api-key "$KEY"
     python realmspace.py --source 1            # use camera index 1
     python realmspace.py --source clip.mp4     # use a video file
     python realmspace.py --headless            # no preview window
@@ -25,12 +26,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from dataclasses import dataclass, asdict
 from typing import Iterable
 
 import cv2  # opencv-python
+
+from bus_client import BusClient
 
 
 @dataclass
@@ -70,6 +74,33 @@ def parse_args() -> argparse.Namespace:
         "--save",
         default=None,
         help="optional folder to save annotated frames",
+    )
+    p.add_argument(
+        "--bus-url",
+        default="",
+        help="edge API base URL, e.g. http://127.0.0.1:8000. Omit for stdout only.",
+    )
+    p.add_argument(
+        "--tenant-id",
+        default="t_floats",
+        help="tenant scope for bus events (default: t_floats)",
+    )
+    p.add_argument(
+        "--session-id",
+        default="s_demo",
+        help="activation this run belongs to (default: s_demo)",
+    )
+    p.add_argument(
+        "--api-key",
+        default=os.environ.get("REALMSPACE_API_KEY", ""),
+        help="device key. Prefer REALMSPACE_API_KEY so it stays out of shell history.",
+    )
+    p.add_argument(
+        "--bus-interval",
+        type=float,
+        default=0.2,
+        help="min seconds between posted detections (default 0.2). Throttles the "
+             "bus without throttling stdout.",
     )
     return p.parse_args()
 
@@ -146,6 +177,21 @@ def main() -> int:
 
     yolo = load_yolo(args.model)
 
+    bus = BusClient(
+        base_url=args.bus_url,
+        tenant_id=args.tenant_id,
+        session_id=args.session_id,
+        api_key=args.api_key,
+    )
+    if bus.enabled:
+        pending = bus.pending()
+        print(
+            json.dumps({"type": "bus_enabled", "url": args.bus_url,
+                        "tenant": args.tenant_id, "session": args.session_id,
+                        "buffered_from_last_run": pending}),
+            file=sys.stderr, flush=True,
+        )
+
     print(
         json.dumps(
             {
@@ -158,11 +204,16 @@ def main() -> int:
         ),
         flush=True,
     )
+    # session.started on the bus is a separate thing from the stdout line above:
+    # one is for a human watching the terminal, the other is an event in the log
+    # that the report and the twin will read back later (spec §3).
+    bus.post("session.started", {"source": str(args.source), "model": args.model})
 
     frame_id = 0
     fps_t0 = time.time()
     fps_frames = 0
     fps = 0.0
+    last_bus_post = 0.0
     try:
         while True:
             ok, frame = cap.read()
@@ -173,9 +224,33 @@ def main() -> int:
 
             results = yolo.track(frame, persist=True, conf=args.conf, classes=[0], verbose=False)
 
+            # frame.shape is (height, width, channels). The bus needs both:
+            # bboxes are in pixels and zone polygons are normalised 0..1, so a
+            # detection without them cannot be placed in a zone and the tracker
+            # dead-letters it (event-bus-spec.md §3).
+            frame_h, frame_w = frame.shape[0], frame.shape[1]
+
             for d in detections_for_frame(results, frame_id, ts, args.conf):
                 print(json.dumps(asdict(d)), flush=True)
                 draw_overlay(frame, d)
+
+                # Throttled. stdout keeps every detection because that is a
+                # debugging stream; the bus is an append-only log, and one row
+                # per person per frame at 20fps would be thousands a minute of
+                # near-identical events nobody will ever read.
+                if bus.enabled and (ts - last_bus_post) >= args.bus_interval:
+                    bus.post(
+                        "perception.detection",
+                        {
+                            "anon_id": d.person_id,
+                            "bbox": d.bbox,
+                            "confidence": d.confidence,
+                            "frame_id": d.frame_id,
+                            "frame_width": frame_w,
+                            "frame_height": frame_h,
+                        },
+                    )
+                    last_bus_post = ts
 
             fps_frames += 1
             if time.time() - fps_t0 > 1.0:
@@ -206,6 +281,15 @@ def main() -> int:
         cap.release()
         if not args.headless:
             cv2.destroyAllWindows()
+        # In `finally`, so Ctrl-C still closes the session properly rather than
+        # leaving it open forever in the log.
+        bus.post("session.ended", {"frames": frame_id})
+        if bus.enabled and bus.pending():
+            print(
+                json.dumps({"type": "bus_pending_at_exit", "events": bus.pending(),
+                            "note": "will replay on next run"}),
+                file=sys.stderr, flush=True,
+            )
         print(
             json.dumps({"type": "session_end", "ts": time.time(), "frames": frame_id}),
             flush=True,

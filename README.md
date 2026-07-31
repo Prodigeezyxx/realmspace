@@ -75,8 +75,16 @@ python realmspace.py --headless    # JSON events only, no preview window
 Output is one JSON event per detection per frame on stdout. See
 `perception/README.md` for the full schema.
 
-Phase 1 replaces stdout with a `POST /events` into the backend bus below, plus
-an offline buffer that replays on reconnect.
+To feed the backend instead, add `--bus-url` and a device key:
+
+```bash
+python realmspace.py --headless --bus-url http://127.0.0.1:8000 \
+  --session-id s_demo --api-key "$REALMSPACE_API_KEY"
+```
+
+Events buffer to a local file when the bus is unreachable and replay in order
+when it returns — each one keeps the id it was born with, so a reconnect stores
+them once rather than twice.
 
 ---
 
@@ -195,7 +203,7 @@ realmspace/
 | **Tracker consumer** | ✅ detections → `spatial.zone_enter` / `zone_exit` / `dwell` | |
 | **Graph writer consumer** | ✅ events → `Person` / `Zone` nodes and edges | |
 | **Replay safety** | ✅ rewind a cursor and nothing duplicates | |
-| Producers writing into the bus | | 🔲 perception still prints to stdout |
+| **Perception → bus** | ✅ `--bus-url`, with offline buffer and idempotent replay | |
 | Gaze / group / pass-by events | | 🔲 gaze needs pose data; pass-by is Phase 2 |
 | **Auth on the backend API** | ✅ JWT for people, API keys for devices; tenant derived from the credential | 🔲 DB-level row security still to come |
 

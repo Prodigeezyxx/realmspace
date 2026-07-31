@@ -140,11 +140,16 @@ class TrackerConsumer(Consumer):
 
     async def handle(self, event: EventLog) -> None:
         payload = event.payload
-        anon_id = payload.get("person_id")
+        # Two spellings in the wild: `anon_id` (data-model.md's name for the
+        # Person key, and what the postgres-track's producer sends as `anonId`)
+        # and `person_id` (what event-bus-spec.md §3 documents). Accepting both
+        # means one producer script works against both backends; §3 records
+        # `anon_id` as canonical and `person_id` as accepted.
+        anon_id = payload.get("anon_id") or payload.get("person_id")
         bbox = payload.get("bbox")
         if not anon_id or not bbox:
             raise ValueError(
-                f"perception.detection seq={event.seq} missing person_id or bbox"
+                f"perception.detection seq={event.seq} missing anon_id/person_id or bbox"
             )
 
         # Frame dimensions are required: bboxes arrive in pixels and zone

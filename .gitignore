@@ -47,6 +47,11 @@ Thumbs.db
 # ML model weights — large binaries, downloaded on first run
 *.pt
 
+# Producer offline buffer — unsent events waiting for the bus to come back.
+# Exactly the file somebody would otherwise commit after a bad conference day.
+*.bus-buffer.jsonl
+.bus-buffer.jsonl
+
 # Misc
 *.tsbuildinfo
 **/next-env.d.ts

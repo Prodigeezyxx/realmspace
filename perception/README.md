@@ -9,9 +9,31 @@ will eventually emit. Right now the dashboard reads from `lib/mock/` data.
 Once this engine writes real events to the event bus, the dashboard swaps to
 it with no UI changes.
 
-**The bus it will write into now exists** — `backend/` implements
-[`docs/event-bus-spec.md`](../docs/event-bus-spec.md). This script does not use
-it yet; wiring that up is the next task for this folder.
+**It writes into the bus now.** Add `--bus-url` and a device key and every
+detection becomes a durable event; leave them off and it prints to stdout as
+before.
+
+```bash
+python realmspace.py --headless \
+  --bus-url http://127.0.0.1:8000 \
+  --session-id s_demo \
+  --api-key "$REALMSPACE_API_KEY"     # or just export REALMSPACE_API_KEY
+```
+
+Get a key from the backend: `python -m app.auth.seed`. Producers use a device
+key rather than a login — a camera cannot sign in — and that key can only write.
+
+**Offline is the normal case, not the error case.** When the bus is unreachable
+events go to `.bus-buffer.jsonl` next to the script and replay oldest-first when
+it returns. Because each event's id is assigned when it happens rather than when
+it is sent, the log recognises a replayed event and stores it once. Kill the
+backend mid-run and watch `bus_buffered` on stderr, then `bus_replay_done` when
+you bring it back.
+
+The client lives in [`bus_client.py`](./bus_client.py), separate from this
+script so it imports without OpenCV — which makes the buffer logic testable
+without a camera, and lets the RFID bridge and kiosk SDK reuse it instead of
+writing their own.
 
 ## Phase 0 — Hello, RealmSpace
 
@@ -37,12 +59,12 @@ just the perception slice of it.
 
 | Item | Adds |
 |---|---|
-| **Emit into the bus** (Phase 1) | Replace stdout with `POST /events` — one `perception.detection` per detection, carrying a producer-assigned `event_id` |
-| **Offline buffer + replay** (Phase 1) | Queue locally when the backend is unreachable, replay in order on reconnect. Conference WiFi is assumed unreliable (`event-bus-spec.md` §5) |
+| ~~Emit into the bus~~ ✅ | Done — `--bus-url`, throttled to one detection per 200ms so an append-only log isn't filled with near-identical rows |
+| ~~Offline buffer + replay~~ ✅ | Done — `.bus-buffer.jsonl`, oldest-first, idempotent on reconnect |
 | Zone polygons + dwell (Phase 1/2) | Emitted as `spatial.zone_enter` / `spatial.dwell` by the tracker consumer, not by this script |
 | Multi-camera + sensor fusion (Phase 6) | Calibration UI + drift telemetry alongside |
 
-Note that the JSON this script prints today (`type: "detection"`) is **not yet**
-the bus event shape — the bus expects `event_id`, `tenant_id`, `session_id`, a
-namespaced `type` like `perception.detection`, and the detection fields nested
-under `payload`. Reconciling the two is part of the first item above.
+The JSON printed to stdout is deliberately **not** the bus event shape — it is a
+debugging stream and stays as it was, so anything piping it still works. The bus
+shape (`eventId`, `tenantId`, namespaced `type`, fields under `payload`) is built
+in `bus_client.py`.

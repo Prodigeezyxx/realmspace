@@ -111,13 +111,19 @@ pinned here as they get implemented.
 
 ```json
 {
-  "person_id":    "P-012",        // from ByteTrack; session-scoped, never reused
+  "anon_id":      "P-012",        // from ByteTrack; session-scoped, never reused
   "bbox":         [x1, y1, x2, y2],   // PIXELS, xyxy (what YOLO returns)
   "confidence":   0.91,
   "frame_width":  1280,           // required — see below
   "frame_height": 720
 }
 ```
+
+`anon_id` is canonical — it matches `Person.anon_id` in `data-model.md`.
+**`person_id` is also accepted**, because the producer on the other track sends
+`anonId`/`person_id` and `perception/realmspace.py` is a file both tracks share:
+one script has to work against either backend or the comparison breaks. Consumers
+read `anon_id` first and fall back.
 
 `frame_width` / `frame_height` are **required**. Bounding boxes arrive in pixels
 but `Zone.polygon` is normalized 0–1, so without the frame size there is no way
