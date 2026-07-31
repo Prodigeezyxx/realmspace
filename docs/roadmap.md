@@ -55,7 +55,12 @@ graph, wired to the existing dashboard. Multi-tenant from the first commit.*
       doesn't emit; passby is P2 per the blind-spots table below).
       Replay is a proven no-op — derived event ids plus `on_replay` state
       clearing, both verified by deliberately breaking them.
-- 🔲 WebSocket: perception → bus → dashboard `/live` (replace mock feed)
+- ✅ WebSocket: bus → dashboard `/live` — `WS /v1/ws/{tenant_id}/{session_id}`,
+      path and envelope matching the other track so POD 3 integrates once.
+      `since_seq` is a real cursor, so a reconnect has no gap and no duplicates.
+      **Measured 58ms median / 175ms worst** against the <500ms target.
+      Swapping `/live` over to it is POD 3's job; perception → bus is the next
+      item, so the feed carries HTTP-posted events until then.
 - 🔲 Harden perception stub: emit into bus, **offline buffer + replay**
 - 🔲 Auth resolves user → org → role (RBAC skeleton)
 

@@ -438,6 +438,17 @@ def test_event_type_must_be_in_a_known_namespace() -> None:
             )
 
 
+def test_rfid_read_is_accepted() -> None:
+    """Week 1 task 1.11 emits rfid.read. It was in no contract at all, so the
+    namespace check rejected it and POD 1 would have hit a 422 on their first
+    request with nothing to explain it."""
+    e = EventIn(
+        event_id=uuid.uuid4(), tenant_id=T, session_id=S, type="rfid.read",
+        payload={"reader_id": "r1", "tag_id": "tag-abc"}, occurred_at=BASE,
+    )
+    assert e.type == "rfid.read"
+
+
 def test_new_types_in_a_known_namespace_are_accepted() -> None:
     """§3 says the taxonomy is additive-only, so the check is a namespace
     prefix, not an allow-list — a type nothing implements yet must still pass."""

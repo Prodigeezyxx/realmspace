@@ -1,0 +1,272 @@
+"""
+The live WebSocket, as executable claims.
+
+**Why this module is synchronous while every other suite is async.** WebSockets
+need Starlette's `TestClient`, which runs the app in its own event loop on a
+background thread; httpx's ASGI transport cannot do WS at all. That thread
+boundary is not incidental — the socket object belongs to the app's loop, so a
+broadcast triggered from pytest's loop would be sending on a socket owned by
+another one. Everything here therefore goes through the app: events are POSTed
+over HTTP and delivered by the real consumers started by the real lifespan.
+
+That makes these genuine end-to-end tests rather than unit tests with a socket
+bolted on, at the cost of some timing. See `_expect` for how that is handled
+without arbitrary sleeps.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import datetime as dt
+import uuid
+
+import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
+from starlette.testclient import TestClient
+
+from app.config import get_settings
+from app.main import app
+
+T = "t_ws"
+OTHER = "t_ws_other"
+S = "s_ws"
+
+BASE = dt.datetime(2026, 7, 31, 12, 0, 0, tzinfo=dt.timezone.utc)
+
+
+def _test_url() -> str:
+    url = get_settings().test_database_url
+    assert url and "test" in url, "refusing to run against a non-test database"
+    return url
+
+
+@pytest.fixture(autouse=True)
+def consumer_wiring():
+    """Override conftest's autouse fixture — it must not run for this module.
+
+    That fixture opens the shared Neo4j driver on pytest's event loop. Here the
+    app has its own loop (TestClient runs it on a background thread) and its
+    lifespan opens the driver itself. Letting both happen leaves the consumers
+    using a driver bound to the wrong loop, which surfaces as "Future attached
+    to a different loop" during teardown.
+
+    A module-level fixture of the same name shadows the conftest one, so this is
+    the ordinary way to opt out.
+    """
+    yield
+
+
+@pytest.fixture
+def ws_client():
+    """A TestClient with the real lifespan running, pointed at the test database.
+
+    The lifespan starts the actual consumers, which is what makes a POSTed event
+    come back out of the socket. `app.db.SessionLocal` is swapped rather than
+    injected because consumers are loops, not request handlers — there is no
+    dependency to override.
+    """
+    from app import db as app_db
+
+    # NullPool on purpose. A pooled asyncpg connection belongs to the event loop
+    # that opened it, and here two loops are in play: pytest's (for setup) and
+    # the TestClient's (for the app). Pooling would leave connections owned by
+    # one loop being closed from another — "Future attached to a different loop".
+    # Not pooling in a test costs nothing.
+    engine = create_async_engine(_test_url(), poolclass=NullPool)
+    original = app_db.SessionLocal
+    app_db.SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def reset() -> None:
+        async with app_db.SessionLocal() as s:
+            await s.execute(
+                text("TRUNCATE event_log, consumer_cursor, dead_letter RESTART IDENTITY")
+            )
+            await s.commit()
+
+    asyncio.run(reset())
+
+    # `with` runs startup and shutdown, so the consumers really are live.
+    with TestClient(app) as client:
+        yield client
+
+    app_db.SessionLocal = original
+    asyncio.run(engine.dispose())  # no-op with NullPool, but keeps intent clear
+
+
+def make_event(**overrides) -> dict:
+    event = {
+        "event_id": str(uuid.uuid4()),
+        "tenant_id": T,
+        "session_id": S,
+        "type": "perception.detection",
+        "payload": {"person_id": "P-001", "bbox": [10, 10, 90, 180],
+                    "frame_width": 1280, "frame_height": 720},
+        "occurred_at": BASE.isoformat(),
+    }
+    event.update(overrides)
+    return event
+
+
+def _expect(ws, predicate, *, limit: int = 40):
+    """Read frames until one satisfies `predicate`, or give up.
+
+    The socket carries traffic from every consumer, so the frame you want is not
+    necessarily the next one. Draining until a match — with a bound — is both
+    more robust and faster than sleeping and hoping.
+    """
+    for _ in range(limit):
+        frame = ws.receive_json()
+        if predicate(frame):
+            return frame
+    raise AssertionError(f"no matching frame in {limit} frames")
+
+
+# ── the handshake ─────────────────────────────────────────────────────────────
+
+
+def test_connecting_yields_a_hello(ws_client: TestClient) -> None:
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as ws:
+        hello = ws.receive_json()
+    assert hello["type"] == "hello"
+    assert hello["tenantId"] == T
+    assert hello["sessionId"] == S
+    assert hello["replay"] == []
+
+
+def test_hello_replays_what_the_client_missed(ws_client: TestClient) -> None:
+    """A client connecting mid-session gets the backlog, not an empty feed."""
+    for i in range(3):
+        assert ws_client.post("/events", json=make_event(payload={"i": i})).status_code == 201
+
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as ws:
+        hello = ws.receive_json()
+
+    assert [e["payload"]["i"] for e in hello["replay"]] == [0, 1, 2]
+
+
+def test_since_seq_is_a_real_cursor(ws_client: TestClient) -> None:
+    """The difference from the other track: reconnect from where you got to.
+
+    Replaying from 0 every time means a browser that drops wifi re-processes
+    everything it already had. Passing the last seq it saw gives no gap and no
+    duplicates — the same cursor discipline the consumers use, on the last hop.
+    """
+    for i in range(3):
+        ws_client.post("/events", json=make_event(payload={"i": i}))
+
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as ws:
+        first_seq = ws.receive_json()["replay"][0]["seq"]
+
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}?since_seq={first_seq}") as ws:
+        hello = ws.receive_json()
+
+    assert hello["sinceSeq"] == first_seq
+    assert [e["payload"]["i"] for e in hello["replay"]] == [1, 2]
+
+
+# ── live delivery ─────────────────────────────────────────────────────────────
+
+
+def test_an_event_posted_after_connect_arrives(ws_client: TestClient) -> None:
+    """The whole point of the item: POST here, appears in the browser."""
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as ws:
+        assert ws.receive_json()["type"] == "hello"
+
+        event = make_event(payload={"marker": "live"})
+        assert ws_client.post("/events", json=event).status_code == 201
+
+        frame = _expect(
+            ws,
+            lambda f: f["type"] == "event"
+            and f["event"]["payload"].get("marker") == "live",
+        )
+
+    assert frame["event"]["eventId"] == event["event_id"]
+
+
+def test_wire_shape_matches_the_dashboard_contract(ws_client: TestClient) -> None:
+    """dashboard/src/lib/contracts/events.ts declares itself canonical: camelCase
+    keys, ms-epoch numbers. A mismatch means POD 3 writes a mapper for this
+    track and not the other, which biases the comparison on nothing."""
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as ws:
+        ws.receive_json()
+        ws_client.post("/events", json=make_event(payload={"marker": "shape"}))
+        frame = _expect(
+            ws,
+            lambda f: f["type"] == "event"
+            and f["event"]["payload"].get("marker") == "shape",
+        )
+
+    e = frame["event"]
+    for key in ("seq", "eventId", "tenantId", "sessionId", "type", "payload",
+                "occurredAt", "recordedAt"):
+        assert key in e, f"missing canonical field {key}"
+    for absent in ("event_id", "tenant_id", "occurred_at", "recorded_at"):
+        assert absent not in e, f"snake_case {absent} leaked onto the wire"
+    assert isinstance(e["occurredAt"], int)
+    assert isinstance(e["recordedAt"], int)
+
+
+# ── isolation ─────────────────────────────────────────────────────────────────
+
+
+def test_a_socket_never_sees_another_tenants_events(ws_client: TestClient) -> None:
+    """The worst failure this endpoint could have: one client watching another
+    tenant's live feed.
+
+    Written as a positive assertion rather than "wait and hope nothing comes" —
+    the other tenant's event is posted FIRST, then our own as a sentinel. If
+    isolation leaked, the foreign event would arrive before the sentinel.
+    """
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as ws:
+        ws.receive_json()
+
+        ws_client.post("/events", json=make_event(tenant_id=OTHER,
+                                                  payload={"marker": "foreign"}))
+        ws_client.post("/events", json=make_event(payload={"marker": "mine"}))
+
+        frame = _expect(ws, lambda f: f["type"] == "event")
+
+    assert frame["event"]["tenantId"] == T
+    assert frame["event"]["payload"]["marker"] == "mine"
+
+
+def test_a_socket_never_sees_another_sessions_events(ws_client: TestClient) -> None:
+    """Same technique, one level down. Two activations for the same tenant must
+    not bleed into each other's live view."""
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as ws:
+        ws.receive_json()
+
+        ws_client.post("/events", json=make_event(session_id="s_elsewhere",
+                                                  payload={"marker": "other_session"}))
+        ws_client.post("/events", json=make_event(payload={"marker": "mine"}))
+
+        frame = _expect(ws, lambda f: f["type"] == "event")
+
+    assert frame["event"]["sessionId"] == S
+    assert frame["event"]["payload"]["marker"] == "mine"
+
+
+# ── robustness ────────────────────────────────────────────────────────────────
+
+
+def test_a_disconnected_client_does_not_break_the_feed(ws_client: TestClient) -> None:
+    """A closed tab must not take the live view down for everyone else in the
+    booth — the hub drops dead sockets instead of raising."""
+    with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as survivor:
+        survivor.receive_json()
+
+        with ws_client.websocket_connect(f"/v1/ws/{T}/{S}") as doomed:
+            doomed.receive_json()
+        # doomed is now closed
+
+        ws_client.post("/events", json=make_event(payload={"marker": "after_close"}))
+        frame = _expect(
+            survivor,
+            lambda f: f["type"] == "event"
+            and f["event"]["payload"].get("marker") == "after_close",
+        )
+
+    assert frame["event"]["payload"]["marker"] == "after_close"

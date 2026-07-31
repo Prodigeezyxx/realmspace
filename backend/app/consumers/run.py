@@ -19,6 +19,7 @@ import logging
 import sys
 
 from app.consumers.base import Consumer
+from app.consumers.broadcast import BroadcastConsumer
 from app.consumers.graph_writer import GraphWriterConsumer
 from app.consumers.tracker import TrackerConsumer
 from app.graph.driver import connect, disconnect
@@ -26,7 +27,11 @@ from app.graph.driver import connect, disconnect
 # Order matters when running them all in one pass: the tracker produces the
 # spatial events the graph writer consumes, so running it first means a single
 # pass carries a detection all the way to the graph.
-CONSUMER_CLASSES: list[type[Consumer]] = [TrackerConsumer, GraphWriterConsumer]
+CONSUMER_CLASSES: list[type[Consumer]] = [
+    TrackerConsumer,
+    GraphWriterConsumer,
+    BroadcastConsumer,
+]
 
 
 def build_all() -> list[Consumer]:

@@ -2,9 +2,9 @@
 Wire shapes. Pydantic validates these before anything touches the database, so a
 malformed producer gets a 422 instead of a half-written row.
 
-Field names are snake_case versions of EventContext in
-dashboard/src/lib/event-context.ts (tenantId, sessionId). When the WebSocket
-bridge lands in a later Phase-1 item, that's a rename, not a reshape.
+On the wire these are camelCase with ms-epoch timestamps, matching the canonical
+contract in dashboard/src/lib/contracts/events.ts. In Python they stay snake_case,
+and producers may POST either — see EventOut.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import datetime as dt
 import uuid
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
 # The namespaces in event-bus-spec.md §3. Deliberately a prefix check, not an
@@ -34,6 +34,10 @@ EVENT_NAMESPACES = (
     "perception.",
     "spatial.",
     "surface.",
+    # Week 1 task 1.11 ships an RFID producer emitting rfid.read. Added ahead of
+    # it because a namespace this validator doesn't know is a 422, and POD 1
+    # would hit that on their first request with nothing to explain it.
+    "rfid.",
     "consent.",
     "identity.",
     "rule.",
@@ -44,13 +48,23 @@ EVENT_NAMESPACES = (
 )
 
 
+def _to_camel(name: str) -> str:
+    head, *rest = name.split("_")
+    return head + "".join(word.capitalize() for word in rest)
+
+
 class EventIn(BaseModel):
     """What a producer POSTs.
 
     event_id is supplied by the *producer*, not generated here. That is what
     makes retries safe: if the POST times out and the producer resends, it sends
     the same event_id and the log dedupes it (event-bus-spec.md §2).
+
+    Field names are snake_case in Python and camelCase on the wire — see the
+    note on EventOut for why.
     """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
 
     event_id: uuid.UUID
     tenant_id: str = Field(min_length=1)
@@ -72,9 +86,51 @@ class EventIn(BaseModel):
 
 
 class EventOut(EventIn):
-    """What comes back out. Adds the two server-assigned fields."""
+    """What comes back out — over HTTP and over the WebSocket.
 
-    model_config = ConfigDict(from_attributes=True)
+    ## Why this is camelCase with millisecond timestamps
+
+    `dashboard/src/lib/contracts/events.ts` declares itself the canonical event
+    shape, in its own words: "Both the mocked prototype and the future FastAPI +
+    Postgres backend conform to THIS type." That type is:
+
+        { seq, eventId, tenantId, sessionId, type, payload,
+          occurredAt: number, recordedAt: number }   // ms epoch
+
+    We were emitting `event_id` and ISO date strings, i.e. not conforming. Fixed
+    here rather than left for the browser to paper over, because a mapper on the
+    client is a permanent tax and this is the last moment it is free — nothing
+    consumes the API yet except our own tests.
+
+    `populate_by_name=True` means producers can still POST snake_case, so the
+    Python side (perception, tests, curl) is unaffected.
+    """
+
+    model_config = ConfigDict(
+        from_attributes=True, alias_generator=_to_camel, populate_by_name=True
+    )
 
     seq: int
     recorded_at: dt.datetime
+
+    @field_serializer("occurred_at", "recorded_at")
+    def _as_epoch_ms(self, value: dt.datetime) -> int:
+        """Timestamps go out as ms-epoch integers, per the canonical contract.
+
+        Naive datetimes are treated as UTC. Postgres gives us TIMESTAMPTZ so in
+        practice they always carry a zone, but a naive one silently interpreted
+        as local time would shift every event by the UTC offset — worth being
+        explicit about rather than lucky.
+        """
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=dt.timezone.utc)
+        return int(value.timestamp() * 1000)
+
+
+def to_wire(row) -> dict:
+    """An event_log row as the canonical RealmEvent the browser expects.
+
+    Used by the HTTP router and by the broadcast consumer, so it lives with the
+    wire shapes rather than in either caller.
+    """
+    return EventOut.model_validate(row).model_dump(by_alias=True, mode="json")

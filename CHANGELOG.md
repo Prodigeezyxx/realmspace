@@ -17,7 +17,50 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-07-31 (early)
+## [Unreleased] — last updated 2026-07-31 (late)
+
+### Added — 2026-07-31 (late) — `[neo4j-track]` live events reach the browser
+
+- **The dashboard can now watch what the backend sees, as it happens.** Open a
+  connection and every event for that activation arrives the moment it lands —
+  a person entering the entrance, a dwell finishing, anything. Measured at
+  **58ms typical and 175ms worst case** from the event arriving to it appearing
+  at the far end, against a 500ms target. Measured against a real running
+  server, not estimated.
+  *`WS /v1/ws/{tenant_id}/{session_id}` (`backend/app/routers/live.py`), an
+  in-process fan-out hub (`app/hub.py`), and a `broadcast` consumer that reads
+  the log and pushes — so socket delivery is a bus consumer like everything
+  else, not a hook wired into the write path.*
+
+- **Reconnecting after a wifi drop picks up exactly where it left off.** The
+  client says which event it last saw; it gets what came after, and nothing it
+  already had. On a conference network that is the difference between a clean
+  reconnect and a browser re-processing the whole session.
+  *`?since_seq=N` is a real cursor into `event_log`, the same discipline the
+  consumers use, extended to the last hop. The other track replays from zero
+  capped at 200 on every connect — worth comparing.*
+
+- **The socket speaks the shape the dashboard already expects.** The event
+  contract the browser declares as canonical uses `eventId`/`tenantId` and
+  millisecond timestamps; the backend had been emitting `event_id` and date
+  strings. Fixed now, while nothing depends on it, so POD 3 writes one
+  integration rather than a translation layer per backend.
+  *`EventOut` gains a camelCase alias generator and ms-epoch serialisers, per
+  `dashboard/src/lib/contracts/events.ts`. Producers may still POST snake_case.*
+
+- **A closed tab can't take the live view down for the rest of the booth.**
+  Dead connections are dropped from the fan-out rather than raising.
+
+- **Unblocked the RFID reader work before it started.** `rfid.read` was in no
+  contract anywhere, and the event validator would have rejected it — whoever
+  picked up that task would have hit a flat refusal from the API with nothing
+  explaining why.
+  *Added to `event-bus-spec.md` §3 and to the accepted namespaces. Flagged that
+  `contracts/events.ts` still needs the matching type.*
+
+- **Still not authenticated.** The tenant comes from the URL, so anyone who can
+  reach the process can watch any activation's live feed by guessing an id.
+  Same as the other track today. Localhost only until the auth item lands.
 
 ### Added — 2026-07-31 (early) — `[neo4j-track]` the two halves finally meet
 
@@ -144,7 +187,8 @@ Stated plainly so the two tracks are compared honestly, not on impressions:
   events. Localhost only until the RBAC roadmap item lands.
 - **Perception is not wired in.** `realmspace.py` still prints to stdout; no
   offline buffer yet.
-- **No WebSocket bridge**, so the dashboard does not read from this backend.
+- ~~No WebSocket bridge~~ — landed 2026-07-31 (late). The dashboard still has to
+  be pointed at it (POD 3's job).
 - **No gaze, group or pass-by events** — gaze needs pose data perception doesn't
   emit, pass-by is Phase 2.
 

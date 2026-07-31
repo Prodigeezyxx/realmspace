@@ -34,7 +34,9 @@ async def test_append_returns_a_seq(client: AsyncClient) -> None:
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["seq"] == 1
-    assert body["recorded_at"] is not None
+    # camelCase + ms epoch, per dashboard/src/lib/contracts/events.ts
+    assert isinstance(body["recordedAt"], int)
+    assert body["eventId"] and body["tenantId"] and body["occurredAt"]
 
 
 async def test_duplicate_event_id_is_a_no_op(
@@ -104,7 +106,7 @@ async def test_reads_are_tenant_scoped(client: AsyncClient) -> None:
     r = await client.get("/events", params={"tenant_id": "t_floats"})
     rows = r.json()
     assert len(rows) == 1
-    assert all(row["tenant_id"] == "t_floats" for row in rows)
+    assert all(row["tenantId"] == "t_floats" for row in rows)
 
 
 async def test_filters_by_type_and_session(client: AsyncClient) -> None:

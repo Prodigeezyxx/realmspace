@@ -92,6 +92,7 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `spatial.group` | tracker | group_id, members | graph |
 | `spatial.passby` | tracker | anon_id, adjacent (negative signal) | ROI |
 | `surface.interaction` | booth surface | surface_id, anon_id, kind | graph, ROI |
+| `rfid.read` | RFID reader (MQTT/serial) | reader_id, tag_id, ts | identity, graph, ROI |
 | `consent.captured` | capture surface | tier, basis, copy_version | identity, CRM gate |
 | `consent.withdrawn` | anywhere | contact_id | re-anonymiser, CRM retract |
 | `identity.resolved` | identity consumer | anon_id ↔ contact | CRM, follow-up |
@@ -123,6 +124,15 @@ but `Zone.polygon` is normalized 0–1, so without the frame size there is no wa
 to tell which zone a detection is in. The tracker dead-letters detections that
 omit them rather than guessing. (Same normalisation the browser does in
 `dashboard/src/skills/zone-detect.ts`.)
+
+**`rfid.read`** — producer: RFID reader bridge. Added for Week 1 task 1.11; the
+reader speaks MQTT or serial and a small bridge turns each read into an event.
+`tag_id` is the badge, not a person — linking it to a `Person` is the identity
+consumer's job and is consent-gated (`consent-and-identity.md`).
+
+> Mirror needed in `dashboard/src/lib/contracts/events.ts`: `rfid.read` is not
+> in the `RealmEventType` union yet, so the browser cannot type an event it may
+> now receive over the WebSocket.
 
 **`spatial.zone_enter`** — producer: tracker:
 `{ "anon_id", "zone_id", "at" }`
