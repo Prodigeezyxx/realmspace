@@ -101,6 +101,48 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `cost.metered` | consumers | tokens/credits/$ | cost telemetry |
 | `session.started` / `session.ended` | operator | session meta | report, sync |
 
+### Payloads pinned so far
+
+The gist column above is not enough to write a producer against. Types are
+pinned here as they get implemented.
+
+**`perception.detection`** — producer: edge perception:
+
+```json
+{
+  "person_id":    "P-012",        // from ByteTrack; session-scoped, never reused
+  "bbox":         [x1, y1, x2, y2],   // PIXELS, xyxy (what YOLO returns)
+  "confidence":   0.91,
+  "frame_width":  1280,           // required — see below
+  "frame_height": 720
+}
+```
+
+`frame_width` / `frame_height` are **required**. Bounding boxes arrive in pixels
+but `Zone.polygon` is normalized 0–1, so without the frame size there is no way
+to tell which zone a detection is in. The tracker dead-letters detections that
+omit them rather than guessing. (Same normalisation the browser does in
+`dashboard/src/skills/zone-detect.ts`.)
+
+**`spatial.zone_enter`** — producer: tracker:
+`{ "anon_id", "zone_id", "at" }`
+
+**`spatial.zone_exit`** — producer: tracker:
+`{ "anon_id", "zone_id", "at", "entered_at" }`
+
+**`spatial.dwell`** — producer: tracker:
+`{ "anon_id", "zone_id", "duration", "started_at", "ended_at", "exceeded_threshold" }`
+— `duration` in seconds; `exceeded_threshold` compares it to the per-session
+dwell threshold (30s today, matching `agents/definitions/dwell.ts`).
+
+### Event ids on derived events
+
+Consumers that produce events — the tracker is the first — must **derive** the
+`event_id` from the identity of whatever caused it, never generate a random one.
+A random id means a replayed input produces a *new* output the log cannot dedupe,
+so every dwell is counted twice and the ROI numbers in `roi-framework.md` §2 are
+silently wrong. See `backend/app/consumers/ids.py`.
+
 ---
 
 ## 4. Consumers (the follow-up features are just these)
