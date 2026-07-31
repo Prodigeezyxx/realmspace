@@ -7,9 +7,19 @@ Two stores, one service:
 - **Neo4j** — the spatial graph
   ([`../docs/data-model.md`](../docs/data-model.md))
 
-Roadmap Phase 1, items 1 and 2. Nothing bridges them yet: the tracker and
-graph-writer consumers are the next item and will read `app/repository.py` and
-write `app/graph/repository.py` in-process, without going over HTTP.
+Roadmap Phase 1, items 1–3. The tracker and graph-writer consumers
+(`app/consumers/`) bridge the two stores in-process, without going over HTTP.
+
+> **This is the `neo4j-track`.** Phase 1's backend is being built twice on
+> purpose so the approaches can be compared — the other lives on `floats-agent`
+> and puts the graph in relational tables alongside the bus, per
+> `docs/adr/001-graph-store.md`. Neither is merged; they share
+> [`../CHANGELOG.md`](../CHANGELOG.md), which is updated every session and where
+> each entry says which track it belongs to.
+
+> **Not authenticated yet.** `tenant_id` is caller-supplied and unverified, so
+> anything that can reach this process can read any tenant's log and write forged
+> events. Localhost only until the RBAC item in `../docs/roadmap.md` lands.
 
 ## Setup
 
