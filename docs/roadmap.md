@@ -20,6 +20,7 @@ Legend: ✅ exists today · 🟡 mocked/partial · 🔲 to build.
 | Backend event bus (durable, Postgres) | ✅ (`backend/` — see Phase 1) |
 | Backend graph / API beyond the bus | 🔲 |
 | Browser-side in-memory bus (live UI fan-out) | ✅ (`dashboard/src/lib/event-bus.ts`) |
+| One-command local boot (`docker compose up`) | ✅ Postgres + Neo4j + backend, ~13s cold |
 
 **Also parallel (founder-led, no code):** run the `gtm.md` validation sprint —
 90s Loom + landing + 50 cold emails. **Pass = 5 booked demos in 7 days.**

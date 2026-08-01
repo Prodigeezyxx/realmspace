@@ -17,7 +17,44 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-01 (early)
+## [Unreleased] — last updated 2026-08-01 (morning)
+
+### Added — 2026-08-01 (morning) — `[neo4j-track]` one command and you have a backend
+
+- **You can now run the whole backend without installing anything.** Two lines
+  in a config file and `docker compose up` gives you the event log, the graph
+  and the API, with the database schemas already applied. **Cold start to
+  everything-ready: 13 seconds**, measured, against a 60-second target in the
+  product spec. Previously this took installing two databases and a Java
+  runtime, setting a password by hand, creating databases, building a Python
+  environment and running two separate migration tools.
+  *`Dockerfile`, `docker-compose.yml`, `docker/entrypoint.sh`. The entrypoint
+  waits for both databases, applies the Postgres migrations and the graph
+  schema, then serves — and is safe to re-run, so a restart is not a special
+  case.*
+
+- **It does not fight the setup you already have.** The databases are published
+  on unusual ports on purpose, so a machine that already runs Postgres and Neo4j
+  the manual way can run both at once. The alternative — "stop your services
+  first" — turns a one-command boot into three and breaks a working setup every
+  time.
+
+- **It refuses to start without its secrets rather than inventing them.** No
+  default signing key ships in the file; compose stops with a message telling
+  you which value is missing. A default secret is a token anyone can forge.
+
+- **Qdrant is deliberately left out**, though the spec lists it. Nothing uses it
+  yet — it is for a search feature that does not exist — and a service every
+  boot has to wait on makes the speed target harder for no benefit. Noted in the
+  spec next to the line it deviates from, rather than left as a silent
+  disagreement.
+
+- **Two things only surfaced by running it**, which is why it was run: the Neo4j
+  image treats every `NEO4J_*` variable as a configuration setting, so passing
+  the password in the obvious way made it refuse to boot with a confusing error;
+  and an error message containing a colon quietly broke the file's syntax. Both
+  are the sort of thing that reads fine and fails for whoever tries it next.
+
 
 ### Added — 2026-08-01 (early) — `[neo4j-track]` Phase 1 complete: the camera feeds the system
 

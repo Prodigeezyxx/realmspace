@@ -88,14 +88,35 @@ them once rather than twice.
 
 ---
 
-## Running the backend (event bus)
+## Running the backend
 
-The durable spine — an append-only Postgres log behind a FastAPI service. See
+The event bus, the graph, the consumers and the live socket. See
 [`docs/event-bus-spec.md`](docs/event-bus-spec.md) for the design and
-[`backend/README.md`](backend/README.md) for full setup.
+[`backend/README.md`](backend/README.md) for detail.
+
+### One command, nothing installed
 
 ```bash
-brew install postgresql@17 && brew services start postgresql@17
+cp .env.example .env       # set JWT_SECRET and NEO4J_PASSWORD
+docker compose up --build
+docker compose exec app python -m app.auth.seed    # prints a device key
+```
+
+Brings up Postgres, Neo4j and the backend, runs both migration systems, and
+serves on `http://localhost:8000`. **Cold boot to all-healthy: ~13s.** Use this
+if you want a backend to talk to rather than a Python environment to maintain.
+
+Databases are published on non-default host ports (`55432`, `7475`/`7688`) so
+this coexists with a brew-installed Postgres and Neo4j rather than fighting them
+for a port.
+
+### Or run it directly, for backend development
+
+Faster edit-reload loop, no image rebuilds:
+
+```bash
+brew install postgresql@17 neo4j
+brew services start postgresql@17 && brew services start neo4j
 export PATH="/opt/homebrew/opt/postgresql@17/bin:$PATH"
 createdb realmspace && createdb realmspace_test
 
@@ -103,8 +124,8 @@ cd backend
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env               # Postgres role, NEO4J_PASSWORD, JWT_SECRET
-.venv/bin/alembic upgrade head     # create the tables
-.venv/bin/python -m app.auth.seed  # prints a dev key and token
+.venv/bin/alembic upgrade head
+.venv/bin/python -m app.auth.seed
 .venv/bin/uvicorn app.main:app --reload
 ```
 

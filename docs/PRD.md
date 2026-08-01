@@ -323,6 +323,11 @@ prototype is to validate desire, not to claim shipped product.
 **Build**
 
 - `docker compose up` brings up Neo4j + Postgres + Qdrant in <60s
+  — **met, minus Qdrant.** Compose brings up Postgres, Neo4j and the backend
+  itself, cold, in ~13s (measured). Qdrant is deliberately excluded: nothing in
+  the codebase uses it, embeddings are Phase 2 at the earliest, and a service
+  every boot waits on for a feature that does not exist only makes this
+  criterion harder to hit. Add it when something needs it.
 - `npm run dev` brings up the dashboard
 - Perception script runs against built-in webcam in <30s of `python main.py`
 - <500ms latency from detection → graph node → dashboard

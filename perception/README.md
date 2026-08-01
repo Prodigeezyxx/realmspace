@@ -20,7 +20,9 @@ python realmspace.py --headless \
   --api-key "$REALMSPACE_API_KEY"     # or just export REALMSPACE_API_KEY
 ```
 
-Get a key from the backend: `python -m app.auth.seed`. Producers use a device
+Get a key from the backend: `python -m app.auth.seed`, or if you are running it
+via compose, `docker compose exec app python -m app.auth.seed` — you do not need
+a Python environment for the backend at all. Producers use a device
 key rather than a login — a camera cannot sign in — and that key can only write.
 
 **Offline is the normal case, not the error case.** When the bus is unreachable

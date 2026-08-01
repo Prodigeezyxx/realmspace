@@ -23,6 +23,22 @@ Roadmap Phase 1, items 1–4 and 6. The tracker and graph-writer consumers
 
 ## Setup
 
+### Fastest: compose (from the repo root)
+
+```bash
+cp .env.example .env       # set JWT_SECRET and NEO4J_PASSWORD
+docker compose up --build
+docker compose exec app python -m app.auth.seed
+```
+
+Postgres, Neo4j and the backend, both migration systems applied, ~13s cold.
+Host ports are remapped (`55432`, `7475`/`7688`) so it coexists with the brew
+services below rather than fighting them for a port.
+
+### Or directly, which is better for working on the backend
+
+No image rebuild between edits:
+
 ```bash
 # Postgres — the event log
 brew install postgresql@17
