@@ -49,7 +49,15 @@ split and belong to neither.
   spec next to the line it deviates from, rather than left as a silent
   disagreement.
 
-- **Two things only surfaced by running it**, which is why it was run: the Neo4j
+- **The health endpoint lied to Docker.** It reported "degraded" in the body
+  while still returning a success status code — and Docker decides purely on the
+  code. So a container with a dead database or a crashed background worker
+  advertised itself as healthy, hiding exactly the silent failure that endpoint
+  exists to surface. It now returns 503 when degraded; confirmed by killing the
+  graph database under a running stack and watching Docker mark the container
+  unhealthy, which it previously never did.
+
+- **Three things only surfaced by running it**, which is why it was run: the Neo4j
   image treats every `NEO4J_*` variable as a configuration setting, so passing
   the password in the obvious way made it refuse to boot with a confusing error;
   and an error message containing a colon quietly broke the file's syntax. Both

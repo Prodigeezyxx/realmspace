@@ -53,6 +53,12 @@ write is a `MERGE` and every consumer must be idempotent.
 the browser-side fan-out for live UI; the Postgres log is the durable backend
 behind it (`event-bus-spec.md` §7). Same event shapes.
 
+**Where it runs.** `docker compose up` from the repo root brings up Postgres,
+Neo4j and the backend together (`Dockerfile`, `docker-compose.yml`,
+`docker/entrypoint.sh`) — the entrypoint applies both migration systems before
+serving. Database ports are deliberately non-default so the stack coexists with
+a brew-installed Postgres and Neo4j rather than competing for a port.
+
 **Auth** — `app/auth/`: JWT for people, API keys for devices, verified
 locally so the edge box authenticates with no network. `tenant_id` is derived
 from the credential; there is no parameter to supply one. Postgres row-level

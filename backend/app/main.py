@@ -16,7 +16,7 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
@@ -92,9 +92,19 @@ app.include_router(live.router)
 
 
 @app.get("/health", tags=["meta"])
-async def health() -> dict[str, object]:
-    """Liveness for both stores. Reports each separately so a graph outage is
-    distinguishable from a log outage — they fail independently."""
+async def health(response: Response) -> dict[str, object]:
+    """Readiness for both stores and the consumers.
+
+    Reports each separately so a graph outage is distinguishable from a log
+    outage — they fail independently.
+
+    **Degraded returns 503, not 200.** That is the difference between a health
+    endpoint and a health-shaped endpoint. Docker's HEALTHCHECK and compose's
+    `depends_on: service_healthy` both decide purely on the status code, so an
+    always-200 response would report a container with a dead Neo4j or a crashed
+    consumer as healthy — hiding precisely the silent failure this endpoint
+    exists to surface. The body still describes what is wrong, for a human.
+    """
     stores: dict[str, str] = {}
 
     try:
@@ -125,6 +135,9 @@ async def health() -> dict[str, object]:
     healthy = all(v == "ok" for v in stores.values()) and all(
         v == "running" for v in consumers.values()
     )
+    if not healthy:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
     return {
         "status": "ok" if healthy else "degraded",
         "env": settings.env,

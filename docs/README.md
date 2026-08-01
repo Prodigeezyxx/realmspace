@@ -39,6 +39,17 @@ Start with `VISION.md`, then `roadmap.md`.
 
 ---
 
+### Running it
+
+```bash
+cp .env.example .env      # set JWT_SECRET and NEO4J_PASSWORD
+docker compose up --build
+```
+
+Postgres, Neo4j and the backend, schemas applied, ~13s from cold. See
+[`../backend/README.md`](../backend/README.md) to run it directly instead, which
+is better if you are working on the backend itself.
+
 ### Reading order for a new engineer
 1. `VISION.md` — what we're building and why
 2. `roadmap.md` — what we build in what order

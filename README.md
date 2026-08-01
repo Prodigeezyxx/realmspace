@@ -177,6 +177,9 @@ Full index: [`docs/README.md`](docs/README.md). The ones you'll reach for first:
 ```
 realmspace/
 ├── README.md                 ← you are here
+├── docker-compose.yml        ← one-command boot: Postgres + Neo4j + backend
+├── Dockerfile                ← the backend image
+├── docker/entrypoint.sh      ← waits for the stores, migrates, serves
 ├── docs/                     ← vision, roadmap, PRD, architecture, specs
 ├── perception/               ← Python · YOLO + ByteTrack + OpenCV
 │   ├── realmspace.py

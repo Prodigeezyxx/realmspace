@@ -285,3 +285,32 @@ async def test_every_documented_role_can_authenticate(
     async with client_with(db_session, Authorization=f"Bearer {token}") as c:
         assert (await c.get("/events")).status_code == 200
     app.dependency_overrides.clear()
+
+
+async def test_health_is_503_when_degraded(db_session: AsyncSession, monkeypatch) -> None:
+    """A degraded backend must fail the status code, not just say so in the body.
+
+    Docker's HEALTHCHECK and compose's `depends_on: service_healthy` decide
+    purely on the status code. This returned 200 while reporting
+    `"status": "degraded"`, so a container with a dead store or a crashed
+    consumer advertised itself as healthy — hiding exactly the silent failure
+    this endpoint exists to surface.
+    """
+    from app import main
+
+    class DeadTask:
+        def get_name(self) -> str:
+            return "consumer:tracker"
+
+        def done(self) -> bool:
+            return True
+
+    monkeypatch.setattr(main, "_consumer_tasks", [DeadTask()])
+
+    async with client_with(db_session) as anon:
+        r = await anon.get("/health")
+
+    assert r.status_code == 503, "a degraded backend reported itself healthy"
+    assert r.json()["status"] == "degraded"
+    assert r.json()["consumers"]["tracker"] == "stopped"
+    app.dependency_overrides.clear()
