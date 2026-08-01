@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import __version__, bus, db, graph_writer
+from app import __version__, bus, db, graph_writer, scorecard
 from app.config import get_settings
 from app.hub import hub
 from app.models import (
@@ -19,6 +20,7 @@ from app.models import (
     HealthResponse,
     RealmEvent,
     RealmEventInput,
+    SessionOutcome,
 )
 
 _loop: asyncio.AbstractEventLoop | None = None
@@ -102,6 +104,53 @@ def get_events(
 def get_graph(tenant_id: str, session_id: str) -> GraphSnapshot:
     graph_writer.process_pending(tenant_id)
     return graph_writer.snapshot(tenant_id, session_id)
+
+
+def _parse_json_query(raw: str | None, default: Any) -> Any:
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid JSON query param: {exc}") from exc
+
+
+@app.get("/v1/sessions/{tenant_id}/{session_id}/outcome", response_model=SessionOutcome)
+def session_outcome(
+    tenant_id: str,
+    session_id: str,
+    activationCost: float | None = Query(None),
+    revenueInfluenced: float | None = Query(None),
+    qualifiedLeads: int | None = Query(None),
+    engagedThresholdSec: float = Query(60.0, gt=0),
+    maxDwellSec: float = Query(scorecard.MAX_DWELL_SEC, gt=0),
+    zoneConfig: str | None = Query(None, description='JSON list of {"id","kind","weight"}'),
+    expectedDwellSecByKind: str | None = Query(None, description="JSON map kind -> expected dwell seconds"),
+) -> SessionOutcome:
+    """4-layer ROI scorecard for one session, computed over the durable bus.
+
+    Zone weights/kinds are optional config (JSON) for dwell-weighted
+    attention + per-touchpoint-type normalization; until a session.started
+    producer carries them, callers pass the activation's zone config.
+    """
+    zones = _parse_json_query(zoneConfig, None)
+    if zones is not None and not isinstance(zones, list):
+        raise HTTPException(status_code=400, detail="zoneConfig must be a JSON list")
+    expected = _parse_json_query(expectedDwellSecByKind, None)
+    if expected is not None and not isinstance(expected, dict):
+        raise HTTPException(status_code=400, detail="expectedDwellSecByKind must be a JSON object")
+
+    params = scorecard.OutcomeParams(
+        activation_cost=activationCost,
+        revenue_influenced=revenueInfluenced,
+        qualified_leads=qualifiedLeads,
+        engaged_threshold_sec=engagedThresholdSec,
+        max_dwell_sec=maxDwellSec,
+        zone_config={z["id"]: {"kind": z.get("kind", "other"), "weight": z.get("weight", 1.0)} for z in (zones or []) if z.get("id")},
+        expected_dwell_sec_by_kind=expected or {},
+    )
+    result = scorecard.compute_outcome(tenant_id, session_id, params)
+    return SessionOutcome(**result)
 
 
 @app.post("/v1/consumers/graph_writer/drain")

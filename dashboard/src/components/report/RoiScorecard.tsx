@@ -4,9 +4,12 @@
  * realmspace — ROI 4-layer scorecard (UI).
  *
  * Renders the Reach → Engagement → Affinity → Pipeline framework from
- * docs/roi-framework.md, computed by @/lib/roi/scorecard. Reads the active
- * session's durable event log; falls back to a representative demo scorecard
- * when the log is empty so the report always renders for the pitch.
+ * docs/roi-framework.md. Data source order (honest, in line with AGENTS.md
+ * "bus, not mocks"):
+ *   1. The edge API's session outcome endpoint (durable bus, server-authoritative)
+ *   2. The active session's local durable log (computeScorecard)
+ *   3. A representative demo scorecard (empty log, pitch mode)
+ * A "source" pill always states which one is showing.
  */
 
 import { useMemo } from "react";
@@ -19,6 +22,7 @@ import { readAll } from "@/lib/bus";
 import { getTenantId } from "@/lib/tenant/context";
 import { getEventContext } from "@/lib/event-context";
 import { computeScorecard, type Scorecard } from "@/lib/roi/scorecard";
+import { useSessionOutcome } from "@/hooks/useSessionOutcome";
 import type { RealmEvent, ZoneNode } from "@/lib/contracts";
 
 /** Demo scorecard so /report renders even before a real session has run. */
@@ -54,42 +58,90 @@ const verdictPill: Record<Scorecard["benchmarkVerdict"], { label: string; varian
   unknown: { label: "Add cost + revenue to rate", variant: "neutral" },
 };
 
+const sourcePill = {
+  remote: { label: "Live · edge API", variant: "success" as const },
+  local: { label: "Local bus", variant: "info" as const },
+  demo: { label: "Demo data", variant: "neutral" as const },
+};
+
+/** Zone weight heuristic used until session config carries explicit weights. */
+function zonesFromContext(): ZoneNode[] {
+  const ctx = getEventContext();
+  return ctx.zones.map((z) => ({
+    id: z.id,
+    name: z.name,
+    kind: "other",
+    weight: z.type === "engagement" || z.type === "reveal" ? 3 : 1,
+  }));
+}
+
 function fmt(n: number | null, digits = 0): string {
   if (n == null) return "—";
   return n.toLocaleString(undefined, { maximumFractionDigits: digits });
 }
 
 export function RoiScorecard() {
-  const scorecard = useMemo<Scorecard>(() => {
+  const { outcome } = useSessionOutcome({
+    zoneConfig: zonesFromContext(),
+    activationCost: 12000,
+    revenueInfluenced: 50400,
+  });
+
+  const localEvents = useMemo<RealmEvent[]>(() => {
     try {
       const ctx = getEventContext();
-      const events = readAll(getTenantId(), ctx.sessionId) as RealmEvent[];
-      if (!events.length) return DEMO;
-      const zones: ZoneNode[] = ctx.zones.map((z) => ({
-        id: z.id,
-        name: z.name,
-        kind: "other",
-        weight: z.type === "engagement" || z.type === "reveal" ? 3 : 1,
-      }));
-      return computeScorecard(events, {
-        zones,
-        engagedThresholdSec: 60,
-        // economics come from session goals later; demo values keep it live
-        activationCost: 12000,
-        revenueInfluenced: 50400,
-      });
+      return readAll(getTenantId(), ctx.sessionId) as RealmEvent[];
     } catch {
-      return DEMO;
+      return [];
     }
   }, []);
 
+  const scorecard = useMemo<Scorecard>(() => {
+    if (outcome) {
+      return {
+        reach: outcome.reach,
+        engagement: {
+          avgDwellSec: outcome.engagement.avgDwellSec,
+          dwellWeightedAttention: outcome.engagement.dwellWeightedAttention,
+          engagementRate: outcome.engagement.engagementRate,
+          surfaceInteractions: outcome.engagement.surfaceInteractions,
+          zoneParticipation: outcome.engagement.zoneParticipation,
+        },
+        affinity: outcome.affinity,
+        pipeline: outcome.pipeline,
+        benchmarkVerdict: outcome.benchmarkVerdict,
+      };
+    }
+    if (!localEvents.length) return DEMO;
+    return computeScorecard(localEvents, {
+      zones: zonesFromContext(),
+      engagedThresholdSec: 60,
+      activationCost: 12000,
+      revenueInfluenced: 50400,
+    });
+  }, [outcome, localEvents]);
+
+  const source: "remote" | "local" | "demo" = outcome
+    ? "remote"
+    : localEvents.length
+      ? "local"
+      : "demo";
+
   const v = verdictPill[scorecard.benchmarkVerdict];
+  const sp = sourcePill[source];
+  const holdingTimeIndex = outcome?.engagement.holdingTimeIndex ?? null;
+  const hygiene = outcome?.hygiene;
 
   return (
     <Panel
       title="ROI Scorecard · 4-layer framework"
       subtitle="Reach → Engagement → Affinity → Pipeline · industry-standard"
-      action={<Pill variant={v.variant}>{v.label}</Pill>}
+      action={
+        <div className="flex items-center gap-2">
+          <Pill variant={sp.variant}>{sp.label}</Pill>
+          <Pill variant={v.variant}>{v.label}</Pill>
+        </div>
+      }
     >
       <div className="p-6 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
         {/* Reach */}
@@ -110,7 +162,7 @@ export function RoiScorecard() {
           />
           <MiniRow label="Avg dwell" value={`${fmt(scorecard.engagement.avgDwellSec)}s`} />
           <MiniRow label="Dwell-weighted attn." value={fmt(scorecard.engagement.dwellWeightedAttention)} />
-          <MiniRow label="Surface interactions" value={fmt(scorecard.engagement.surfaceInteractions)} />
+          <MiniRow label="Holding time index" value={holdingTimeIndex != null ? `${fmt(holdingTimeIndex, 2)}×` : "—"} />
         </LayerCard>
 
         {/* Affinity */}
@@ -139,6 +191,33 @@ export function RoiScorecard() {
           <MiniRow label="Cost / qualified lead" value={scorecard.pipeline.costPerQualifiedLead != null ? `$${fmt(scorecard.pipeline.costPerQualifiedLead, 2)}` : "—"} />
         </LayerCard>
       </div>
+
+      {source === "remote" && hygiene && (
+        <div className="px-6 pb-5 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border-subtle pt-4">
+          <span className="eyebrow">Data quality</span>
+          <span className="text-xs text-text-muted">
+            {outcome?.source.eventsRead} events · {hygiene.dwellsIncluded} dwells counted
+          </span>
+          {hygiene.dwellsExcludedDropout > 0 && (
+            <span className="text-xs text-text-muted">
+              {hygiene.dwellsExcludedDropout} dropout dwell{hygiene.dwellsExcludedDropout > 1 ? "s" : ""} discounted
+            </span>
+          )}
+          {hygiene.dwellsExcludedInsane > 0 && (
+            <span className="text-xs text-text-muted">
+              {hygiene.dwellsExcludedInsane} sensor-noise dwell{hygiene.dwellsExcludedInsane > 1 ? "s" : ""} dropped
+            </span>
+          )}
+          {outcome?.engagement.holdingTimeByKind.length ? (
+            <span className="text-xs text-text-muted">
+              holding time vs. expected:{" "}
+              {outcome.engagement.holdingTimeByKind
+                .map((k) => `${k.kind} ${fmt(k.normalized, 2)}×`)
+                .join(" · ")}
+            </span>
+          ) : null}
+        </div>
+      )}
     </Panel>
   );
 }

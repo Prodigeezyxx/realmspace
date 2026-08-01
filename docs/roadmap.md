@@ -68,36 +68,59 @@ choice, one `docker compose up` away.)*
 `VISION.md` §4: scorecard, session outcome API, report generator, live ROI
 tile, twin replay.)*
 
-- 🔲 **Spatial-event deriver** (the linchpin producer): zone polygons +
+- ✅ **Spatial-event deriver** (the linchpin producer): zone polygons +
       `perception.detection` → `spatial.zone_enter` / `zone_exit` / `dwell` /
       `passby` onto the bus. The scorecard, the rules engine (P3), and the graph
-      writer's zone edges all depend on this. Edge-side consumer.
-- 🔲 **Session-hygiene heuristics** in the deriver (from `docs/research/
+      writer's zone edges all depend on this. *(Browser-side next to the tracker
+      since zones and tracks share one coordinate space there; edge-side consumer
+      needs a booth→camera mapping first — shipped 2026-07-29.)*
+- ✅ **Session-hygiene heuristics** in the deriver (from `docs/research/
       2026-07-27-chi26-digital-twins-and-cv-dump.md` — the CHI '26 field study
-      discarded 71% of raw sessions): session bounds, duration sanity,
-      fragmented-track merge, dropout flags. Pre-empts "report contradicts the
-      door count."
-- 🔲 **4-layer scorecard consumer** (Reach/Engagement/Affinity/Pipeline) —
-      real formulas from `roi-framework.md`, computed over the graph; adopts
-      Visitor-Studies vocabulary (*attracting power*, *holding time*) alongside
-      our layer names
-- 🔲 **Per-touchpoint-type metric normalization** in the scorecard — holding
-      time vs. expected-for-type (AR/game/screen/RFID/product carry dwell
-      targets in presets). The cross-exhibit comparison problem academia
-      explicitly couldn't solve (CHI '26 C3) is our product feature.
-- 🔲 **Session outcome API** — REST endpoint returning the full scorecard per
+      discarded 71% of raw sessions): confirm-window, duration sanity,
+      dropout flags, session-end flush in the deriver; consumer-side dropout
+      discounting + insane-dwell drop in the scorecard. *(Fragmented-track
+      merge remains a tracker-level concern — seams are marked by dropout
+      flags.)*
+- ✅ **4-layer scorecard consumer** (Reach/Engagement/Affinity/Pipeline) —
+      real formulas from `roi-framework.md`, computed over the durable bus
+      (replayable, seq-traceable); adopts Visitor-Studies vocabulary
+      (*attracting power*, *holding time*) alongside our layer names
+      *(shipped 2026-08-01 — `backend/app/scorecard.py`; client-side
+      `lib/roi/scorecard.ts` kept in lockstep as offline fallback)*
+- ✅ **Per-touchpoint-type metric normalization** in the scorecard — holding
+      time vs. expected-for-type (entry/reveal/engagement/lounge/retail/
+      sponsor/demo/press/exit presets in `scorecard.py`; AR/game/screen/RFID/
+      product targets land with surface-level data). The cross-exhibit
+      comparison problem academia explicitly couldn't solve (CHI '26 C3) is
+      our product feature.
+- ✅ **Session outcome API** — REST endpoint returning the full scorecard per
       session, tenant-filtered; powers report + live tile + external pulls
-- 🔲 Report generator: templated from **real session data** (same layout, real
-      numbers); figures cite source event seqs so an auditor can trace any number
-- 🔲 Live ROI tile on `/live` (day-2 optimisation)
-- 🔲 Signature metrics: dwell-weighted attention, engagement rate, funnel, CPEV
+      *(`GET /v1/sessions/{tenant_id}/{session_id}/outcome`, 2026-08-01)*
+- ✅ **Report generator: templated from **real session data** (same layout, real
+      numbers) — `/report` renders a data-driven report when a session has bus
+      events (hero numbers, first-touch funnel, zone-by-zone, top moments,
+      rule-generated cited recommendations), static pitch copy otherwise.
+      Figures cite the event stream (counts + per-figure source metrics);
+      full seq-range auditing + PDF export land with the report polish item.
+      *(2026-08-01 — `ReportLive.tsx` + `useSessionOutcome()` hook; outcome
+      API carries zone breakdown / funnel / peak time / longest dwell.)*
+- ✅ **Live ROI tile on `/live`** (day-2 optimisation) — operator-facing
+      scorecard strip (ROI ratio + benchmark pill, engagement rate, avg dwell,
+      holding-time index), polling the outcome API every 15s; honest
+      "no data yet" state. *(2026-08-01 — `LiveRoiTile.tsx`, non-demo
+      sessions)*
+- ✅ **Signature metrics** live in the scorecard/outcome API: dwell-weighted
+      attention, engagement rate, first-touch funnel, CPEV *(2026-08-01)*
 - 🔲 Twin plays back **recorded** sessions from the bus (replace seed paths;
       virtual clock + scrub seeks the cursor — data swap, not a rebuild)
 - 🔲 **Ask the Room** real: LLM → **constrained, validated query templates over
       the relational projection** (allow-list; rejects off-schema input) →
       answer. *Needs AI provider key + ADR for template-vs-Cypher (see open
       decision 3).* Regex mocks removed.
-- 🔲 Metric definitions locked for v1 scorecard (formulas frozen in repo)
+- ✅ **Metric definitions locked for v1 scorecard** — formulas frozen in
+      `docs/metric-definitions.md` (hygiene rules, layer formulas,
+      expected-dwell presets, economics; any future change is a versioned v2,
+      never an edit-in-place) *(2026-08-01)*
 
 **Acceptance:** 24h after a session, a client gets a data-true report with the
 4-layer scorecard and a stated ROI ratio; Ask answers a live question in

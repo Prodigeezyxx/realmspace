@@ -8,7 +8,12 @@
  * Same event shapes as @/lib/contracts — storage swap, callers unchanged.
  */
 
-import type { RealmEvent, RealmEventInput, RealmEventType } from "@/lib/contracts";
+import type {
+  RealmEvent,
+  RealmEventInput,
+  RealmEventType,
+  SessionOutcome,
+} from "@/lib/contracts";
 
 const DEFAULT_URL =
   typeof process !== "undefined"
@@ -78,8 +83,35 @@ export async function remoteGraphSnapshot(
   return res.json();
 }
 
-export async function remoteAuthResolve(email: string, baseUrl = DEFAULT_URL) {
-  if (!baseUrl) return null;
+export async function remoteSessionOutcome(
+  tenantId: string,
+  sessionId: string,
+  opts: {
+    activationCost?: number;
+    revenueInfluenced?: number;
+    qualifiedLeads?: number;
+    engagedThresholdSec?: number;
+    zoneConfig?: { id: string; kind?: string; weight?: number }[];
+    baseUrl?: string;
+  } = {}
+): Promise<SessionOutcome | null> {
+  const base = opts.baseUrl ?? DEFAULT_URL;
+  if (!base) return null;
+  const q = new URLSearchParams({
+    engagedThresholdSec: String(opts.engagedThresholdSec ?? 60),
+  });
+  if (opts.activationCost != null) q.set("activationCost", String(opts.activationCost));
+  if (opts.revenueInfluenced != null) q.set("revenueInfluenced", String(opts.revenueInfluenced));
+  if (opts.qualifiedLeads != null) q.set("qualifiedLeads", String(opts.qualifiedLeads));
+  if (opts.zoneConfig?.length) q.set("zoneConfig", JSON.stringify(opts.zoneConfig));
+  const res = await fetch(
+    `${base}/v1/sessions/${encodeURIComponent(tenantId)}/${encodeURIComponent(sessionId)}/outcome?${q}`
+  );
+  if (!res.ok) throw new Error(`remoteSessionOutcome failed: ${res.status}`);
+  return (await res.json()) as SessionOutcome;
+}
+
+export async function remoteAuthResolve(email: string, baseUrl = DEFAULT_URL) {  if (!baseUrl) return null;
   const res = await fetch(
     `${baseUrl}/v1/auth/resolve?email=${encodeURIComponent(email)}`
   );

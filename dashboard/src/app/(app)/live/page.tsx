@@ -16,6 +16,7 @@ import { EventTimeline } from "@/components/viz/EventTimeline";
 import { Heatmap } from "@/components/viz/Heatmap";
 import { TrafficChart } from "@/components/viz/TrafficChart";
 import { LiveDetectorSlot } from "@/components/live/LiveDetectorSlot";
+import { LiveRoiTile } from "@/components/live/LiveRoiTile";
 import { ZoneList } from "@/components/viz/ZoneList";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
@@ -291,6 +292,8 @@ export default function LivePage() {
 
         {/* Side column */}
         <div className="col-span-12 xl:col-span-4 space-y-5">
+          {!isDemo && <LiveRoiTile />}
+
           {isDetectorRunning && stats && stats.activeTracks.length > 0 && (
             <Panel
               title="Tracked subjects · live"

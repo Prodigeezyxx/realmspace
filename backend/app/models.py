@@ -84,3 +84,104 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     database: str
+
+
+class ReachLayer(BaseModel):
+    uniqueVisitors: int
+    entries: int
+    passBy: int
+    peakConcurrency: int
+
+
+class ZoneParticipation(BaseModel):
+    zoneId: str
+    visitors: int
+    pct: float
+
+
+class HoldingTimeByKind(BaseModel):
+    kind: str
+    dwells: int
+    avgDwellSec: float
+    expectedSec: float
+    normalized: float
+
+
+class EngagementLayer(BaseModel):
+    avgDwellSec: float
+    dwellWeightedAttention: float
+    engagementRate: float
+    zoneParticipation: list[ZoneParticipation]
+    surfaceInteractions: int
+    holdingTimeByKind: list[HoldingTimeByKind]
+    holdingTimeIndex: float | None
+
+
+class AffinityLayer(BaseModel):
+    sentiment: float | None
+    npsLift: float | None
+    recallPct: float | None
+
+
+class PipelineLayer(BaseModel):
+    leadsCaptured: int
+    firstPartyCaptureRate: float
+    costPerEngagedVisit: float | None
+    costPerQualifiedLead: float | None
+    pipelineMultiple: float | None
+    roiRatio: float | None
+
+
+class SessionHygiene(BaseModel):
+    dwellsIncluded: int
+    dwellsExcludedDropout: int
+    dwellsExcludedInsane: int
+    dropoutExits: int
+    maxDwellSecApplied: float
+    engagedThresholdSec: float
+
+
+class ZoneOutcome(BaseModel):
+    zoneId: str
+    kind: str
+    entries: int
+    visitors: int
+    avgDwellSec: float
+    totalDwellSec: float
+
+
+class FunnelStepOutcome(BaseModel):
+    zoneId: str
+    kind: str
+    firstTouchVisitors: int
+    shareOfVisitors: float
+
+
+class LongestDwell(BaseModel):
+    anonId: str
+    zoneId: str
+    durationSec: float
+    at: int
+
+
+class OutcomeSource(BaseModel):
+    kind: str
+    eventsRead: int
+    note: str
+
+
+class SessionOutcome(BaseModel):
+    tenantId: str
+    sessionId: str
+    computedAt: str
+    reach: ReachLayer
+    engagement: EngagementLayer
+    affinity: AffinityLayer
+    pipeline: PipelineLayer
+    benchmarkVerdict: Literal["below", "strong", "exceptional", "unknown"]
+    hygiene: SessionHygiene
+    zones: list[ZoneOutcome]
+    funnel: list[FunnelStepOutcome]
+    peakConcurrencyAt: int | None
+    longestDwell: LongestDwell | None
+    source: OutcomeSource

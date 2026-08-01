@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { ReportGenerator } from "@/components/report/ReportGenerator";
+import { ReportLive } from "@/components/report/ReportLive";
 import { RoiScorecard } from "@/components/report/RoiScorecard";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -22,12 +23,27 @@ import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { Heatmap } from "@/components/viz/Heatmap";
+import { useSessionOutcome } from "@/hooks/useSessionOutcome";
+import { getEventContext } from "@/lib/event-context";
 import { getTypeMeta, PRIMARY_OBJECTIVE_OPTIONS } from "@/lib/session/presets";
 import { useActiveSession } from "@/lib/session/store";
 import { formatDuration } from "@/lib/utils";
 
 export default function ReportPage() {
   const activeSession = useActiveSession();
+  const { outcome, state } = useSessionOutcome({
+    zoneConfig: getEventContext().zones.map((z) => ({
+      id: z.id,
+      kind: z.type,
+      weight: z.type === "engagement" || z.type === "reveal" ? 3 : 1,
+    })),
+    activationCost: 12000,
+    revenueInfluenced: 50400,
+  });
+
+  if (state === "remote" && outcome) {
+    return <ReportLive outcome={outcome} />;
+  }
   if (!activeSession.isDemo) {
     return <ReportEmptyState />;
   }

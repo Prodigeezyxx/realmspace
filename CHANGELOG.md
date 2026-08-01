@@ -6,7 +6,104 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Each entry explains what changed **in plain words** first, then the technical detail.
 Sections are dated (with time, local timezone +0100) so you can see when things landed.
 
-## [Unreleased] — last updated 2026-07-29 (night)
+## [Unreleased] — last updated 2026-08-01 (afternoon)
+
+### Added — 2026-08-01 (evening) — Phase 2: the live ROI tile on `/live`
+
+- **Operators can now watch the ROI number move while the room is running.**
+  A new "Live ROI" tile sits at the top of the live screen's side column for
+  real (non-demo) sessions: the big ROI-per-dollar figure with its benchmark
+  verdict pill, engagement rate, average dwell, and the holding-time index —
+  all refreshed every 15 seconds straight from the edge API. It's the
+  day-2 optimisation surface: the scorecard the report will print tomorrow
+  is the scorecard the operator is steering today. When the bus has no
+  events yet, the tile says so instead of showing anything fake.
+  *New `dashboard/src/components/live/LiveRoiTile.tsx` (polling via
+  `useSessionOutcome({ pollMs })`); mounted in `live/page.tsx` for
+  non-demo sessions only — the pitch demo's look is untouched.*
+
+- **The v1 scorecard formulas are now frozen in the repo.** A client's report
+  must be reproducible forever, so every metric — hygiene rules, the four
+  layers, expected-dwell presets, economics inputs — is written down once in
+  `docs/metric-definitions.md` with its formula, source events, and the two
+  reference implementations that must stay in lockstep. Any future change is
+  a versioned v2, never an edit-in-place.
+  *New `docs/metric-definitions.md`; roadmap P2 items "signature metrics"
+  and "metric definitions locked" marked done.*
+
+### Added — 2026-08-01 (late afternoon) — Phase 2: the report now runs on real session data
+
+- **The client report is no longer a static mock.** When a session has real
+  events on the bus, `/report` now renders a data-driven report: hero numbers
+  (unique visitors, avg dwell, pass-by, CPEV), a first-touch funnel ("where
+  visitors went first" — a real path-order signal, not a made-up sequence),
+  zone-by-zone dwell, top moments (peak concurrency time + longest single
+  dwell, both clock-tagged), and rule-generated recommendations that each
+  cite the figure that produced them. The static pitch copy still renders
+  when there is no real data — the demo stays honest.
+  *New `dashboard/src/components/report/ReportLive.tsx`; `report/page.tsx`
+  picks live report vs. demo via a new shared `useSessionOutcome()` hook
+  (also refactored into `RoiScorecard.tsx` so card and page share one fetch).*
+- **Every report number now has a paper trail.** The outcome API grew the
+  per-figure detail the report needs: a zone breakdown (entries, visitors,
+  avg + total dwell — computed over the bus where the collapsed graph
+  projection would lose multi-visit dwells), the first-touch funnel,
+  `peakConcurrencyAt` (when the peak crowd happened), and `longestDwell`
+  (who, where, how long, when). The report footer and the headline cite the
+  event count, and recommendations name their source metric.
+  *`scorecard.py`: zone_breakdown + funnel + peak time + longest dwell;
+  new `ZoneOutcome` / `FunnelStepOutcome` / `LongestDwell` models; the
+  dashboard mirrors them in `contracts/outcome.ts`.*
+- **Verified by hand again**: 20+ assertions extended (zone breakdown sums,
+  funnel shares, peak/longest-dwell fields, empty-session edges) plus a live
+  HTTP check against a real server process (11 events → 2 visitors, dropout
+  discounted, funnel + longest dwell present).
+
+### Added — 2026-08-01 (afternoon) — Phase 2: the session outcome API (scorecard is now server-authoritative)
+
+- **The ROI scorecard is now a real backend endpoint, computed from the
+  durable event stream — not just a client-side calculation.** A session's
+  four layers (Reach / Engagement / Affinity / Pipeline) are now served as
+  `GET /v1/sessions/{tenant}/{session}/outcome` by the edge API, so the
+  report and (later) the live tile all pull one authoritative number set
+  that any auditor can trace back to the bus. The dashboard's scorecard
+  card now asks the edge API first, falls back to the local durable log,
+  and only then to demo data — with a "source" pill always stating which
+  one is showing.
+  *New `backend/app/scorecard.py` (consumer over `bus.read()`; formulas
+  mirror `dashboard/src/lib/roi/scorecard.ts` in lockstep) +
+  `SessionOutcome` models + `GET /v1/sessions/{tenant_id}/{session_id}/
+  outcome` in `backend/app/main.py`; `remoteSessionOutcome()` in
+  `dashboard/src/lib/bus/remote.ts`; new `contracts/outcome.ts` contract;
+  `RoiScorecard.tsx` now fetches remote-first with a local/demo fallback
+  and a visible source pill.*
+- **The scorecard now discounts noisy data instead of silently reporting
+  it** — the CHI '26 field-study lesson applied to our own numbers. A visit
+  that ends in a tracked-person dropout (track disappeared mid-zone) is
+  excluded from dwell stats and counted separately, and dwells longer than
+  2 hours (a sensor hang, not a visit) are dropped as noise. The card shows
+  a "data quality" line so a client never sees cooked numbers pretending to
+  be clean.
+  *Dropout discounting keys on the `reason="dropout"` flag on the preceding
+  `spatial.zone_exit`; duration sanity capped at `MAX_DWELL_SEC` (2h);
+  both exposed in `SessionOutcome.hygiene`.*
+- **Exhibits are now compared fairly, per type — the metric the CHI '26
+  paper said the field couldn't produce.** "Holding time index" reports
+  average dwell relative to an expected dwell for the zone's kind
+  (entry/reveal/engagement/lounge/retail/sponsor/demo/press/exit…), so a
+  45-second screen visit and a 2-minute demo are judged against their own
+  baselines, not against each other. v1 expected-dwell presets are frozen
+  in the backend and overridable per call.
+  *`holdingTimeByKind` + `holdingTimeIndex` on the engagement layer;
+  `EXPECTED_DWELL_SEC_BY_KIND` presets in `scorecard.py`, overridable via
+  `expectedDwellSecByKind` query param; zone kinds/weights passed in via
+  `zoneConfig` until a `session.started` producer carries them.*
+- **Verified by hand before trusting it**: 20+ assertions over a scripted
+  session (weighted attention math, dropout exclusion, insane-dwell drop,
+  per-kind normalization, engagement threshold, pipeline economics, ROI
+  benchmark verdicts, empty-session edge) all pass
+  (`backend/app/scorecard_test.py`), plus a live HTTP check against a real
+  server process.
 
 ### Added — 2026-07-29 (night) — Phase 2 linchpin: the spatial-event deriver
 
