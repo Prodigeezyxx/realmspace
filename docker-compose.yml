@@ -91,7 +91,13 @@ services:
       # Service names, not localhost. Verified that environment variables take
       # precedence over the .env file in pydantic-settings, so this wins without
       # the image ever containing a .env.
-      DATABASE_URL: postgresql+asyncpg://realmspace:realmspace@postgres:5432/realmspace
+      # The app connects as realmspace_app, which migration 0003 creates and
+      # which is neither a superuser nor an owner — so the row-level security
+      # policies actually apply to it. POSTGRES_USER (`realmspace`) is a
+      # superuser in this image and would bypass them entirely.
+      DATABASE_URL: postgresql+asyncpg://realmspace_app@postgres:5432/realmspace
+      # Alembic needs CREATE/ALTER, and creates the app role itself.
+      ADMIN_DATABASE_URL: postgresql+asyncpg://realmspace:realmspace@postgres:5432/realmspace
       # No TEST_DATABASE_URL: this stack creates only `realmspace`, and
       # pointing at a `realmspace_test` that does not exist would give anyone
       # running pytest in the container a confusing connection error. Tests run

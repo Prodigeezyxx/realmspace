@@ -80,13 +80,20 @@ async def test_cannot_read_another_tenant(
     """
     from app import repository
     from app.schemas import EventIn
+    from tests.conftest import as_tenant
 
     await client.post("/events", json=make_event())
+
+    # Planting the foreign row now requires acting as that tenant — row-level
+    # security rejects the write otherwise. That refusal is itself part of the
+    # guarantee, so the test declares the tenant and switches back.
+    await as_tenant(db_session, OTHER)
     await repository.append_event(
         db_session,
         EventIn(**{**make_event(), "tenant_id": OTHER, "event_id": uuid.uuid4()}),
     )
     await db_session.commit()
+    await as_tenant(db_session, TENANT)
 
     rows = (await client.get("/events")).json()
     assert len(rows) == 1

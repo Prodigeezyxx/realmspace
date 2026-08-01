@@ -231,6 +231,11 @@ class TrackerConsumer(Consumer):
 
         if emitted:
             async with db.SessionLocal() as session:
+                # A fresh session carries no tenant scope, and under RLS an
+                # unscoped INSERT is rejected by the WITH CHECK policy. The
+                # tenant is the source event's — the tracker only ever emits
+                # about the tenant it is reading.
+                await db.scope_to_tenant(session, event.tenant_id)
                 for out in emitted:
                     await repository.append_event(session, out)
                 await session.commit()

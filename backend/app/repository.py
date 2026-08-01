@@ -9,7 +9,7 @@ same process, and they will call read_events() directly with no router involved.
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -170,6 +170,7 @@ async def record_dead_letter(
     session: AsyncSession,
     *,
     consumer: str,
+    tenant_id: str,
     event_seq: int,
     error: str,
     attempts: int,
@@ -181,7 +182,11 @@ async def record_dead_letter(
     surfaces in the HITL review screen for a human instead (roadmap P3).
     """
     row = DeadLetter(
-        consumer=consumer, event_seq=event_seq, error=error[:2000], attempts=attempts
+        consumer=consumer,
+        tenant_id=tenant_id,
+        event_seq=event_seq,
+        error=error[:2000],
+        attempts=attempts,
     )
     session.add(row)
     await session.flush()
@@ -212,7 +217,10 @@ async def list_tenants(session: AsyncSession) -> list[str]:
     an edge kit runs one tenant's activation at a time (multi-tenant.md §2), so
     this is a very short list in practice. A real registry is Phase 6.
     """
-    result = await session.execute(
-        select(EventLog.tenant_id).distinct().order_by(EventLog.tenant_id)
-    )
+    # Via app_tenants(), a SECURITY DEFINER function added in migration 0003.
+    # "which tenants exist" is inherently a cross-tenant question, so under
+    # row-level security a direct SELECT here returns nothing. That function is
+    # the one deliberate, narrow exemption: no arguments, tenant identifiers
+    # only, never row data.
+    result = await session.execute(text("SELECT tenant_id FROM app_tenants()"))
     return list(result.scalars().all())

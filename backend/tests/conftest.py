@@ -27,19 +27,53 @@ from alembic import command
 from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
 from neo4j import AsyncSession as Neo4jAsyncSession
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.auth.models import ApiKey, AuthUser
 from app.auth.tokens import generate_api_key, issue_token
 from app.config import get_settings
-from app.db import get_session, make_engine
+from app.db import get_session, make_engine, scope_to_tenant
 from app.main import app
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
+#: The tenant almost every test works in. `t_other` exists only to be
+#: unreachable — see test_auth.py and test_rls.py.
+TENANT = "t_floats"
+
+async def as_tenant(session, tenant: str) -> None:
+    """Act as `tenant` for the rest of this test.
+
+    Under row-level security a session may only read and write the tenant it has
+    declared, so a test that seeds two tenants has to say so — the same
+    discipline the application follows, where each request scopes itself from
+    its credential.
+
+    The choice is stored on the session rather than in a module-level variable,
+    and that is not incidental: pytest loads conftest.py under its own module
+    name, so a test doing `from tests.conftest import …` gets a *second* module
+    object with its own globals. Module state would have been mutated in one
+    copy and read from the other — which is exactly the bug this replaced, and
+    it presented as scoping silently reverting after a commit.
+    """
+    session.sync_session.info["tenant"] = tenant
+    await scope_to_tenant(session, tenant)
+
 
 def _test_url() -> str:
+    """The connection tests use — **as the RLS-constrained app role**.
+
+    This is the single most important line in the row-level-security work. The
+    fixtures used to connect as `antoniorobles`, a superuser, and a superuser
+    bypasses row-level security unconditionally — verified, and FORCE does not
+    change it. Every RLS test written against that connection would have passed
+    while proving precisely nothing.
+
+    It also means the whole existing suite now runs under the policies, which is
+    the real regression check: any query in the codebase that quietly relied on
+    seeing across tenants fails here.
+    """
     settings = get_settings()
     if not settings.test_database_url:
         raise RuntimeError("TEST_DATABASE_URL is not set in backend/.env")
@@ -47,6 +81,13 @@ def _test_url() -> str:
         # cheap guard against pointing the truncating fixtures at the dev DB
         raise RuntimeError("refusing to run tests against a non-test database")
     return settings.test_database_url
+
+
+def _admin_url() -> str:
+    """The owner connection, for fixture setup that must bypass the policies —
+    truncating tables between tests, and seeding another tenant's rows so an
+    isolation test has something to fail to see."""
+    return _test_url().replace("realmspace_app@", "antoniorobles@")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -61,7 +102,10 @@ def migrated_database() -> None:
     # env.py prefers this over DATABASE_URL, so the dev DB is never touched.
     import os
 
-    os.environ["ALEMBIC_DATABASE_URL"] = _test_url()
+    # The owner, not the app role. Migrations create tables, roles, policies and
+    # a SECURITY DEFINER function — every one of which the app role is
+    # deliberately not allowed to do.
+    os.environ["ALEMBIC_DATABASE_URL"] = _admin_url()
     command.downgrade(cfg, "base")
     command.upgrade(cfg, "head")
 
@@ -79,25 +123,43 @@ async def db_session() -> AsyncIterator[AsyncSession]:
     it silently skips every event and the test fails with an empty graph and no
     hint as to why. Tests would pass alone and fail in a suite.
     """
-    engine = make_engine(_test_url())
-    factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with factory() as session:
-        await session.execute(
+    # Wipe as the owner: TRUNCATE is a privilege the app role deliberately does
+    # not have, and it would in any case only be able to see its own tenant.
+    admin = make_engine(_admin_url())
+    async with async_sessionmaker(admin, expire_on_commit=False)() as cleaner:
+        await cleaner.execute(
             text(
                 "TRUNCATE event_log, consumer_cursor, dead_letter, "
                 "auth_user, api_key RESTART IDENTITY;"
             )
         )
-        await session.commit()
+        await cleaner.commit()
+    await admin.dispose()
+
+    engine = make_engine(_test_url())
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        # Re-scope on *every* transaction, not once at the start.
+        #
+        # `set_config(..., is_local => true)` is deliberately transaction-scoped
+        # — that is what stops a pooled connection carrying one request's tenant
+        # into the next. The consequence is that a commit clears it, so a fixture
+        # that scoped once would silently see nothing after the first commit.
+        # In the app this is a non-issue: every request scopes itself. Here the
+        # listener reproduces that.
+        @event.listens_for(session.sync_session, "after_begin")
+        def _rescope(_sess, _trans, connection):  # noqa: ANN001
+            # Literal rather than a bound parameter: asyncpg uses $1 paramstyle,
+            # not %s, and this runs below SQLAlchemy's parameter handling.
+            # TENANT is a module constant, never user input.
+            tenant = _sess.info.get("tenant", TENANT)
+            connection.exec_driver_sql(
+                f"SELECT set_config('app.tenant_id', '{tenant}', true)"
+            )
+
+        await scope_to_tenant(session, TENANT)
         yield session
     await engine.dispose()
-
-
-# ── credentials ───────────────────────────────────────────────────────────────
-
-#: The tenant almost every test works in. `t_other` exists only to be
-#: unreachable — see test_auth.py.
-TENANT = "t_floats"
 
 
 @pytest.fixture

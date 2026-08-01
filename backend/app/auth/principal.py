@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import tokens
 from app.auth.models import DEVICE_ROLE, ApiKey, AuthUser
-from app.db import get_session
+from app.db import get_session, scope_to_tenant
 
 
 @dataclass(frozen=True)
@@ -117,15 +117,29 @@ async def get_principal(
     bearer token both end up as a Principal with a verified tenant, so handlers
     never need to care which arrived.
     """
-    if x_api_key:
-        return await _principal_from_api_key(session, x_api_key)
+    principal: Principal | None = None
 
-    if authorization:
+    if x_api_key:
+        principal = await _principal_from_api_key(session, x_api_key)
+    elif authorization:
         scheme, _, credential = authorization.partition(" ")
         if scheme.lower() == "bearer" and credential:
-            return await _principal_from_token(session, credential)
+            principal = await _principal_from_token(session, credential)
 
-    raise UNAUTHENTICATED
+    if principal is None:
+        raise UNAUTHENTICATED
+
+    # Tell the database which tenant this request may touch. Everything after
+    # this point is constrained by the row-level security policies from
+    # migration 0003 — including any query someone adds later and forgets to
+    # scope, which is the entire reason for doing it here rather than trusting
+    # each call site.
+    #
+    # It happens after authentication because the tenant comes *from* the
+    # verified credential. The auth tables themselves are deliberately not
+    # under RLS, or this lookup could not have happened at all.
+    await scope_to_tenant(session, principal.tenant_id)
+    return principal
 
 
 async def require_reader(

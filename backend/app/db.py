@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -56,3 +57,27 @@ async def get_session() -> AsyncIterator[AsyncSession]:
         except Exception:
             await session.rollback()
             raise
+
+
+async def scope_to_tenant(session: AsyncSession, tenant_id: str) -> None:
+    """Declare which tenant this transaction is allowed to touch.
+
+    The row-level security policies added in migration 0003 read
+    `current_setting('app.tenant_id')`. Until this is called the setting is
+    unset, `current_setting(..., true)` returns NULL, NULL never equals a
+    tenant_id, and every scoped table returns zero rows. It fails closed.
+
+    ## The third argument is the whole safety property
+
+    `set_config(key, value, is_local => true)` scopes the setting to the current
+    **transaction**. A plain `SET` would attach it to the *connection* — and
+    connections are pooled. The next request to borrow that connection would
+    inherit the previous request's tenant and be served somebody else's data:
+    a cross-tenant leak introduced by the mechanism meant to prevent them.
+
+    There is a test that pins this. It is not a hypothetical.
+    """
+    await session.execute(
+        text("SELECT set_config('app.tenant_id', :tenant, true)"),
+        {"tenant": tenant_id},
+    )

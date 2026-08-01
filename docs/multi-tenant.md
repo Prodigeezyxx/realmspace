@@ -28,6 +28,13 @@ Organization (tenant)         e.g. "Floats", "Agency X", "Brand Y"
 
 - **Data:** every table carries `tenant_id`; every query is tenant-scoped;
   row-level security (or equivalent) enforced at the DB layer, not just the app.
+  **Status:** done for Postgres — `backend/alembic/versions/0003_rls.py` puts
+  forced RLS on `event_log`, `consumer_cursor` and `dead_letter`, and the app
+  connects as a role that is neither superuser nor owner (both bypass policies).
+  **Not possible for the graph:** Neo4j Community has no row-level security, no
+  per-tenant database and no property-existence constraint, so that half stays
+  application-enforced. Closing it needs an Enterprise licence or a different
+  store — see `data-model.md` → "Store decision".
 - **Event bus:** `event_log` is partitioned/filtered by `tenant_id`; consumer
   cursors are per `(consumer, tenant_id)` (see `event-bus-spec.md`).
 - **Edge deployments:** a physical kit runs one tenant's activation at a time;

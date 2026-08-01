@@ -17,7 +17,55 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-01 (morning)
+## [Unreleased] — last updated 2026-08-01 (midday)
+
+### Added — 2026-08-01 (midday) — `[neo4j-track]` the database now enforces tenant separation itself
+
+- **Until now, one client's data stayed separate from another's because the code
+  always remembered to keep it that way.** That held — but it was one forgotten
+  line away from not holding, and nothing would have said so. The database now
+  refuses on its own: a connection that hasn't declared which client it is
+  working for sees **nothing at all**, and one working for client A cannot reach
+  client B's data even by asking for it explicitly in raw SQL.
+  *Postgres row-level security on `event_log`, `consumer_cursor` and
+  `dead_letter`, forced so it applies to the table owner too. This is what
+  `multi-tenant.md` §2 asked for by name — "enforced at the DB layer, not just
+  the app".*
+
+- **The application now connects with fewer privileges than it had.** It can
+  read and write data and nothing else — it cannot create or alter tables, and
+  crucially it is not a superuser, because a superuser ignores these rules
+  entirely. Migrations still run with full rights, as a separate connection.
+  *Verified before designing any of it: with a superuser, enabling the policies
+  changed nothing at all.*
+
+- **Failure notes get scoped too.** The queue of events the system couldn't
+  process stores a full error trace, which can quote the original event — so it
+  was a small leak between clients. It now records which client it belongs to,
+  which the human review screen planned for a later phase needs regardless.
+
+- **The existing 68 tests were re-run under the new restrictions**, which is the
+  real check: anything in the codebase quietly relying on unrestricted access
+  breaks here. Three places did, all now fixed — the tracker and the live feed
+  each open their own database connection and had to declare a client, and one
+  test helper was reading another client's progress.
+
+- **Verified by trying to break it**, not by reading the policies: granting the
+  application the bypass privilege fails seven tests; removing the "applies to
+  owners too" setting fails one written specifically because no ordinary test
+  can detect that.
+
+- **A trap worth naming.** The client is recorded per *transaction*, not per
+  connection. Connections are reused, so a per-connection setting would let one
+  request inherit the previous request's client and be served their data — a
+  leak created by the fix for leaks. There is a test that fails if that ever
+  changes.
+
+- **This covers the event log, not the graph.** Neo4j's free edition has no
+  equivalent feature, so that half stays enforced by application code. Closing
+  it needs a paid licence or a different store, and that decision is recorded
+  rather than quietly deferred.
+
 
 ### Added — 2026-08-01 (morning) — `[neo4j-track]` one command and you have a backend
 

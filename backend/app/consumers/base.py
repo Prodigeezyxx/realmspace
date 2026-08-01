@@ -89,6 +89,12 @@ class Consumer(ABC):
         consumed = 0
 
         async with db.SessionLocal() as session:
+            # Consumers process every tenant in turn, so each batch declares
+            # which one it is working on. Without this every query below returns
+            # nothing — RLS fails closed, which is the right direction but a
+            # confusing silence if you forget.
+            await db.scope_to_tenant(session, tenant_id)
+
             cursor = await repository.get_cursor(
                 session, consumer=self.name, tenant_id=tenant_id
             )
@@ -114,7 +120,7 @@ class Consumer(ABC):
 
             for event in events:
                 if self.wants(event):
-                    await self._handle_with_retries(session, event)
+                    await self._handle_with_retries(session, event, tenant_id)
                     # a dead-lettered event falls through and is skipped past
                 self._high_water[tenant_id] = event.seq
                 consumed += 1
@@ -141,7 +147,9 @@ class Consumer(ABC):
 
         return consumed
 
-    async def _handle_with_retries(self, session, event: EventLog) -> bool:
+    async def _handle_with_retries(
+        self, session, event: EventLog, tenant_id: str
+    ) -> bool:
         """Try the handler, then dead-letter. Returns False if it was parked.
 
         `seq` is read once, up front, and never off `event` again inside the
@@ -180,6 +188,7 @@ class Consumer(ABC):
         await repository.record_dead_letter(
             session,
             consumer=self.name,
+            tenant_id=tenant_id,
             event_seq=event_seq,
             error=last_error,
             attempts=settings.consumer_max_attempts,

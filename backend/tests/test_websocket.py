@@ -74,7 +74,13 @@ def ws_client():
     # the TestClient's (for the app). Pooling would leave connections owned by
     # one loop being closed from another — "Future attached to a different loop".
     # Not pooling in a test costs nothing.
+    # The app role, so the consumers run under the RLS policies exactly as they
+    # do in production. TRUNCATE below goes through a separate owner connection,
+    # because the app role deliberately cannot truncate.
     engine = create_async_engine(_test_url(), poolclass=NullPool)
+    admin_engine = create_async_engine(
+        _test_url().replace("realmspace_app@", "antoniorobles@"), poolclass=NullPool
+    )
     original = app_db.SessionLocal
     app_db.SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
@@ -89,7 +95,7 @@ def ws_client():
         from app.auth.models import ApiKey, AuthUser
         from app.auth.tokens import generate_api_key, issue_token
 
-        async with app_db.SessionLocal() as s:
+        async with async_sessionmaker(admin_engine, expire_on_commit=False)() as s:
             await s.execute(
                 text(
                     "TRUNCATE event_log, consumer_cursor, dead_letter, "
@@ -116,7 +122,8 @@ def ws_client():
         yield client
 
     app_db.SessionLocal = original
-    asyncio.run(engine.dispose())  # no-op with NullPool, but keeps intent clear
+    asyncio.run(engine.dispose())
+    asyncio.run(admin_engine.dispose())  # no-op with NullPool, but keeps intent clear
 
 
 def make_event(**overrides) -> dict:
@@ -286,6 +293,10 @@ def _wait_until_broadcast_passed(tenant_id: str, *, tries: int = 100) -> None:
 
     async def cursor() -> int:
         async with app_db.SessionLocal() as s:
+            # consumer_cursor is under RLS too, so reading another tenant's
+            # progress means declaring that tenant. An unscoped read would
+            # quietly return 0 forever and this helper would time out.
+            await app_db.scope_to_tenant(s, tenant_id)
             return await repository.get_cursor(
                 s, consumer="broadcast", tenant_id=tenant_id
             )
@@ -305,6 +316,9 @@ def _insert_foreign_event() -> None:
 
     async def go() -> None:
         async with app_db.SessionLocal() as s:
+            # Acting as the other tenant, because RLS refuses the write
+            # otherwise — the app role may only write the tenant it declares.
+            await app_db.scope_to_tenant(s, OTHER)
             await repository.append_event(
                 s,
                 EventIn(

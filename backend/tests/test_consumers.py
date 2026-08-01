@@ -42,6 +42,19 @@ LEFT_PX = [200, 400, 300, 600]    # centroid (250, 500) → 0.25 → left zone
 RIGHT_PX = [700, 400, 800, 600]   # centroid (750, 500) → 0.75 → right zone
 
 
+@pytest.fixture(autouse=True)
+async def _scope_to_test_tenant(db_session: AsyncSession):
+    """These tests work in `t_test`, not the default `t_floats`.
+
+    Row-level security means a session only sees and writes the tenant it has
+    declared, so saying so is now mandatory rather than cosmetic.
+    """
+    from tests.conftest import as_tenant
+
+    await as_tenant(db_session, T)
+    yield
+
+
 async def seed_zones(graph_session: GraphSession, tenant_id: str = T) -> None:
     await graph_repo.upsert_session(
         graph_session, tenant_id=tenant_id, session_id=S, venue="Test Hall"
@@ -348,8 +361,14 @@ async def test_consumers_are_tenant_isolated(
     graph, even though both are processed by the same loop."""
     await seed_zones(graph_session, tenant_id=T)
     await seed_zones(graph_session, tenant_id=OTHER)
+    from tests.conftest import as_tenant
+
     await detect(db_session, bbox=LEFT_PX, at=BASE, tenant_id=T)
+    # Writing another tenant's row requires acting as them — RLS rejects it
+    # otherwise, which is the point.
+    await as_tenant(db_session, OTHER)
     await detect(db_session, bbox=LEFT_PX, at=BASE, tenant_id=OTHER, anon_id="P-999")
+    await as_tenant(db_session, T)
 
     await TrackerConsumer().run_once()
     await GraphWriterConsumer().run_once()

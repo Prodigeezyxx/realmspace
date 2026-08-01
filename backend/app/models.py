@@ -84,8 +84,13 @@ class DeadLetter(Base):
     (roadmap Phase 3) for a human to retry or fix."""
 
     __tablename__ = "dead_letter"
+    __table_args__ = (Index("dead_letter_tenant_id_idx", "tenant_id"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # Added in migration 0003 so dead letters can be tenant-scoped by RLS. The
+    # error column holds a traceback, which can quote the event payload, so an
+    # unscoped dead_letter leaks across tenants.
+    tenant_id: Mapped[str] = mapped_column(Text, nullable=False)
     consumer: Mapped[str] = mapped_column(Text, nullable=False)
     event_seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
     error: Mapped[str] = mapped_column(Text, nullable=False)

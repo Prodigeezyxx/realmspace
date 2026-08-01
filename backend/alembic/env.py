@@ -34,7 +34,7 @@ if config.config_file_name is not None:
 # build the schema in realmspace_test).
 config.set_main_option(
     "sqlalchemy.url",
-    os.environ.get("ALEMBIC_DATABASE_URL") or get_settings().database_url,
+    os.environ.get("ALEMBIC_DATABASE_URL") or get_settings().migration_url,
 )
 
 # What autogenerate diffs the live database against.

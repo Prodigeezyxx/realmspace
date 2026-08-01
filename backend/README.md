@@ -178,10 +178,31 @@ gets the same `seq` back, with no second row. Valid `type` values are the
 taxonomy in `../docs/event-bus-spec.md` §3.
 
 There is deliberately no way to query the log unscoped, or scoped to a tenant
-you do not hold a credential for (`../docs/multi-tenant.md` §2). Isolation is
-enforced in the application today. Postgres row-level security — what
-`multi-tenant.md` §2 literally asks for — is the next item; note that it can only
-ever cover the Postgres half, since Neo4j Community has no equivalent.
+you do not hold a credential for (`../docs/multi-tenant.md` §2).
+
+**Postgres enforces this itself, not just the application.** Migration 0003 puts
+row-level security on `event_log`, `consumer_cursor` and `dead_letter`, and the
+app connects as `realmspace_app` — neither a superuser nor an owner, because
+both bypass policies. Raw SQL naming another tenant returns nothing.
+
+Two things follow that are easy to trip over:
+
+- **A session must declare its tenant** via `db.scope_to_tenant(session, …)`, or
+  it sees zero rows. It fails closed. The HTTP path does this automatically once
+  a credential is verified; consumers do it per batch. Anything opening its own
+  session must do it itself.
+- **The scope is transaction-local**, deliberately. `set_config(…, is_local =>
+  true)` means a pooled connection cannot carry one request's tenant into the
+  next — which would be a cross-tenant leak caused by the fix for cross-tenant
+  leaks. A commit therefore clears it.
+
+`auth_user` and `api_key` are deliberately **not** under RLS: authenticating
+means reading them to discover which tenant the caller is, so a policy keyed on
+that tenant would need the answer before the lookup that produces it.
+
+**This covers the event log, not the graph.** Neo4j Community has no row-level
+security, so `app/graph/repository.py` remains the only thing isolating tenants
+there. See `../docs/data-model.md` → "Store decision".
 
 ## Test
 

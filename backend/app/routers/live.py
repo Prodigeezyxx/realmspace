@@ -104,6 +104,9 @@ async def live_socket(
     # also in the replay window.
     session: AsyncSession
     async with db.SessionLocal() as session:
+        # Scoped to the tenant the token was verified against, so the replay is
+        # constrained by the database and not only by the query's WHERE clause.
+        await db.scope_to_tenant(session, tenant_id)
         missed = await repository.read_events(
             session,
             tenant_id=tenant_id,

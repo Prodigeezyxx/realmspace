@@ -25,8 +25,19 @@ class Settings(BaseSettings):
     )
 
     # postgresql+asyncpg://... — the +asyncpg part picks the async driver.
+    #
+    # This connects as `realmspace_app`, which is neither a superuser nor the
+    # owner of anything, so row-level security applies to it (migration 0003).
+    # A superuser bypasses policies unconditionally — verified — so the role
+    # here is what makes the isolation real rather than decorative.
     database_url: str
     test_database_url: str | None = None
+
+    # The owner connection, used by Alembic only. Migrations need CREATE and
+    # ALTER; the app must never have them. Falls back to database_url so a
+    # deployment that has not split the roles still runs — with the policies
+    # inert, which the RLS tests will notice.
+    admin_database_url: str | None = None
 
     # "local" on the edge box, "cloud" when deployed. See event-bus-spec.md §5:
     # the bus is designed to run on the edge with no network.
@@ -34,6 +45,11 @@ class Settings(BaseSettings):
 
     # echo SQL to stdout — useful while learning what SQLAlchemy actually emits
     sql_echo: bool = False
+
+    @property
+    def migration_url(self) -> str:
+        """What Alembic connects with — the owner, or the app role if unsplit."""
+        return self.admin_database_url or self.database_url
 
     # Neo4j holds the graph (data-model.md; PRD.md §architecture). Postgres keeps
     # the event log and timeseries — they are separate stores on purpose.
