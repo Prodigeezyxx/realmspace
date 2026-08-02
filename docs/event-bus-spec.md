@@ -73,7 +73,7 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 
 | Type | Producer | Payload gist | Key consumers |
 |---|---|---|---|
-| `perception.detection` | edge perception | person bbox, conf, frame | tracker, graph |
+| `perception.detection` | edge perception | person bbox, conf, frame (+ optional `frameWidth`/`frameHeight` px so replay can reconstruct booth coords) | tracker, graph, twin replay |
 | `spatial.zone_enter` / `zone_exit` | tracker | anon_id, zone, ts | graph, rules, ROI |
 | `spatial.dwell` | tracker | anon_id, zone, duration | graph, rules, ROI |
 | `spatial.gaze` | tracker | anon_id, object, duration | graph, ROI |

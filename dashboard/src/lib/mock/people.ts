@@ -15,7 +15,7 @@ export interface PersonTrack {
   attentionScore: number; // 0..1
 }
 
-const palette = [
+export const palette = [
   "#3e83f7",
   "#00d4ff",
   "#bf5af2",

@@ -134,6 +134,32 @@ def read(
     return [_row_to_event(r) for r in rows]
 
 
+def list_sessions(tenant_id: str) -> list[dict[str, Any]]:
+    """Recorded sessions for a tenant, most recent first, with event counts."""
+    rows = db.fetchall(
+        """
+        SELECT session_id,
+               COUNT(*) AS event_count,
+               MIN(occurred_at) AS first_at,
+               MAX(occurred_at) AS last_at
+        FROM event_log
+        WHERE tenant_id = ?
+        GROUP BY session_id
+        ORDER BY last_at DESC
+        """,
+        (tenant_id,),
+    )
+    return [
+        {
+            "sessionId": r["session_id"],
+            "eventCount": int(r["event_count"]),
+            "firstAt": _ms_from_iso(r["first_at"]),
+            "lastAt": _ms_from_iso(r["last_at"]),
+        }
+        for r in rows
+    ]
+
+
 def get_cursor(consumer: str, tenant_id: str) -> int:
     row = db.fetchone(
         "SELECT last_seq FROM consumer_cursor WHERE consumer = ? AND tenant_id = ?",

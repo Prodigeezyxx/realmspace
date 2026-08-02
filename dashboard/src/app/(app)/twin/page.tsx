@@ -19,10 +19,13 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
+import { useTwinReplay, useRecordedSessions } from "@/hooks/useTwinReplay";
 import { peopleTracks } from "@/lib/mock/people";
 import { surfaces, zones } from "@/lib/mock/session";
 import { useLiveSession } from "@/lib/live-session/store";
 import { useActiveSession } from "@/lib/session/store";
+import { getTenantId } from "@/lib/tenant/context";
+import { positionsAtFrom } from "@/lib/twin/replay-tracks";
 import { useTwinLive } from "@/hooks/useTwinLive";
 import { cn, formatDuration } from "@/lib/utils";
 
@@ -46,28 +49,46 @@ export default function TwinPage() {
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
 
+  // Recorded-session replay: pick a recorded session (default: active, else most recent)
+  const tenantId = getTenantId();
+  const recordedSessions = useRecordedSessions(tenantId);
+  const [replaySessionId, setReplaySessionId] = useState<string | null>(null);
+  const effectiveReplayId = !isDemo
+    ? replaySessionId ??
+      (recordedSessions.some((s) => s.sessionId === activeSession.id)
+        ? activeSession.id
+        : (recordedSessions[0]?.sessionId ?? null))
+    : null;
+  const replay = useTwinReplay(effectiveReplayId);
+  const hasRecordedData =
+    !isDemo && replay.status === "ready" && replay.eventCount > 0;
+  const tracks = useMemo(() => {
+    if (!useLiveTwin && replay.tracks.length) return replay.tracks;
+    return peopleTracks;
+  }, [useLiveTwin, replay.tracks]);
+  const duration =
+    isDemo || useLiveTwin ? SESSION_DURATION : replay.durationSec || SESSION_DURATION;
+
   useEffect(() => {
     if (!playing || detectorRunning) return;
     const id = setInterval(() => {
       setTime((t) => {
         const next = t + 0.1 * speed;
-        return next > SESSION_DURATION ? 0 : next;
+        return next > duration ? 0 : next;
       });
     }, 100);
     return () => clearInterval(id);
-  }, [playing, speed, detectorRunning]);
+  }, [playing, speed, detectorRunning, duration]);
+
+  // Clamp to the current duration at render (duration shrinks on session switch)
+  const displayTime = Math.min(time, duration);
 
   const activeTracks = useMemo(
-    () =>
-      peopleTracks.filter((p) => {
-        const start = p.waypoints[0][2];
-        const end = p.waypoints[p.waypoints.length - 1][2];
-        return time >= start && time <= end;
-      }),
-    [time]
+    () => positionsAtFrom(tracks, displayTime),
+    [tracks, displayTime]
   );
 
-  if (!isDemo && !detectorRunning) {
+  if (!isDemo && !detectorRunning && !hasRecordedData && recordedSessions.length === 0) {
     return <TwinEmptyState />;
   }
 
@@ -75,9 +96,13 @@ export default function TwinPage() {
     <div className="p-5 max-w-[1600px] mx-auto space-y-4">
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <Pill variant={useLiveTwin ? "live" : "violet"} className="mb-2">
+          <Pill variant={useLiveTwin ? "live" : hasRecordedData ? "info" : "violet"} className="mb-2">
             <Sparkles size={11} />
-            {useLiveTwin ? "Digital twin · live" : "Digital twin · replay"}
+            {useLiveTwin
+              ? "Digital twin · live"
+              : hasRecordedData
+                ? "Digital twin · recorded replay"
+                : "Digital twin · demo replay"}
           </Pill>
           <h1 className="text-2xl font-semibold tracking-tight">
             {useLiveTwin ? "Live spatial twin" : "Pavilion No. 7 — 3D replay"}
@@ -85,10 +110,34 @@ export default function TwinPage() {
           <p className="text-sm text-text-secondary mt-1">
             {useLiveTwin
               ? "Mirrors webcam tracks and agent heatmap while Live runs — switch tabs freely."
-              : "Anonymous avatars on a scale model of the activation. Scrub the timeline."}
+              : hasRecordedData
+                ? `Rebuilt from ${replay.eventCount.toLocaleString()} bus events · ${replay.tracks.length} visitors · ${
+                    replay.source === "remote" ? "edge bus" : "this device"
+                  }`
+                : "Anonymous avatars on a scale model of the activation. Scrub the timeline."}
+            {!useLiveTwin && !hasRecordedData && !isDemo && (
+              <span className="text-text-muted">
+                {" "}
+                — no recording on the bus yet, showing demo tracks.
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {!isDemo && recordedSessions.length > 0 && (
+            <select
+              value={effectiveReplayId ?? ""}
+              onChange={(e) => setReplaySessionId(e.target.value || null)}
+              className="h-9 rounded-md border border-border-subtle bg-bg-panel px-2 text-xs text-text-secondary focus:border-border-strong outline-none"
+              title="Recorded session to replay"
+            >
+              {recordedSessions.map((s) => (
+                <option key={s.sessionId} value={s.sessionId}>
+                  {s.sessionId} · {s.eventCount.toLocaleString()} events
+                </option>
+              ))}
+            </select>
+          )}
           <Button
             variant={showHeatmap ? "primary" : "secondary"}
             size="sm"
@@ -111,24 +160,27 @@ export default function TwinPage() {
           <div className="panel-elevated overflow-hidden">
             <div className="aspect-[16/10] relative">
               <TwinScene
-                time={time}
+                time={displayTime}
                 showHeatmap={showHeatmap}
                 selectedPerson={selectedPerson}
                 liveMode={useLiveTwin}
                 liveAvatars={avatars}
                 liveHeatmap={heatmap}
+                tracks={tracks}
               />
               <div className="absolute top-3 left-3 flex items-center gap-2">
                 <Pill variant="live">
                   <span className="live-dot" />
-                  {useLiveTwin ? "Live feed" : `Replay · ${speed}×`}
+                  {useLiveTwin
+                    ? "Live feed"
+                    : `Replay · ${speed}×${hasRecordedData ? " · recorded" : ""}`}
                 </Pill>
                 <Pill variant="neutral">
-                  T+{formatDuration(time)}
+                  T+{formatDuration(displayTime)}
                 </Pill>
               </div>
               <div className="absolute top-3 right-3 flex items-center gap-2 text-[10px] tabular text-text-secondary">
-                <span>{activeTracks.length} visitor{activeTracks.length === 1 ? "" : "s"} in scene</span>
+                <span>{(useLiveTwin ? avatars.length : activeTracks.length)} visitor{(useLiveTwin ? avatars.length : activeTracks.length) === 1 ? "" : "s"} in scene</span>
                 <span className="text-text-faint">·</span>
                 <span>orbit · pinch to zoom</span>
               </div>
@@ -161,15 +213,15 @@ export default function TwinPage() {
                 <input
                   type="range"
                   min={0}
-                  max={SESSION_DURATION}
+                  max={duration}
                   step={0.5}
-                  value={time}
+                  value={displayTime}
                   onChange={(e) => setTime(parseFloat(e.target.value))}
                   className="w-full"
                 />
                 <div className="flex justify-between text-[10px] tabular text-text-muted">
-                  <span>{formatDuration(time)}</span>
-                  <span>{formatDuration(SESSION_DURATION)}</span>
+                  <span>{formatDuration(displayTime)}</span>
+                  <span>{formatDuration(duration)}</span>
                 </div>
               </div>
 
@@ -197,11 +249,11 @@ export default function TwinPage() {
         <div className="col-span-12 lg:col-span-3 space-y-4">
           <Panel
             title="Visitors in scene"
-            subtitle={`${activeTracks.length} active · ${peopleTracks.length} total`}
+            subtitle={`${activeTracks.length} active · ${tracks.length} total`}
             action={<Users size={14} className="text-text-muted" />}
           >
             <ul className="space-y-1.5">
-              {peopleTracks.map((p) => {
+              {tracks.map((p) => {
                 const inScene = activeTracks.some((a) => a.id === p.id);
                 const selected = selectedPerson === p.id;
                 return (
@@ -269,27 +321,35 @@ export default function TwinPage() {
 
           <Panel title="Interactive surfaces" padded={false}>
             <ul className="px-3 py-2 space-y-1">
-              {surfaces.map((s) => (
-                <li
-                  key={s.id}
-                  className="flex items-center gap-2.5 py-1 text-xs"
-                >
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      s.active ? "bg-accent-cyan" : "bg-text-faint"
-                    }`}
-                    style={
-                      s.active
-                        ? { boxShadow: "0 0 10px var(--accent-cyan)" }
-                        : undefined
-                    }
-                  />
-                  <span className="flex-1 truncate">{s.label}</span>
-                  <span className="text-text-muted tabular text-[10px]">
-                    {s.triggerCount}
-                  </span>
-                </li>
-              ))}
+              {surfaces.map((s) => {
+                const recordedCount = hasRecordedData
+                  ? tracks.reduce(
+                      (n, t) => n + (t.surfacesTriggered.includes(s.id) ? 1 : 0),
+                      0
+                    )
+                  : null;
+                return (
+                  <li
+                    key={s.id}
+                    className="flex items-center gap-2.5 py-1 text-xs"
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        s.active ? "bg-accent-cyan" : "bg-text-faint"
+                      }`}
+                      style={
+                        s.active
+                          ? { boxShadow: "0 0 10px var(--accent-cyan)" }
+                          : undefined
+                      }
+                    />
+                    <span className="flex-1 truncate">{s.label}</span>
+                    <span className="text-text-muted tabular text-[10px]">
+                      {recordedCount ?? s.triggerCount}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </Panel>
         </div>

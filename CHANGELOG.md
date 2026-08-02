@@ -6,7 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Each entry explains what changed **in plain words** first, then the technical detail.
 Sections are dated (with time, local timezone +0100) so you can see when things landed.
 
-## [Unreleased] — last updated 2026-08-01 (afternoon)
+## [Unreleased] — last updated 2026-08-02
+
+### Added — 2026-08-02 — Phase 2: the twin replays recorded sessions from the bus
+
+- **The 3D twin now replays real recorded sessions — no more hand-drawn paths.**
+  Pick any recorded session from a new dropdown and the twin rebuilds itself
+  from the bus: camera detections become per-person waypoints on the booth
+  floor, zone entries become zone visits, surface interactions become counts,
+  and dwell events become dwell totals. The virtual clock spans the real
+  session's first-to-last event and the scrubber seeks across it, so a client
+  can watch an actual 24-person, 6.5-minute activation play back — or a
+  53-person one — not a demo script. When no recording exists yet the page
+  says so and falls back to demo tracks with an honest pill, and live
+  camera-mode is untouched. Verified end-to-end against both real sessions on
+  the edge bus (951 and 1,048 events).
+  *New bus→tracks reducer `dashboard/src/lib/twin/replay-tracks.ts`
+  (`reduceReplaySession` + generic `positionsAtFrom`); new hooks
+  `useTwinReplay()` (local log first, remote bus upgrades) and
+  `useRecordedSessions()` (local + remote merged); `TwinScene` gained a
+  `tracks` prop (People / PersonTrail / heatmap fallback); `/twin` page wires
+  the picker, source pills ("recorded replay" vs "demo replay"), real visitor
+  list and real surface counts.*
+- **The bus can now list recorded sessions, and detections carry frame size.**
+  A replay picker needs a session catalog: the edge API grew
+  `GET /v1/sessions/{tenant_id}` (session id, event count, first/last event
+  time, most recent first) backed by a single GROUP BY over `event_log`.
+  Detections now also carry their sensor frame dimensions, so future
+  recordings reconstruct booth coordinates exactly instead of assuming the
+  640×480 default (pre-contract sessions fall back gracefully).
+  *`backend/app/bus.py` `list_sessions()` + `SessionMeta` model + endpoint;
+  `DetectionPayload` gained optional `frameWidth`/`frameHeight` (additive
+  contract change), emitted by `live-session/store.ts`; dashboard helpers
+  `remoteSessionList()` and `remoteReadAll()` (paged past the 500-event
+  cap), `bus/log.ts` `listLocalSessions()`.*
+- **Backend regressions re-verified**: scorecard_test (20+ assertions) and
+  smoke_test pass against the new endpoint; `GET /v1/sessions/t_floats`
+  returns all 12 recorded partitions.
 
 ### Added — 2026-08-01 (evening) — Phase 2: the live ROI tile on `/live`
 

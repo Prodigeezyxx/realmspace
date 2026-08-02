@@ -277,7 +277,7 @@ See [docs/gtm.md](./gtm.md). Three motions:
 | **Live KPI strip + event log** | ✅ Real — derived directly from detector state |
 | Heatmap | 🟡 Generated from mock waypoints. Same code accepts live waypoints. |
 | Digital twin (3D scene) | ✅ Real React Three Fiber scene; data is mocked but the render is genuine. |
-| Twin avatar paths | 🟡 Hand-authored seed paths. Production replaces with recorded perception sessions. |
+| Twin avatar paths | ✅ Recorded sessions replay from the bus (`perception.detection` → per-person waypoints; picker over `GET /v1/sessions/{tenant_id}`). Seed paths remain as demo fallback only. |
 | Ask the Room | 🟡 Pre-canned answers matched by regex. Production calls Claude/GPT-4o → Cypher → Neo4j. |
 | Agents | 🟡 UI is real, rule storage is in-memory. Production persists to Postgres + subscribes to graph changes. |
 | Report | 🟡 Static numbers. Production templates from session data. |

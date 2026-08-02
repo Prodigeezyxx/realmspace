@@ -100,6 +100,8 @@ function ingestStats(s: DetectorStats) {
           anonId: t.label,
           bbox: t.bbox,
           confidence: t.score,
+          frameWidth: s.frameWidth,
+          frameHeight: s.frameHeight,
         });
       } catch {
         /* bus must never break the detector loop */
@@ -117,6 +119,8 @@ function ingestStats(s: DetectorStats) {
           anonId: t.label,
           bbox: t.bbox,
           confidence: t.score,
+          frameWidth: s.frameWidth,
+          frameHeight: s.frameHeight,
         });
       } catch {
         /* ignore */

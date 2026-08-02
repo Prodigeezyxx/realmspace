@@ -86,6 +86,13 @@ class HealthResponse(BaseModel):
     database: str
 
 
+class SessionMeta(BaseModel):
+    sessionId: str
+    eventCount: int
+    firstAt: int  # ms epoch
+    lastAt: int  # ms epoch
+
+
 class ReachLayer(BaseModel):
     uniqueVisitors: int
     entries: int

@@ -12,6 +12,7 @@ import type {
   RealmEvent,
   RealmEventInput,
   RealmEventType,
+  SessionMeta,
   SessionOutcome,
 } from "@/lib/contracts";
 
@@ -81,6 +82,39 @@ export async function remoteGraphSnapshot(
   const res = await fetch(`${baseUrl}/v1/graph/${encodeURIComponent(tenantId)}/${encodeURIComponent(sessionId)}`);
   if (!res.ok) throw new Error(`remoteGraphSnapshot failed: ${res.status}`);
   return res.json();
+}
+
+/** Fetch every event of a recorded session (paged past the 500-cap). */
+export async function remoteReadAll(
+  tenantId: string,
+  sessionId: string,
+  baseUrl = DEFAULT_URL
+): Promise<RealmEvent[]> {
+  if (!baseUrl) return [];
+  const all: RealmEvent[] = [];
+  for (;;) {
+    const page = await remoteRead({
+      tenantId,
+      sessionId,
+      afterSeq: all.length ? all[all.length - 1].seq : 0,
+      limit: 500,
+      baseUrl,
+    });
+    all.push(...page);
+    if (page.length < 500) break;
+  }
+  return all;
+}
+
+/** Recorded sessions for a tenant (most recent first). */
+export async function remoteSessionList(
+  tenantId: string,
+  baseUrl = DEFAULT_URL
+): Promise<SessionMeta[]> {
+  if (!baseUrl) return [];
+  const res = await fetch(`${baseUrl}/v1/sessions/${encodeURIComponent(tenantId)}`);
+  if (!res.ok) throw new Error(`remoteSessionList failed: ${res.status}`);
+  return (await res.json()) as SessionMeta[];
 }
 
 export async function remoteSessionOutcome(

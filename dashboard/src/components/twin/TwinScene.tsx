@@ -6,7 +6,8 @@ import { useMemo, useRef } from "react";
 import * as THREE from "three";
 
 import { getEventContext } from "@/lib/event-context";
-import { peopleTracks, positionsAt } from "@/lib/mock/people";
+import { peopleTracks, type PersonTrack } from "@/lib/mock/people";
+import { positionsAtFrom } from "@/lib/twin/replay-tracks";
 import { session, zones, type Zone } from "@/lib/mock/session";
 import { useActiveSession } from "@/lib/session/store";
 import {
@@ -35,6 +36,7 @@ export function TwinScene({
   liveAvatars,
   liveHeatmap,
   liveMode = false,
+  tracks = peopleTracks,
 }: {
   time: number;
   showHeatmap: boolean;
@@ -42,6 +44,7 @@ export function TwinScene({
   liveAvatars?: TwinAvatarDelta[];
   liveHeatmap?: HeatmapOutput | null;
   liveMode?: boolean;
+  tracks?: PersonTrack[];
 }) {
   const activeSession = useActiveSession();
   const ctx = getEventContext();
@@ -90,13 +93,25 @@ export function TwinScene({
       <pointLight position={[0, 6, 0]} intensity={0.4} color="#3e83f7" />
       <pointLight position={[-W / 2, 4, -D / 2]} intensity={0.3} color="#00d4ff" />
 
-      <Booth showHeatmap={showHeatmap} w={W} d={D} liveHeatmap={liveHeatmap} />
+      <Booth
+        showHeatmap={showHeatmap}
+        w={W}
+        d={D}
+        liveHeatmap={liveHeatmap}
+        fallbackTracks={tracks}
+      />
       <Zones zoneList={sceneZones} w={W} d={D} />
       <Surfaces items={sceneSurfaces} w={W} d={D} />
       {liveMode ? (
         <LivePeople avatars={liveAvatars ?? []} />
       ) : (
-        <People time={time} selectedPerson={selectedPerson} w={W} d={D} />
+        <People
+          time={time}
+          tracks={tracks}
+          selectedPerson={selectedPerson}
+          w={W}
+          d={D}
+        />
       )}
       <Cameras w={W} d={D} />
 
@@ -120,11 +135,13 @@ function Booth({
   w,
   d,
   liveHeatmap,
+  fallbackTracks = peopleTracks,
 }: {
   showHeatmap: boolean;
   w: number;
   d: number;
   liveHeatmap?: HeatmapOutput | null;
+  fallbackTracks?: PersonTrack[];
 }) {
   return (
     <group>
@@ -146,7 +163,14 @@ function Booth({
         infiniteGrid={false}
       />
 
-      {showHeatmap && <HeatmapOverlay w={w} d={d} liveHeatmap={liveHeatmap} />}
+      {showHeatmap && (
+        <HeatmapOverlay
+          w={w}
+          d={d}
+          liveHeatmap={liveHeatmap}
+          fallbackTracks={fallbackTracks}
+        />
+      )}
 
       <mesh position={[0, 1.4, -d / 2]} castShadow>
         <boxGeometry args={[w, 2.8, 0.06]} />
@@ -177,10 +201,12 @@ function HeatmapOverlay({
   w,
   d,
   liveHeatmap,
+  fallbackTracks = peopleTracks,
 }: {
   w: number;
   d: number;
   liveHeatmap?: HeatmapOutput | null;
+  fallbackTracks?: PersonTrack[];
 }) {
   const COLS = liveHeatmap?.width ?? 28;
   const ROWS = liveHeatmap?.height ?? 16;
@@ -195,7 +221,7 @@ function HeatmapOverlay({
       return heat;
     }
     const heat = new Float32Array(COLS * ROWS);
-    peopleTracks.forEach((p) => {
+    fallbackTracks.forEach((p) => {
       p.waypoints.forEach(([x, y, t], i) => {
         if (i === 0) return;
         const dwell = Math.min(60, t - p.waypoints[i - 1][2]);
@@ -207,7 +233,7 @@ function HeatmapOverlay({
     const max = Math.max(0.0001, ...heat);
     for (let i = 0; i < heat.length; i++) heat[i] /= max;
     return heat;
-  }, [liveHeatmap, COLS, ROWS]);
+  }, [liveHeatmap, COLS, ROWS, fallbackTracks]);
 
   return (
     <group position={[0, 0.005, 0]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -436,16 +462,18 @@ function LivePeople({ avatars }: { avatars: TwinAvatarDelta[] }) {
 
 function People({
   time,
+  tracks,
   selectedPerson,
   w,
   d,
 }: {
   time: number;
+  tracks: PersonTrack[];
   selectedPerson?: string | null;
   w: number;
   d: number;
 }) {
-  const live = positionsAt(time);
+  const live = positionsAtFrom(tracks, time);
   return (
     <group>
       {live.map((p) => {
@@ -464,7 +492,7 @@ function People({
         );
       })}
       {selectedPerson && (
-        <PersonTrail id={selectedPerson} upTo={time} w={w} d={d} />
+        <PersonTrail id={selectedPerson} tracks={tracks} upTo={time} w={w} d={d} />
       )}
     </group>
   );
@@ -555,16 +583,18 @@ function PersonAvatar({
 
 function PersonTrail({
   id,
+  tracks,
   upTo,
   w,
   d,
 }: {
   id: string;
+  tracks: PersonTrack[];
   upTo: number;
   w: number;
   d: number;
 }) {
-  const p = peopleTracks.find((pp) => pp.id === id);
+  const p = tracks.find((pp) => pp.id === id);
   const points = useMemo<[number, number, number][] | null>(() => {
     if (!p) return null;
     const pts: [number, number, number][] = [];

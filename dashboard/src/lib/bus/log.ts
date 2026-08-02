@@ -154,6 +154,27 @@ export function readAll(tenantId: string, sessionId: string): RealmEvent[] {
   return loadPartition(tenantId, sessionId).events.slice();
 }
 
+/** Partitions recorded on this device for a tenant (for replay pickers). */
+export function listLocalSessions(tenantId: string) {
+  if (!hasWindow()) return [];
+  const prefix = `${STORAGE_PREFIX}${tenantId}::`;
+  const out: { sessionId: string; eventCount: number; firstAt: number; lastAt: number }[] = [];
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const k = window.localStorage.key(i);
+    if (!k?.startsWith(prefix)) continue;
+    const events = loadPartition(tenantId, k.slice(prefix.length)).events;
+    if (events.length) {
+      out.push({
+        sessionId: k.slice(prefix.length),
+        eventCount: events.length,
+        firstAt: Math.min(...events.map((e) => e.occurredAt)),
+        lastAt: Math.max(...events.map((e) => e.occurredAt)),
+      });
+    }
+  }
+  return out;
+}
+
 /** Current head seq for a partition. */
 export function headSeq(tenantId: string, sessionId: string): number {
   return loadPartition(tenantId, sessionId).seq;

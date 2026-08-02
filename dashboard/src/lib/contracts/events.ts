@@ -101,6 +101,9 @@ export interface DetectionPayload {
   bbox: [number, number, number, number];
   confidence: number;
   frameId?: number;
+  /** Intrinsic sensor frame size (px) — lets replay reconstruct booth coords. */
+  frameWidth?: number;
+  frameHeight?: number;
 }
 export interface ZoneMovePayload {
   anonId: string;
@@ -174,6 +177,14 @@ export interface CostMeteredPayload {
 export interface SessionLifecyclePayload {
   name?: string;
   venue?: string;
+}
+
+/** Recorded-session summary (from the bus sessions list) for replay pickers. */
+export interface SessionMeta {
+  sessionId: string;
+  eventCount: number;
+  firstAt: number; // ms epoch
+  lastAt: number; // ms epoch
 }
 
 export type RealmEventPayload =

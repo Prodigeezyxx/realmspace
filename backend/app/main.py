@@ -20,6 +20,7 @@ from app.models import (
     HealthResponse,
     RealmEvent,
     RealmEventInput,
+    SessionMeta,
     SessionOutcome,
 )
 
@@ -104,6 +105,12 @@ def get_events(
 def get_graph(tenant_id: str, session_id: str) -> GraphSnapshot:
     graph_writer.process_pending(tenant_id)
     return graph_writer.snapshot(tenant_id, session_id)
+
+
+@app.get("/v1/sessions/{tenant_id}", response_model=list[SessionMeta])
+def list_sessions(tenant_id: str) -> list[SessionMeta]:
+    """Recorded sessions for a tenant (most recent first) — for replay pickers."""
+    return [SessionMeta(**meta) for meta in bus.list_sessions(tenant_id)]
 
 
 def _parse_json_query(raw: str | None, default: Any) -> Any:

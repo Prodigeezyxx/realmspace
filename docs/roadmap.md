@@ -111,8 +111,18 @@ tile, twin replay.)*
       sessions)*
 - ✅ **Signature metrics** live in the scorecard/outcome API: dwell-weighted
       attention, engagement rate, first-touch funnel, CPEV *(2026-08-01)*
-- 🔲 Twin plays back **recorded** sessions from the bus (replace seed paths;
-      virtual clock + scrub seeks the cursor — data swap, not a rebuild)
+- ✅ **Twin plays back recorded sessions from the bus** — seed paths replaced
+      by real bus data: `perception.detection` bboxes → per-person waypoints in
+      booth coords, `spatial.zone_enter` → zone visits, `surface.interaction` →
+      surface counts, `spatial.dwell` → dwell totals; virtual clock spans the
+      real session (first→last event), scrub seeks it, and a session picker
+      lists every recorded session (new `GET /v1/sessions/{tenant_id}`;
+      local log + remote bus merged). Honest pills distinguish recorded vs
+      demo data; frame dims now ride on detections so future sessions
+      reconstruct exactly. *(2026-08-02 — `replay-tracks.ts` reducer +
+      `useTwinReplay()`/`useRecordedSessions()` hooks, `TwinScene` `tracks`
+      prop; verified against `ses_m6fl23rwh2a` (24 people, 397s) and
+      `ses_q1w138xtrnh` (53 people, 261s).)*
 - 🔲 **Ask the Room** real: LLM → **constrained, validated query templates over
       the relational projection** (allow-list; rejects off-schema input) →
       answer. *Needs AI provider key + ADR for template-vs-Cypher (see open
