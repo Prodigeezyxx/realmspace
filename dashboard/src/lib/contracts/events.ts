@@ -26,6 +26,8 @@ export type RealmEventType =
   | "spatial.passby"
   // booth surfaces
   | "surface.interaction"
+  // badge / RFID readers (docs/event-bus-spec.md §3)
+  | "rfid.read"
   // consent + identity (PII, consent-gated)
   | "consent.captured"
   | "consent.withdrawn"
@@ -38,7 +40,9 @@ export type RealmEventType =
   // ops
   | "cost.metered"
   | "session.started"
-  | "session.ended";
+  | "session.ended"
+  /** an operator changed a session's zones or measurement parameters */
+  | "session.zones_updated";
 
 /** All spatial/anonymous event types (safe for aggregate ROI, no consent needed). */
 export const ANONYMOUS_EVENT_TYPES: readonly RealmEventType[] = [
@@ -52,9 +56,11 @@ export const ANONYMOUS_EVENT_TYPES: readonly RealmEventType[] = [
   "surface.interaction",
   "rule.fired",
   "insight.generated",
+  "rfid.read",
   "cost.metered",
   "session.started",
   "session.ended",
+  "session.zones_updated",
 ] as const;
 
 /** Event types that may carry PII and therefore require a consent basis. */
@@ -98,18 +104,43 @@ export type RealmEventInput<P = RealmEventPayload> = Omit<
 
 export interface DetectionPayload {
   anonId: string;
+  /** PIXELS, xyxy — what YOLO returns. Normalized against the frame size below. */
   bbox: [number, number, number, number];
   confidence: number;
   frameId?: number;
+  /**
+   * **Required by the backend tracker**, which dead-letters a detection without
+   * them: boxes arrive in pixels and zone polygons are normalized 0..1, so
+   * without the frame size there is no way to say which zone a detection is in.
+   * Optional in this type only because the browser's own in-memory tracker
+   * predates the backend; anything posted to the bus must set them.
+   */
+  frameWidth?: number;
+  frameHeight?: number;
 }
 export interface ZoneMovePayload {
   anonId: string;
   zoneId: string;
+  /** ISO timestamp of the crossing, as the tracker records it. */
+  at?: string;
+  /** zone_exit only — when this visit to the zone began. */
+  enteredAt?: string;
 }
 export interface DwellPayload {
   anonId: string;
   zoneId: string;
+  /** Seconds. On the wire the backend calls this `duration` — see lib/bus/wire.ts. */
   durationSec: number;
+  startedAt?: string;
+  endedAt?: string;
+  /** Past the session's configured engagement threshold. */
+  exceededThreshold?: boolean;
+}
+export interface ZonesUpdatedPayload {
+  zoneIds: string[];
+  zoneCount: number;
+  /** user id of the operator who made the change */
+  by?: string;
 }
 export interface GazePayload {
   anonId: string;
@@ -192,4 +223,5 @@ export type RealmEventPayload =
   | LeadHandoffPayload
   | CostMeteredPayload
   | SessionLifecyclePayload
+  | ZonesUpdatedPayload
   | Record<string, unknown>;

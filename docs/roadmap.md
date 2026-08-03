@@ -18,7 +18,8 @@ Legend: ✅ exists today · 🟡 mocked/partial · 🔲 to build.
 | Docs: PRD, architecture, data-model, privacy, gtm | ✅ |
 | Docs: vision, brand, roi, integrations, consent, event-bus, tenancy, competition | ✅ (this set) |
 | Backend event bus (durable, Postgres) | ✅ (`backend/` — see Phase 1) |
-| Backend graph / API beyond the bus | 🔲 |
+| Backend graph / API beyond the bus | ✅ `POST /v1/sessions`, `GET /v1/sessions/{id}[/graph]` (Phase 2 prerequisite) |
+| Dashboard wired to the backend | ✅ `NEXT_PUBLIC_BUS_URL` — WS in, `POST /events` out, wizard publishes config |
 | Browser-side in-memory bus (live UI fan-out) | ✅ (`dashboard/src/lib/event-bus.ts`) |
 | One-command local boot (`docker compose up`) | ✅ Postgres + Neo4j + backend, ~13s cold |
 | DB-layer tenant isolation (Postgres RLS) | ✅ event log; ❌ graph (Neo4j Community can't) |
@@ -103,6 +104,16 @@ detection → dashboard.
       activation runs — zone weights, funnel order, engagement threshold,
       activation cost, attribution model. Zone edits invalidate the tracker's
       cache through a new `session.zones_updated` event.
+- ✅ **Prerequisite: dashboard ↔ backend wiring** — `NEXT_PUBLIC_BUS_URL` turns on
+      a WebSocket feed in (mirrored into the durable local log, `since_seq`
+      cursor so a reconnect has no gap), `POST /events` out (buffered in the
+      local log across an outage, replayed in order), the wizard publishing to
+      `POST /v1/sessions`, and a connection pill. `dashboard/src/lib/bus/`.
+      Also the payload translation the two contracts need: the bus pins
+      snake_case for the Python producers, this app's contract is camelCase, and
+      the mismatch was silent — an untranslated dwell scores as `NaN` plus a
+      phantom visitor rather than raising. Tested against a verbatim capture of
+      real backend output.
 - 🔲 Report templated from **real session data** (replace static numbers)
 - 🔲 **4-layer scorecard** (Reach/Engagement/Affinity/Pipeline) — `roi-framework.md`
 - 🔲 Signature metrics: dwell-weighted attention, engagement rate, funnel, CPEV

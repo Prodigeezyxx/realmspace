@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { SignOutButton } from "@/components/auth/LoginForm";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Pill } from "@/components/ui/Pill";
+import { BusPill } from "@/components/chrome/BusPill";
 import {
   getTypeMeta,
   STATUS_META,
@@ -243,6 +244,8 @@ export function StatusBar() {
               <SignOutButton />
             </div>
           )}
+
+          <BusPill />
 
           <div className="hidden md:inline-flex pill-group h-10 px-4 font-mono text-xs tabular text-text-primary tracking-wider">
             {now

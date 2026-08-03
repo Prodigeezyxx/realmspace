@@ -44,9 +44,12 @@ import { dispatchTrigger } from "@/lib/agent-engine";
 import { setActivePrefabId } from "@/lib/prefab-store";
 import { applyPrefabToDraft } from "@/lib/prefabs/apply";
 import { getPrefab } from "@/lib/prefabs";
+import { busEmail } from "@/lib/bus";
+import { publishSessionConfig } from "@/lib/session/publish";
 import { sessionActions } from "@/lib/session/store";
 import type {
   Camera,
+  Measurement,
   PrimaryObjective,
   PrivacyMode,
   SessionDraft,
@@ -54,6 +57,7 @@ import type {
   Touchpoint,
   Zone,
 } from "@/lib/session/types";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 const TOTAL_STEPS = 5;
 
@@ -131,6 +135,20 @@ export default function NewSessionPage() {
   const [targetCaptures, setTargetCaptures] = useState<number | "">(400);
   const [notes, setNotes] = useState("");
 
+  // ── Step 5: measurement — the parameters the ROI report divides by.
+  // Defaults match backend/app/schemas.py and lib/roi/scorecard.ts. If these
+  // three drift apart the same session scores differently in three places.
+  const [engagedThresholdSec, setEngagedThresholdSec] = useState<number | "">(60);
+  const [activationCost, setActivationCost] = useState<number | "">("");
+  const [currency, setCurrency] = useState("USD");
+  const [attributionModel, setAttributionModel] =
+    useState<NonNullable<Measurement["attributionModel"]>>("influenced");
+
+  // ── Publishing to the backend
+  const { user } = useAuth();
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+
   // ── When the user picks a type, hydrate zones + touchpoints from presets.
   function selectType(t: SessionType) {
     setType(t);
@@ -187,8 +205,8 @@ export default function NewSessionPage() {
     if (step < TOTAL_STEPS) setStep(step + 1);
   }
 
-  function launch() {
-    if (!type) return;
+  async function launch() {
+    if (!type || publishing) return;
     const draft: SessionDraft = {
       name: name.trim(),
       type,
@@ -229,10 +247,34 @@ export default function NewSessionPage() {
           ? recipientsCsv.split(",").map((s) => s.trim()).filter(Boolean)
           : undefined,
       },
+      measurement: {
+        engagedThresholdSec:
+          typeof engagedThresholdSec === "number" ? engagedThresholdSec : 60,
+        activationCost:
+          typeof activationCost === "number" ? activationCost : undefined,
+        currency,
+        attributionModel,
+      },
       notes: notes.trim() || undefined,
     };
     const created = sessionActions.createSession(draft, { activate: true });
     if (created.prefabId) setActivePrefabId(created.prefabId);
+
+    // Publish before navigating. If this fails the operator has to know now:
+    // the session looks completely normal in this app — zones on screen, wizard
+    // says launched — while the backend has no zones at all and the tracker is
+    // therefore emitting nothing. Silence here is the exact failure that made
+    // POST /v1/sessions necessary in the first place.
+    setPublishing(true);
+    const result = await publishSessionConfig(
+      created,
+      user?.email ?? busEmail()
+    );
+    setPublishing(false);
+    if (!result.ok) {
+      setPublishError(result.detail ?? "could not publish to the bus");
+      return;
+    }
     void dispatchTrigger({
       type: "twin_layout_loaded",
       timestamp: Date.now(),
@@ -703,6 +745,84 @@ export default function NewSessionPage() {
               </div>
             </section>
 
+            {/* Measurement — the ROI parameters, agreed before doors open */}
+            <section>
+              <h2 className="text-xl font-semibold tracking-tight inline-flex items-center gap-2 mb-2">
+                <Zap size={18} className="text-accent" />
+                How this gets scored
+              </h2>
+              <p className="text-xs text-text-secondary mb-4 max-w-2xl leading-relaxed">
+                Set now, with the client — not after the results are in. These are
+                the numbers the ROI report divides by, so agreeing them up front is
+                what makes the final figure un-arguable.
+              </p>
+              <div className="grid md:grid-cols-2 gap-5">
+                <Field
+                  label="Engaged after (seconds)"
+                  hint="Dwell above this counts as a real engagement, not a walk-past."
+                >
+                  <NumberInput
+                    min={1}
+                    value={engagedThresholdSec}
+                    onChange={(e) =>
+                      setEngagedThresholdSec(
+                        e.target.value ? parseInt(e.target.value, 10) : ""
+                      )
+                    }
+                  />
+                </Field>
+                <Field
+                  label="Attribution model"
+                  hint="Which touch gets credit for a conversion."
+                >
+                  <Select
+                    value={attributionModel}
+                    onChange={(e) =>
+                      setAttributionModel(
+                        e.target.value as NonNullable<
+                          Measurement["attributionModel"]
+                        >
+                      )
+                    }
+                  >
+                    <option value="influenced">
+                      Influenced — any booth touch in the window
+                    </option>
+                    <option value="first_touch">First touch</option>
+                    <option value="last_touch">Last touch</option>
+                    <option value="linear">Multi-touch — linear</option>
+                    <option value="time_decay">Multi-touch — time decay</option>
+                  </Select>
+                </Field>
+                <Field
+                  label="Total activation cost"
+                  hint="Cost per engaged visit and the ROI ratio are both computed from this. Leave blank if not yet known."
+                >
+                  <NumberInput
+                    min={0}
+                    value={activationCost}
+                    onChange={(e) =>
+                      setActivationCost(
+                        e.target.value ? parseFloat(e.target.value) : ""
+                      )
+                    }
+                  />
+                </Field>
+                <Field label="Currency">
+                  <Select
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value)}
+                  >
+                    {["USD", "GBP", "EUR", "NGN", "AED", "ZAR"].map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            </section>
+
             {/* Review */}
             <section>
               <h2 className="text-xl font-semibold tracking-tight inline-flex items-center gap-2 mb-4">
@@ -778,6 +898,24 @@ export default function NewSessionPage() {
                 />
               </div>
             </section>
+
+            {publishError && (
+              <div
+                role="alert"
+                className="panel p-4 border-red-500/40 bg-red-500/5 text-sm"
+              >
+                <div className="font-semibold mb-1">
+                  The session was saved here, but the backend did not accept it.
+                </div>
+                <div className="text-text-secondary leading-relaxed">
+                  {publishError}
+                </div>
+                <div className="text-text-secondary leading-relaxed mt-2">
+                  Until it does, the cameras have no zones to measure against and
+                  the report will have nothing in it. Fix and press Launch again.
+                </div>
+              </div>
+            )}
           </div>
         </WizardStep>
       )}

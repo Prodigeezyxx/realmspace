@@ -81,6 +81,14 @@ export interface Zone {
   color?: string;
   /** Optional polygon in normalized 0..1 booth coords (demo session only). */
   polygon?: [number, number][];
+  /**
+   * ROI weight, default 1. Dwell-weighted attention is `Σ(dwell × weight)` —
+   * a minute at the product wall is not a minute in the corridor
+   * (docs/roi-framework.md §2, Layer 2).
+   */
+  weight?: number;
+  /** Position in the entry → experience → product → capture funnel (§5). */
+  funnelOrder?: number;
 }
 
 export interface Touchpoint {
@@ -113,6 +121,29 @@ export interface Privacy {
   consentSignage: boolean;
   retentionDays: number;
   recipients?: string[];
+}
+
+/**
+ * How this activation will be scored — agreed with the client *before* it runs.
+ *
+ * docs/roi-framework.md §5: "set the attribution model + window with the client
+ * before doors open, so the ROI number is pre-agreed and un-arguable
+ * afterwards". Every Layer-4 metric divides by something in here, so a value
+ * chosen after the results are in is a value chosen to flatter them.
+ */
+export interface Measurement {
+  /** Dwell above this counts as an engaged visit. Default 60s. */
+  engagedThresholdSec?: number;
+  /** Total cost of the activation — denominator of CPEV, CPQL and ROI. */
+  activationCost?: number;
+  /** 3-letter currency code for `activationCost`. */
+  currency?: string;
+  attributionModel?:
+    | "first_touch"
+    | "last_touch"
+    | "linear"
+    | "time_decay"
+    | "influenced";
 }
 
 export interface Session {
@@ -148,6 +179,8 @@ export interface Session {
   // ── Goals + privacy
   goals: Goals;
   privacy: Privacy;
+  /** How the ROI is computed. See `Measurement`. */
+  measurement?: Measurement;
 
   // ── System
   createdAt: string;

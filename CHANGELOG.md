@@ -17,7 +17,62 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-03
+## [Unreleased] — last updated 2026-08-03 (evening)
+
+### Added — 2026-08-03 (evening) — `[neo4j-track]` the dashboard is plugged into the backend
+
+- **The dashboard had never been connected to this backend.** It looked finished
+  — live screen, twin, report — but every number on it came from the browser's
+  own memory or from mock files. Set one environment variable and it is now the
+  real thing: what the cameras see goes to the server, and what the server works
+  out comes back to the screen. Leave the variable out and it behaves exactly as
+  before, which is what the laptop demo needs.
+  *`NEXT_PUBLIC_BUS_URL`; new `dashboard/src/lib/bus/remote.ts` — WebSocket in,
+  `POST /events` out, mirrored into the durable local log every screen already
+  reads.*
+
+- **Finishing the session wizard now actually sets the activation up.** Before,
+  the zones an operator drew were saved in the browser and nowhere else — so the
+  cameras had nothing to measure against and produced nothing at all, silently.
+  The wizard also now asks the three questions the ROI report depends on: how
+  long counts as engaged, what the activation cost, and which attribution model
+  was agreed.
+  *`lib/session/publish.ts` → `POST /v1/sessions` on launch, with per-zone ROI
+  weight in the zone editor. **If the publish fails the wizard says so and stays
+  put** rather than navigating away looking successful.*
+
+- **Losing the connection is now visible.** A dashboard whose feed has quietly
+  dropped looks exactly like a quiet booth — the numbers just stop moving, and an
+  operator will report a dead afternoon as a slow one. There is a pill in the
+  status bar that shows the connection, including when it is fine.
+  *`components/chrome/BusPill.tsx`; also counts events waiting to be sent.*
+
+- **Nothing is lost if the network drops mid-activation.** Events the dashboard
+  produces are written down locally first and sent afterwards, oldest first, from
+  where it left off. Same property the camera script already had, for the same
+  reason: an event is given its identity when it happens, not when it is sent, so
+  a resend after a timeout is recognised rather than counted twice.
+  *`flushOutbound` walks a cursor over the existing durable log — no second
+  outbox. Verified: an outage mid-flush keeps the cursor on the last event that
+  landed, and the rest go in order on reconnect.*
+
+- **A mismatch that would have quietly corrupted every report, found and fixed.**
+  The backend labels the fields inside an event one way (`duration`, `anon_id`)
+  and the dashboard reads them another (`durationSec`, `anonId`). Nothing would
+  have errored. The report would simply have shown plausible, wrong numbers —
+  the one thing `roi-framework.md` says we must never ship.
+  *New `lib/bus/wire.ts` translates at the boundary, both directions. The spec's
+  snake_case is shared with the Python producers and the other track, so this
+  side bends. There is a test that feeds the untranslated payload in and asserts
+  it produces `NaN` and a phantom visitor, so the danger stays documented.*
+
+- **28 dashboard tests, against real backend output.** The fixture they run on is
+  a verbatim capture of `GET /events` from a running backend after a real
+  configure → detect → track cycle — not a handwritten guess at what it sends.
+  The day a payload key is renamed on the Python side, this fails instead of a
+  report losing a layer three weeks later. **Verified by breaking it:** removing
+  the translation fails eight tests, including both idempotency ones.
+  *First test runner in the dashboard (vitest + jsdom); `npm test`.*
 
 ### Added — 2026-08-03 — `[neo4j-track]` you can now set an activation up before it runs
 
