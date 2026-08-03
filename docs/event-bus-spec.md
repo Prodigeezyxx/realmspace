@@ -101,6 +101,7 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `insight.generated` | LLM/agents | text, refs | graph, dashboard |
 | `cost.metered` | consumers | tokens/credits/$ | cost telemetry |
 | `session.started` / `session.ended` | operator | session meta | report, sync |
+| `session.zones_updated` | `POST /v1/sessions` | zone_ids, zone_count, by | tracker (cache invalidation) |
 
 ### Payloads pinned so far
 
@@ -150,6 +151,19 @@ consumer's job and is consent-gated (`consent-and-identity.md`).
 `{ "anon_id", "zone_id", "duration", "started_at", "ended_at", "exceeded_threshold" }`
 — `duration` in seconds; `exceeded_threshold` compares it to the per-session
 dwell threshold (30s today, matching `agents/definitions/dwell.ts`).
+
+**`session.zones_updated`** — producer: `POST /v1/sessions` (an operator):
+`{ "zone_ids": ["z_entry", …], "zone_count": 3, "by": "u_op" }`
+
+Announces that a session's zones or measurement parameters changed. The tracker
+caches zone polygons on its hot path and subscribes to this to drop that cache,
+so a redraw takes effect on the next detection rather than up to a TTL later.
+
+Its `event_id` is **random, not derived** — the exception to the rule below, and
+for the reason the rule gives: this is a producer recording something that
+genuinely just happened. Two edits to the same zone set are two distinct facts,
+and deriving the id from the zone ids would collapse them onto one, silently
+discarding the second edit.
 
 ### Event ids on derived events
 

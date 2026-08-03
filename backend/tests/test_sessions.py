@@ -1,0 +1,480 @@
+"""
+Session configuration, as executable claims.
+
+The load-bearing one is `test_a_session_configured_through_the_api_produces_spatial_events`.
+Everything else here checks a detail; that one checks the reason the endpoint
+exists. Before it, `upsert_zone` had no caller outside the test suite, so a real
+deployment started with an empty zone list, the tracker returned early on every
+detection, and the entire spatial pipeline produced nothing while looking
+perfectly healthy. It is the test that would have caught that.
+
+Second in importance is `test_redrawing_a_zone_takes_effect_immediately`, which
+is written so it fails if the cache invalidation event is removed — the cache is
+warmed by a real tracker pass first, which is the only condition under which the
+bug it guards against can appear.
+
+Runs against real Postgres and real Neo4j, in `t_test`, which the graph fixture
+wipes. Not `t_floats`: that is the dev tenant with real data in it.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import uuid
+from collections.abc import AsyncIterator
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+from neo4j import AsyncSession as GraphSession
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app import repository
+from app.auth.models import ApiKey, AuthUser
+from app.auth.tokens import generate_api_key, issue_token
+from app.consumers.tracker import TrackerConsumer
+from app.db import get_session
+from app.graph import repository as graph_repo
+from app.main import app
+from app.schemas import EventIn
+from tests.conftest import as_tenant
+
+T = "t_test"
+OTHER = "t_test_other"
+S = "s_config"
+
+BASE = dt.datetime(2026, 8, 3, 10, 0, 0, tzinfo=dt.timezone.utc)
+
+LEFT_POLY = [[0.0, 0.0], [0.5, 0.0], [0.5, 1.0], [0.0, 1.0]]
+RIGHT_POLY = [[0.5, 0.0], [1.0, 0.0], [1.0, 1.0], [0.5, 1.0]]
+
+FRAME_W, FRAME_H = 1000, 1000
+LEFT_PX = [200, 400, 300, 600]   # centroid (250, 500) → 0.25 → left half
+
+
+def zone(zone_id: str, name: str, polygon: list, **extra) -> dict:
+    body = {"id": zone_id, "name": name, "type": "experience", "polygon": polygon}
+    body.update(extra)
+    return body
+
+
+def config_body(zones: list[dict] | None = None, **extra) -> dict:
+    body: dict = {"sessionId": S}
+    if zones is not None:
+        body["zones"] = zones
+    body.update(extra)
+    return body
+
+
+# ── fixtures ──────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+async def _scope_to_test_tenant(db_session: AsyncSession) -> AsyncIterator[None]:
+    """These tests work in `t_test`, not the default `t_floats`."""
+    await as_tenant(db_session, T)
+    yield
+
+
+def _make_client(db_session: AsyncSession, token: str) -> AsyncClient:
+    async def override_get_session() -> AsyncIterator[AsyncSession]:
+        yield db_session
+        await db_session.commit()
+
+    app.dependency_overrides[get_session] = override_get_session
+    return AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+
+async def _user(db_session: AsyncSession, user_id: str, role: str, tenant: str) -> str:
+    """Create a user in `tenant` and return a token for them."""
+    db_session.add(
+        AuthUser(
+            user_id=user_id,
+            email=f"{user_id}@floats.demo",
+            display_name=user_id,
+            tenant_id=tenant,
+            role=role,
+        )
+    )
+    await db_session.commit()
+    return issue_token(subject=user_id, tenant_id=tenant, role=role)
+
+
+@pytest.fixture
+async def operator(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
+    """An operator in `t_test` — the role that configures an activation."""
+    token = await _user(db_session, "u_op", "operator", T)
+    async with _make_client(db_session, token) as ac:
+        yield ac
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def viewer(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
+    token = await _user(db_session, "u_view", "viewer", T)
+    async with _make_client(db_session, token) as ac:
+        yield ac
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def outsider(db_session: AsyncSession) -> AsyncIterator[AsyncClient]:
+    """An operator in a *different* tenant. Exists only to be unable to see."""
+    token = await _user(db_session, "u_other", "operator", OTHER)
+    async with _make_client(db_session, token) as ac:
+        yield ac
+    app.dependency_overrides.clear()
+
+
+async def detect(
+    db_session: AsyncSession, *, at: dt.datetime, bbox: list[int] = LEFT_PX
+) -> None:
+    await repository.append_event(
+        db_session,
+        EventIn(
+            event_id=uuid.uuid4(),
+            tenant_id=T,
+            session_id=S,
+            type="perception.detection",
+            payload={
+                "person_id": "P-001",
+                "bbox": bbox,
+                "confidence": 0.9,
+                "frame_width": FRAME_W,
+                "frame_height": FRAME_H,
+            },
+            occurred_at=at,
+        ),
+    )
+    await db_session.commit()
+
+
+async def types_in_log(db_session: AsyncSession) -> list[str]:
+    rows = await repository.read_events(db_session, tenant_id=T, since_seq=0, limit=200)
+    return [r.type for r in rows]
+
+
+# ── the reason this endpoint exists ───────────────────────────────────────────
+
+
+async def test_a_session_configured_through_the_api_produces_spatial_events(
+    operator: AsyncClient, db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """Config → detection → spatial event. The hole this endpoint closes.
+
+    Nothing else in the suite covers this path, because every other test seeds
+    zones by calling `upsert_zone` directly. That is exactly what hid the
+    problem: the graph was always pre-populated by hand, so no test ever ran the
+    tracker against a system configured the way a real one is.
+    """
+    posted = await operator.post(
+        "/v1/sessions",
+        json=config_body([zone("z_left", "Entrance", LEFT_POLY, type="entry")]),
+    )
+    assert posted.status_code == 200, posted.text
+
+    await detect(db_session, at=BASE)
+    await TrackerConsumer().run_once()
+
+    assert "spatial.zone_enter" in await types_in_log(db_session)
+
+
+async def test_redrawing_a_zone_takes_effect_immediately(
+    operator: AsyncClient, db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """A zone edit invalidates the tracker's cache without waiting for the TTL.
+
+    The first tracker pass is not scenery — it warms the polygon cache. Without
+    it the second pass would fetch the new zones anyway and the test would pass
+    with the invalidation deleted, which is the failure mode that makes a test
+    worse than no test.
+
+    After the redraw, the person has not moved but the zone has moved out from
+    under them, so the tracker must emit the exit and the dwell.
+    """
+    await operator.post(
+        "/v1/sessions", json=config_body([zone("z_left", "Entrance", LEFT_POLY)])
+    )
+    await detect(db_session, at=BASE)
+
+    tracker = TrackerConsumer()
+    await tracker.run_once()
+    assert "spatial.zone_enter" in await types_in_log(db_session)
+    assert tracker._zones, "the first pass should have cached the polygons"
+
+    # Same zone id, opposite half of the frame. The person standing on the left
+    # is now outside it.
+    await operator.post(
+        "/v1/sessions", json=config_body([zone("z_left", "Entrance", RIGHT_POLY)])
+    )
+    await detect(db_session, at=BASE + dt.timedelta(seconds=30))
+    await tracker.run_once()
+
+    types = await types_in_log(db_session)
+    assert "session.zones_updated" in types
+    assert "spatial.zone_exit" in types, "the redraw did not invalidate the cache"
+    assert "spatial.dwell" in types
+
+
+# ── configuration round trip ──────────────────────────────────────────────────
+
+
+async def test_config_round_trips_including_the_measurement_parameters(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """The ROI parameters are what make this more than a zone editor."""
+    await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            [zone("z_a", "Mirror Room", LEFT_POLY, weight=2.5, funnelOrder=1)],
+            venue="Test Hall",
+            engagedThresholdSeconds=45,
+            activationCost=12000,
+            currency="GBP",
+            attributionModel="linear",
+        ),
+    )
+
+    got = await operator.get(f"/v1/sessions/{S}")
+    assert got.status_code == 200
+    body = got.json()
+
+    assert body["venue"] == "Test Hall"
+    assert body["engagedThresholdSeconds"] == 45
+    assert body["activationCost"] == 12000
+    assert body["currency"] == "GBP"
+    assert body["attributionModel"] == "linear"
+
+    (z,) = body["zones"]
+    assert z["weight"] == 2.5
+    assert z["funnelOrder"] == 1
+    assert z["polygon"] == [[0.0, 0.0], [0.5, 0.0], [0.5, 1.0], [0.0, 1.0]]
+
+
+async def test_defaults_match_the_scorecard_the_dashboard_already_computes(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """A session configured with nothing still has usable parameters.
+
+    60s and weight 1.0 are the defaults in dashboard/src/lib/roi/scorecard.ts.
+    If these drift apart, the same session scores differently depending on which
+    side computed it, and nothing announces the disagreement.
+    """
+    await operator.post("/v1/sessions", json=config_body([zone("z_a", "A", LEFT_POLY)]))
+    body = (await operator.get(f"/v1/sessions/{S}")).json()
+
+    assert body["engagedThresholdSeconds"] == 60.0
+    assert body["attributionModel"] == "influenced"
+    assert body["zones"][0]["weight"] == 1.0
+
+
+async def test_a_deleted_zone_stops_collecting_dwell(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """Re-posting without a zone removes it, rather than orphaning it.
+
+    An orphaned zone is worse than a missing one: the tracker keeps scoring
+    detections against a shape nobody can see, and the report shows dwell in a
+    zone the client has been told does not exist.
+    """
+    await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            [zone("z_a", "A", LEFT_POLY), zone("z_b", "B", RIGHT_POLY)]
+        ),
+    )
+    await operator.post(
+        "/v1/sessions", json=config_body([zone("z_a", "A", LEFT_POLY)])
+    )
+
+    body = (await operator.get(f"/v1/sessions/{S}")).json()
+    assert [z["id"] for z in body["zones"]] == ["z_a"]
+
+
+async def test_omitting_zones_leaves_them_alone(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """Setting the cost later must not silently wipe the zones."""
+    await operator.post(
+        "/v1/sessions", json=config_body([zone("z_a", "A", LEFT_POLY)])
+    )
+    await operator.post("/v1/sessions", json=config_body(None, activationCost=500))
+
+    body = (await operator.get(f"/v1/sessions/{S}")).json()
+    assert [z["id"] for z in body["zones"]] == ["z_a"]
+    assert body["activationCost"] == 500
+
+
+async def test_zones_come_back_in_funnel_order(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """The funnel is an ordering, so the API returns one (roi-framework.md §5)."""
+    await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            [
+                zone("z_product", "Product", RIGHT_POLY, funnelOrder=2),
+                zone("z_entry", "Entry", LEFT_POLY, funnelOrder=0),
+            ]
+        ),
+    )
+    body = (await operator.get(f"/v1/sessions/{S}")).json()
+    assert [z["id"] for z in body["zones"]] == ["z_entry", "z_product"]
+
+
+# ── validation ────────────────────────────────────────────────────────────────
+
+
+async def test_a_pixel_polygon_is_refused(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """Pixels where normalized coordinates belong would match nothing, forever.
+
+    The tracker divides every detection by the frame size before comparing, so a
+    polygon at (200, 400) is outside the unit square and contains nobody. Silent
+    in production; a 422 here.
+    """
+    r = await operator.post(
+        "/v1/sessions",
+        json=config_body([zone("z_a", "A", [[200, 400], [300, 400], [300, 600]])]),
+    )
+    assert r.status_code == 422
+    assert "normalized" in r.text
+
+
+async def test_a_two_point_polygon_is_refused(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    r = await operator.post(
+        "/v1/sessions", json=config_body([zone("z_a", "A", [[0.0, 0.0], [0.5, 0.5]])])
+    )
+    assert r.status_code == 422
+    assert "at least 3 points" in r.text
+
+
+async def test_duplicate_zone_ids_are_refused(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """MERGE would silently collapse them and lose one of the operator's zones."""
+    r = await operator.post(
+        "/v1/sessions",
+        json=config_body([zone("z_a", "A", LEFT_POLY), zone("z_a", "B", RIGHT_POLY)]),
+    )
+    assert r.status_code == 422
+    assert "duplicate zone ids" in r.text
+
+
+async def test_an_unconfigured_session_is_a_404_not_an_empty_config(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """"Never set up" and "set up with nothing" must stay distinguishable."""
+    r = await operator.get("/v1/sessions/s_nonexistent")
+    assert r.status_code == 404
+
+
+# ── who may configure ─────────────────────────────────────────────────────────
+
+
+async def test_a_viewer_cannot_configure_an_activation(
+    viewer: AsyncClient, graph_session: GraphSession
+) -> None:
+    r = await viewer.post(
+        "/v1/sessions", json=config_body([zone("z_a", "A", LEFT_POLY)])
+    )
+    assert r.status_code == 403
+
+
+async def test_a_device_key_cannot_configure_an_activation(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """A camera feeds an activation; it does not get to define how it is scored.
+
+    This is the credential most likely to walk out of a venue, and the zone
+    weights are what the ROI report multiplies by.
+    """
+    key_id, plaintext, key_hash = generate_api_key()
+    db_session.add(
+        ApiKey(key_id=key_id, key_hash=key_hash, tenant_id=T, label="test camera")
+    )
+    await db_session.commit()
+
+    async def override_get_session() -> AsyncIterator[AsyncSession]:
+        yield db_session
+        await db_session.commit()
+
+    app.dependency_overrides[get_session] = override_get_session
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"X-API-Key": plaintext},
+    ) as ac:
+        r = await ac.post(
+            "/v1/sessions", json=config_body([zone("z_a", "A", LEFT_POLY)])
+        )
+    app.dependency_overrides.clear()
+
+    assert r.status_code == 403
+
+
+async def test_another_tenants_configuration_is_invisible(
+    operator: AsyncClient, outsider: AsyncClient, graph_session: GraphSession
+) -> None:
+    """The graph cannot enforce this, so it has to be tested rather than assumed.
+
+    Neo4j Community has no row-level security (graph/schema.py). The only thing
+    standing between one tenant and another's zones is that every repository
+    function takes a tenant_id from the credential — which is a property of the
+    code, and properties of code need a test.
+    """
+    await operator.post(
+        "/v1/sessions", json=config_body([zone("z_a", "A", LEFT_POLY)])
+    )
+
+    assert (await outsider.get(f"/v1/sessions/{S}")).status_code == 404
+
+    graph = await outsider.get(f"/v1/sessions/{S}/graph")
+    assert graph.status_code == 200
+    assert graph.json()["zones"] == []
+    assert graph.json()["uniquePeople"] == 0
+
+
+# ── aggregates ────────────────────────────────────────────────────────────────
+
+
+async def test_graph_endpoint_reports_dwell_and_unique_people(
+    operator: AsyncClient, db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """The two numbers the graph knows better than the event log does."""
+    await operator.post(
+        "/v1/sessions",
+        json=config_body([zone("z_a", "Mirror Room", LEFT_POLY, weight=2.0)]),
+    )
+
+    await graph_repo.upsert_person(
+        graph_session,
+        tenant_id=T,
+        session_id=S,
+        anon_id="P-001",
+        first_seen=BASE.isoformat(),
+        last_seen=BASE.isoformat(),
+    )
+    await graph_repo.link_dwelled_in(
+        graph_session,
+        tenant_id=T,
+        session_id=S,
+        anon_id="P-001",
+        zone_id="z_a",
+        duration=90.0,
+        started_at=BASE.isoformat(),
+        ended_at=(BASE + dt.timedelta(seconds=90)).isoformat(),
+    )
+
+    body = (await operator.get(f"/v1/sessions/{S}/graph")).json()
+    assert body["uniquePeople"] == 1
+    assert body["dwellByZone"] == [
+        {"zoneId": "z_a", "zone": "Mirror Room", "avgDwell": 90.0, "visitors": 1}
+    ]
+    assert body["zones"][0]["weight"] == 2.0

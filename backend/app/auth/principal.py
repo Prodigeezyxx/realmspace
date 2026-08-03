@@ -154,6 +154,30 @@ async def require_reader(
     return principal
 
 
+async def require_operator(
+    principal: Principal = Depends(get_principal),
+) -> Principal:
+    """Endpoints that configure an activation, not just feed it.
+
+    Narrower than `may_write` on purpose. Appending an event is something every
+    credential does by design — that is what a camera is for. Redrawing zones or
+    setting the activation cost is not: those are the numbers the ROI report
+    divides by (roi-framework.md §5), so the set of things that can change them
+    should be as small as the job allows.
+
+    multi-tenant.md §RBAC puts "run activations" with Operator and org
+    management with Admin. Analyst and Viewer read the results; a device key
+    cannot reach here at all, which matters because that is the credential most
+    likely to walk out of a venue.
+    """
+    if principal.kind != "user" or principal.role not in ("admin", "operator"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="session configuration requires the admin or operator role",
+        )
+    return principal
+
+
 async def principal_for_socket(
     session: AsyncSession, token: str | None, path_tenant_id: str
 ) -> Principal:

@@ -62,11 +62,13 @@ DETECTION = "perception.detection"
 ZONE_ENTER = "spatial.zone_enter"
 ZONE_EXIT = "spatial.zone_exit"
 DWELL = "spatial.dwell"
+#: Emitted by POST /v1/sessions when an operator redraws zones. See handle().
+ZONES_UPDATED = "session.zones_updated"
 
 
 class TrackerConsumer(Consumer):
     name = "tracker"
-    handles = (DETECTION,)
+    handles = (DETECTION, ZONES_UPDATED)
 
     def __init__(self) -> None:
         super().__init__()
@@ -115,9 +117,13 @@ class TrackerConsumer(Consumer):
         against the old polygons until the process restarted, silently
         attributing dwell to the wrong zone with nothing to indicate a problem.
 
-        A TTL rather than event-driven invalidation because no event in the §3
-        taxonomy announces a zone edit. When one exists, subscribe to it and
-        drop the TTL.
+        Both a TTL *and* event-driven invalidation. `session.zones_updated` now
+        exists and this consumer subscribes to it, which makes a redraw take
+        effect on the next detection instead of up to a TTL later. The TTL stays
+        as the backstop: the event can be lost to a dead letter, or the zones can
+        be changed by something that never emits it (a hand-run Cypher statement
+        during a demo, which happens), and a cache with no expiry would then hold
+        the wrong polygons until the process restarted.
         """
         settings = get_settings()
         key = (tenant_id, session_id)
@@ -139,6 +145,19 @@ class TrackerConsumer(Consumer):
         self._zones.pop((tenant_id, session_id), None)
 
     async def handle(self, event: EventLog) -> None:
+        if event.type == ZONES_UPDATED:
+            # An operator redrew the zones. Drop the cached polygons so the next
+            # detection is scored against the new ones.
+            #
+            # Deliberately *not* clearing `self._where`. A person standing still
+            # while a zone is edited has genuinely not moved, and forgetting them
+            # would emit a zone_enter for a step nobody took. If the edit moved
+            # them out of the zone they were in, the next detection sees the
+            # change and emits the exit and dwell then — which is the truth: the
+            # zone stopped containing them at the moment it was redrawn.
+            self.forget_zones(event.tenant_id, event.session_id)
+            return
+
         payload = event.payload
         # Two spellings in the wild: `anon_id` (data-model.md's name for the
         # Person key, and what the postgres-track's producer sends as `anonId`)

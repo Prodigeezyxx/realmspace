@@ -11,9 +11,16 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+)
 
 
 # The namespaces in event-bus-spec.md §3. Deliberately a prefix check, not an
@@ -125,6 +132,164 @@ class EventOut(EventIn):
         if value.tzinfo is None:
             value = value.replace(tzinfo=dt.timezone.utc)
         return int(value.timestamp() * 1000)
+
+
+# ── session configuration ─────────────────────────────────────────────────────
+#
+# What an operator sets **before** the activation runs, per roi-framework.md §5:
+# the zones, their weights, the funnel, the engagement threshold, the cost and
+# the attribution model. Everything the report divides by.
+#
+# These are the wizard's shapes, not new ones. `dashboard/src/lib/session/types.ts`
+# already declares `Zone { id, name, type, capacity, color, polygon }` and stores
+# timestamps as ISO strings, so that is what goes on the wire here — same
+# reasoning as EventOut's camelCase: the browser's contract is canonical and a
+# mapper on the client would be a permanent tax.
+
+
+class ZoneConfig(BaseModel):
+    """One zone as the session wizard draws it, plus its measurement parameters.
+
+    `type` is a free string rather than an enum, deliberately. There are already
+    two zone vocabularies in the dashboard — `ZoneKind` in contracts/graph.ts
+    (7 values) and `ZoneType` in session/types.ts (11, including `reveal` and
+    `privacy_masked`) — and the wizard produces the second. An enum here would
+    422 on a zone the operator can legitimately draw, and nothing in the backend
+    branches on the value. Accepted as `type`, or `kind` for the graph contract's
+    spelling, so either shape posts cleanly.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    type: str = Field(default="other", validation_alias=AliasChoices("type", "kind"))
+    polygon: list[tuple[float, float]] | None = None
+    color: str | None = None
+    capacity: int | None = Field(default=None, ge=0)
+    #: roi-framework.md §2 — dwell-weighted attention is Σ(dwell × weight).
+    weight: float = Field(default=1.0, ge=0)
+    #: Position in the entry → experience → product → capture funnel (§5).
+    funnel_order: int | None = Field(default=None, ge=0)
+
+    @field_validator("polygon")
+    @classmethod
+    def polygon_is_a_normalized_shape(
+        cls, value: list[tuple[float, float]] | None
+    ) -> list[tuple[float, float]] | None:
+        """Reject polygons the tracker could only ever silently ignore.
+
+        Two failures, both otherwise invisible. Fewer than three points is not a
+        shape, and `point_in_polygon` returns False for it forever — every
+        detection inside the zone the operator thinks they drew is attributed
+        nowhere, and the report simply shows less traffic than there was.
+
+        Coordinates outside 0..1 mean pixels were sent where normalized booth
+        coordinates were expected. `consumers/zones.py:normalize` divides every
+        detection by the frame size before comparing, so a pixel polygon matches
+        nothing at all. This is the one place that mistake is cheap to catch.
+        """
+        if value is None:
+            return None
+        if len(value) < 3:
+            raise ValueError(
+                f"a polygon needs at least 3 points, got {len(value)} — "
+                "fewer is not a shape and would contain nobody"
+            )
+        for x, y in value:
+            if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
+                raise ValueError(
+                    f"polygon point ({x}, {y}) is outside 0..1 — zone polygons are "
+                    "normalized booth coordinates, not pixels (data-model.md → Zone)"
+                )
+        return value
+
+
+class SessionConfigIn(BaseModel):
+    """The wizard's output: one activation, configured for measurement."""
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    session_id: str = Field(min_length=1)
+    client: str | None = None
+    campaign: str | None = None
+    venue: str | None = None
+    city: str | None = None
+    started_at: str | None = None
+    ends_at: str | None = None
+    booth_width_m: float | None = Field(default=None, gt=0)
+    booth_depth_m: float | None = Field(default=None, gt=0)
+    camera_count: int | None = Field(default=None, ge=0)
+
+    #: Above this, a visit counts as engaged (roi-framework.md §2, Layer 2).
+    #: 60s matches the default in dashboard/src/lib/roi/scorecard.ts.
+    engaged_threshold_seconds: float = Field(default=60.0, gt=0)
+    #: Total cost of the activation — the denominator of CPEV, CPQL and ROI.
+    activation_cost: float | None = Field(default=None, ge=0)
+    currency: str = Field(default="USD", min_length=3, max_length=3)
+    #: roi-framework.md §3. "influenced" by default: the simplest to defend.
+    attribution_model: Literal[
+        "first_touch", "last_touch", "linear", "time_decay", "influenced"
+    ] = "influenced"
+
+    #: **Omitted leaves the zone set untouched; a list replaces it entirely**,
+    #: including an empty one. The wizard always posts the whole set, so a zone
+    #: the operator deleted has to disappear rather than linger and keep
+    #: collecting dwell — see graph.repository.prune_zones.
+    zones: list[ZoneConfig] | None = None
+
+    @field_validator("zones")
+    @classmethod
+    def zone_ids_are_unique(
+        cls, value: list[ZoneConfig] | None
+    ) -> list[ZoneConfig] | None:
+        """Two zones with one id is a lost zone, not an error the graph reports.
+
+        `upsert_zone` MERGEs on (tenant_id, id), so the second would overwrite
+        the first and the operator would find one of their zones missing with
+        nothing to explain it.
+        """
+        if value is None:
+            return None
+        seen = [z.id for z in value]
+        duplicates = sorted({z for z in seen if seen.count(z) > 1})
+        if duplicates:
+            raise ValueError(f"duplicate zone ids: {', '.join(duplicates)}")
+        return value
+
+
+class SessionConfigOut(SessionConfigIn):
+    """What comes back. Zones are always a list here — never None."""
+
+    zones: list[ZoneConfig] = []
+
+
+class ZoneDwell(BaseModel):
+    """Average dwell and visitor count for one zone."""
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    zone_id: str
+    zone: str | None = None
+    avg_dwell: float | None = None
+    visitors: int = 0
+
+
+class SessionGraphOut(BaseModel):
+    """The graph-derived aggregates a report or a live tile starts from.
+
+    Only what the graph knows better than the log does: unique people, and dwell
+    already grouped per zone. Everything else the scorecard needs is derivable
+    from the event log the caller can already read at `GET /events`, and
+    computing it twice in two languages is how the two come to disagree.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    session_id: str
+    unique_people: int
+    zones: list[ZoneConfig]
+    dwell_by_zone: list[ZoneDwell]
 
 
 def to_wire(row) -> dict:

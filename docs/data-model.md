@@ -28,9 +28,18 @@ there takes `tenant_id` as a required argument.
   id, client, campaign, venue, city,
   started_at, ends_at,
   agency_name, booth_width_m, booth_depth_m,
-  camera_count
+  camera_count,
+
+  // Measurement parameters — set at setup, before the activation runs
+  // (roi-framework.md §5). Stored, never inferred later: a parameter chosen
+  // after the numbers are in is a parameter chosen to flatter them.
+  engaged_threshold_seconds,  // dwell above this counts as "engaged" (default 60)
+  activation_cost,            // denominator of CPEV, CPQL and the ROI ratio
+  currency,                   // 3-letter code, default 'USD'
+  attribution_model           // first_touch|last_touch|linear|time_decay|influenced
 })
 // key: (tenant_id, id)
+// written by: POST /v1/sessions
 
 (:Person {
   tenant_id,
@@ -48,9 +57,15 @@ there takes `tenant_id` as a required argument.
   id, name, type,           // see ZoneType below
   polygon,                  // normalized booth coords, flattened [x1,y1,x2,y2,…]
   color,
-  capacity                  // optional, for crowding alerts
+  capacity,                 // optional, for crowding alerts
+
+  weight,                   // ROI weight, default 1.0 — dwell-weighted attention
+                            // is Σ(dwell × weight); not all dwell is equal
+                            // (roi-framework.md §2, Layer 2)
+  funnel_order              // position in entry → experience → product → capture
 })
 // key: (tenant_id, id)
+// written by: POST /v1/sessions
 
 (:Object {
   tenant_id, session_id,

@@ -93,6 +93,16 @@ detection → dashboard.
 
 *Goal: turn the report into a real, defensible ROI proof. This is the wedge.*
 
+- ✅ **Prerequisite: session configuration API** — `POST /v1/sessions` +
+      `GET /v1/sessions/{id}` + `/graph` (`backend/app/routers/sessions.py`).
+      Not on the original Phase 2 list because it belongs to the seam between
+      the phases: Phase 1 shipped `upsert_zone` with no caller outside the tests,
+      so a real deployment had no zones, the tracker returned early on every
+      detection, and nothing downstream had anything to measure. Also carries the
+      measurement parameters `roi-framework.md` §5 wants set before the
+      activation runs — zone weights, funnel order, engagement threshold,
+      activation cost, attribution model. Zone edits invalidate the tracker's
+      cache through a new `session.zones_updated` event.
 - 🔲 Report templated from **real session data** (replace static numbers)
 - 🔲 **4-layer scorecard** (Reach/Engagement/Affinity/Pipeline) — `roi-framework.md`
 - 🔲 Signature metrics: dwell-weighted attention, engagement rate, funnel, CPEV
@@ -215,6 +225,10 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 
 1. **Graph store:** Neo4j (matches docs) vs. embedded SQLite/DuckDB graph for
    the edge box (lighter, offline-friendly). *Lean: decide at start of P1.*
-2. **AI provider:** OpenAI / Anthropic / Gemini for Ask + SDR. *Needed for P2.*
+2. **AI provider:** OpenAI / Anthropic / Gemini for Ask + SDR. *Still open as of
+   2026-08-03.* No key exists in the repo. Ask the Room is therefore sequenced
+   **last** in P2 rather than blocking it — nothing else in the phase needs a
+   provider, so the report, scorecard, ROI tile and twin replay proceed without
+   one. Ask stays on its regex mocks until this is decided.
 3. **First CRM confirmed:** HubSpot as reference adapter (P4).
 4. **Repo:** continue on `genspark_ai_developer` in the main `realmspace` repo.

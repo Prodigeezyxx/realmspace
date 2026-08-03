@@ -106,6 +106,8 @@ async def upsert_zone(
     polygon: list[list[float]] | None = None,
     color: str | None = None,
     capacity: int | None = None,
+    weight: float = 1.0,
+    funnel_order: int | None = None,
 ) -> dict[str, Any]:
     """Create or update a Zone (data-model.md → `(:Zone {...})`).
 
@@ -115,6 +117,16 @@ async def upsert_zone(
 
     Neo4j cannot store nested lists as a property, so the polygon is flattened
     to [x1, y1, x2, y2, ...] on write and rebuilt into pairs on read.
+
+    `weight` and `funnel_order` are measurement parameters, not geometry.
+    roi-framework.md §2 defines dwell-weighted attention as `Σ(dwell × weight)`
+    — "not all dwell is equal" — and §5 says the funnel is defined at session
+    setup, before the activation runs. They live on the Zone because that is
+    where the operator sets them and where the report reads them; storing them
+    anywhere else would let the two drift apart mid-session.
+
+    `weight` defaults to 1.0 rather than 0, so a zone whose weight was never set
+    counts as ordinary dwell instead of silently contributing nothing.
     """
     flat: list[float] | None = None
     if polygon is not None:
@@ -123,12 +135,14 @@ async def upsert_zone(
     result = await session.run(
         """
         MERGE (z:Zone {tenant_id: $tenant_id, id: $zone_id})
-        SET z.session_id = $session_id,
-            z.name       = $name,
-            z.type       = $type,
-            z.polygon    = $polygon,
-            z.color      = $color,
-            z.capacity   = $capacity
+        SET z.session_id   = $session_id,
+            z.name         = $name,
+            z.type         = $type,
+            z.polygon      = $polygon,
+            z.color        = $color,
+            z.capacity     = $capacity,
+            z.weight       = $weight,
+            z.funnel_order = $funnel_order
         RETURN z
         """,
         tenant_id=tenant_id,
@@ -139,6 +153,8 @@ async def upsert_zone(
         polygon=flat,
         color=color,
         capacity=capacity,
+        weight=weight,
+        funnel_order=funnel_order,
     )
     record = await result.single()
     return dict(record["z"])
@@ -158,20 +174,41 @@ async def upsert_session(
     booth_width_m: float | None = None,
     booth_depth_m: float | None = None,
     camera_count: int | None = None,
+    engaged_threshold_seconds: float = 60.0,
+    activation_cost: float | None = None,
+    currency: str = "USD",
+    attribution_model: str = "influenced",
 ) -> dict[str, Any]:
-    """Create or update a Session node (data-model.md → `(:Session {...})`)."""
+    """Create or update a Session node (data-model.md → `(:Session {...})`).
+
+    The last four properties are the activation's **measurement parameters**,
+    added for roi-framework.md §5 — "the strongest ROI comes from planning it
+    into the activation, not bolting it on". Every Layer-4 metric is defined in
+    terms of them: CPEV and CPQL divide by `activation_cost`, the engagement
+    rate counts anyone past `engaged_threshold_seconds`, and the ROI ratio is
+    only defensible if the `attribution_model` was agreed before doors opened
+    rather than chosen afterwards to flatter the number.
+
+    They are stored, not computed, for that last reason: a parameter picked
+    after the fact is an argument, and §3's design principle is that we never
+    inflate.
+    """
     result = await session.run(
         """
         MERGE (s:Session {tenant_id: $tenant_id, id: $session_id})
-        SET s.client        = $client,
-            s.campaign      = $campaign,
-            s.venue         = $venue,
-            s.city          = $city,
-            s.started_at    = $started_at,
-            s.ends_at       = $ends_at,
-            s.booth_width_m = $booth_width_m,
-            s.booth_depth_m = $booth_depth_m,
-            s.camera_count  = $camera_count
+        SET s.client                    = $client,
+            s.campaign                  = $campaign,
+            s.venue                     = $venue,
+            s.city                      = $city,
+            s.started_at                = $started_at,
+            s.ends_at                   = $ends_at,
+            s.booth_width_m             = $booth_width_m,
+            s.booth_depth_m             = $booth_depth_m,
+            s.camera_count              = $camera_count,
+            s.engaged_threshold_seconds = $engaged_threshold_seconds,
+            s.activation_cost           = $activation_cost,
+            s.currency                  = $currency,
+            s.attribution_model         = $attribution_model
         RETURN s
         """,
         tenant_id=tenant_id,
@@ -185,6 +222,10 @@ async def upsert_session(
         booth_width_m=booth_width_m,
         booth_depth_m=booth_depth_m,
         camera_count=camera_count,
+        engaged_threshold_seconds=engaged_threshold_seconds,
+        activation_cost=activation_cost,
+        currency=currency,
+        attribution_model=attribution_model,
     )
     record = await result.single()
     return dict(record["s"])
@@ -286,25 +327,43 @@ async def link_dwelled_in(
 
 
 async def zones_for_session(
-    session: AsyncSession, *, tenant_id: str, session_id: str
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str,
+    include_undrawn: bool = False,
 ) -> list[dict[str, Any]]:
     """Zones with their polygons, for the tracker to test detections against.
 
     Rebuilds the flat [x1,y1,x2,y2,…] stored by upsert_zone back into
     [[x1,y1],[x2,y2],…] pairs, so callers never see the storage shape.
 
-    Zones without a polygon are skipped — an operator can create a zone before
-    drawing it, and a zone with no boundary can't contain anyone.
+    Zones without a polygon are skipped by default — an operator can create a
+    zone before drawing it, and a zone with no boundary can't contain anyone.
+    `include_undrawn` is for the config endpoint, which has to show the operator
+    the zone they half-created rather than pretending it doesn't exist.
+
+    `weight` and `funnel_order` come back with the geometry because the report
+    needs them alongside the dwell they weight, and a second round trip to fetch
+    them is a second chance for the two to disagree about which zones exist.
     """
     result = await session.run(
         """
         MATCH (z:Zone {tenant_id: $tenant_id, session_id: $session_id})
-        WHERE z.polygon IS NOT NULL
-        RETURN z.id AS id, z.name AS name, z.type AS type, z.polygon AS polygon
-        ORDER BY z.id
+        WHERE $include_undrawn OR z.polygon IS NOT NULL
+        RETURN z.id           AS id,
+               z.name         AS name,
+               z.type         AS type,
+               z.polygon      AS polygon,
+               z.color        AS color,
+               z.capacity     AS capacity,
+               z.weight       AS weight,
+               z.funnel_order AS funnel_order
+        ORDER BY coalesce(z.funnel_order, 2147483647), z.id
         """,
         tenant_id=tenant_id,
         session_id=session_id,
+        include_undrawn=include_undrawn,
     )
     zones: list[dict[str, Any]] = []
     async for record in result:
@@ -317,9 +376,68 @@ async def zones_for_session(
                 "polygon": [
                     [flat[i], flat[i + 1]] for i in range(0, len(flat) - 1, 2)
                 ],
+                "color": record["color"],
+                "capacity": record["capacity"],
+                # A zone written before weights existed has no weight property.
+                # Defaulting here rather than at each call site keeps the "no
+                # weight means ordinary dwell" rule in one place.
+                "weight": record["weight"] if record["weight"] is not None else 1.0,
+                "funnel_order": record["funnel_order"],
             }
         )
     return zones
+
+
+async def session_config(
+    session: AsyncSession, *, tenant_id: str, session_id: str
+) -> dict[str, Any] | None:
+    """A Session node's properties, or None if it was never created.
+
+    None rather than an empty dict on purpose: "this session does not exist" and
+    "this session exists with nothing set" are different answers, and the report
+    must be able to tell them apart before it claims a number.
+    """
+    result = await session.run(
+        """
+        MATCH (s:Session {tenant_id: $tenant_id, id: $session_id})
+        RETURN s
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+    )
+    record = await result.single()
+    return dict(record["s"]) if record is not None else None
+
+
+async def prune_zones(
+    session: AsyncSession, *, tenant_id: str, session_id: str, keep_ids: list[str]
+) -> int:
+    """Delete this session's zones that are not in `keep_ids`. Returns the count.
+
+    The session wizard posts the whole zone set, so a zone the operator deleted
+    has to actually go. Without this it survives as an orphan the tracker keeps
+    scoring detections against — dwell attributed to a zone that is no longer on
+    anybody's screen, which is worse than no zone at all because it still shows
+    up in the report.
+
+    DETACH so the ENTERED/DWELLED_IN edges go with it. That does destroy history
+    for the removed zone, which is the correct reading of "the operator deleted
+    this zone": a report cannot show dwell in a zone that the client is told
+    does not exist.
+    """
+    result = await session.run(
+        """
+        MATCH (z:Zone {tenant_id: $tenant_id, session_id: $session_id})
+        WHERE NOT z.id IN $keep_ids
+        DETACH DELETE z
+        RETURN count(z) AS deleted
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        keep_ids=keep_ids,
+    )
+    record = await result.single()
+    return record["deleted"]
 
 
 async def dwell_by_zone(

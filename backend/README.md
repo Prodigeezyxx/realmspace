@@ -167,10 +167,18 @@ item in `data-model.md` → "Store decision".
 | `POST /events` | key or token | Append one event. 201 if created, 200 if the `event_id` was already in the log. |
 | `GET /events?since_seq=…` | token | Read your tenant's log forward from a cursor. Also accepts `session_id`, `type`, `limit`. **No tenant parameter.** |
 | `WS /v1/ws/{tenant}/{session}?token=…` | token | Live feed. `since_seq` for gapless reconnect. |
+| `POST /v1/sessions` | token, **admin/operator** | Create or update a session's zones and measurement parameters. Omitting `zones` leaves them alone; sending a list replaces the set. |
+| `GET /v1/sessions/{session_id}` | token | The configuration back. 404 if the session was never configured. |
+| `GET /v1/sessions/{session_id}/graph` | token | Unique people + dwell per zone. No 404 — an unconfigured session is a legitimate all-zeroes answer. |
 | `GET /health` | none | Liveness for **both** stores plus the consumers. |
 
-The graph has no HTTP surface yet — it is written by in-process consumers, not
-by clients. `app/graph/repository.py` is the API.
+**Configure a session before running perception against it.** The tracker reads
+its zone polygons from the graph, so with no zones it emits nothing at all — no
+`spatial.*` events, no graph edges, no metrics — and does so quietly. `POST
+/v1/sessions` is the only thing that writes them.
+
+The rest of the graph has no HTTP surface: it is written by in-process
+consumers, not by clients. `app/graph/repository.py` is the API.
 
 `event_id` is assigned by the **producer**, not the server. That is what makes
 retries safe: a producer whose POST times out resends the same `event_id` and

@@ -17,7 +17,62 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-01 (midday)
+## [Unreleased] — last updated 2026-08-03
+
+### Added — 2026-08-03 — `[neo4j-track]` you can now set an activation up before it runs
+
+- **Nothing could tell the system where the zones were.** The code that draws a
+  zone in the database existed, but the only thing that ever called it was the
+  test suite. So on a real machine the tracker asked which zones it should be
+  watching, was told "none", and quietly did nothing — no zone entries, no dwell,
+  no numbers, and no error either. Everything Phase 2 measures sits downstream of
+  that, so it had to be closed before any of it could start.
+  *`POST /v1/sessions` — the first production caller of `graph.repository`'s
+  `upsert_session` / `upsert_zone`. Registered in `app/main.py`; new
+  `app/routers/sessions.py`.*
+
+- **The numbers a report divides by are now decided before the doors open, not
+  after.** How long counts as "engaged", how much each zone is worth, what the
+  activation cost, and which attribution model was agreed — all set at setup and
+  stored with the session. A number picked after the results are in is a number
+  picked to make the results look good, and this is the wedge we sell on.
+  *`Session.engaged_threshold_seconds` / `activation_cost` / `currency` /
+  `attribution_model` and `Zone.weight` / `funnel_order`, per `roi-framework.md`
+  §5. Defaults deliberately match `dashboard/src/lib/roi/scorecard.ts` (60s,
+  weight 1.0) so the same session scores the same on both sides.*
+
+- **Editing a zone mid-activation now takes effect straight away.** It used to
+  take up to half a minute, during which people's time was credited to the shape
+  the zone used to be.
+  *New `session.zones_updated` event; the tracker subscribes and drops its
+  polygon cache. This is what the TODO in `tracker.zones_for` asked for. Sent
+  through the bus rather than called directly, because the tracker can run in its
+  own process — where a direct call reaches nothing. The 30s TTL stays as a
+  backstop for zones changed by something that doesn't emit the event.*
+
+- **A zone the operator deletes actually disappears.** Left behind, it would have
+  kept collecting time against a shape nobody could see, and shown up in the
+  client's report.
+  *`prune_zones` — re-posting the zone set removes what isn't in it.*
+
+- **The camera cannot change how it is scored.** A device key is refused here,
+  and so is a read-only viewer; only an admin or operator can configure an
+  activation. The camera key is the credential most likely to leave a venue in
+  somebody's pocket.
+  *New `require_operator` dependency in `app/auth/principal.py`.*
+
+- **Two mistakes that would have been invisible are now refused at the door.**
+  A zone drawn in pixels instead of normalized coordinates, and a "polygon" with
+  two points. Both are accepted silently by the database and then match nobody,
+  forever — the report just shows less traffic than there was.
+  *422 with the reason, in `schemas.ZoneConfig`. Duplicate zone ids too: MERGE
+  would have collapsed them and lost one of the operator's zones.*
+
+- **15 new tests, 94 passing.** The one that matters runs the real path —
+  configure through the API, feed a detection, get a spatial event — because
+  every existing test seeded zones by hand, which is precisely what hid the
+  problem. **Verified by breaking it:** removing the cache-invalidation
+  subscription fails the redraw test, as it should.
 
 ### Added — 2026-08-01 (midday) — `[neo4j-track]` the database now enforces tenant separation itself
 
