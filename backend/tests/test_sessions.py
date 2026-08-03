@@ -152,6 +152,30 @@ async def detect(
     await db_session.commit()
 
 
+async def stay(
+    db_session: AsyncSession,
+    *,
+    at: dt.datetime,
+    bbox: list[int] = LEFT_PX,
+    seconds: float = 5,
+    step: float = 2.5,
+) -> None:
+    """Detections across a stay, as a camera produces them.
+
+    One detection is not a visit any more: the tracker's confirm window
+    (`tracker_zone_confirm_seconds`) requires a zone to be held before it is
+    believed, which is what stops someone on a boundary generating a visit per
+    frame. Tests feed the same shape production sees.
+    """
+    t = at
+    end = at + dt.timedelta(seconds=seconds)
+    while True:
+        await detect(db_session, at=t, bbox=bbox)
+        if t >= end:
+            break
+        t = min(t + dt.timedelta(seconds=step), end)
+
+
 async def types_in_log(db_session: AsyncSession) -> list[str]:
     rows = await repository.read_events(db_session, tenant_id=T, since_seq=0, limit=200)
     return [r.type for r in rows]
@@ -176,7 +200,7 @@ async def test_a_session_configured_through_the_api_produces_spatial_events(
     )
     assert posted.status_code == 200, posted.text
 
-    await detect(db_session, at=BASE)
+    await stay(db_session, at=BASE)
     await TrackerConsumer().run_once()
 
     assert "spatial.zone_enter" in await types_in_log(db_session)
@@ -198,7 +222,7 @@ async def test_redrawing_a_zone_takes_effect_immediately(
     await operator.post(
         "/v1/sessions", json=config_body([zone("z_left", "Entrance", LEFT_POLY)])
     )
-    await detect(db_session, at=BASE)
+    await stay(db_session, at=BASE)
 
     tracker = TrackerConsumer()
     await tracker.run_once()
@@ -210,7 +234,7 @@ async def test_redrawing_a_zone_takes_effect_immediately(
     await operator.post(
         "/v1/sessions", json=config_body([zone("z_left", "Entrance", RIGHT_POLY)])
     )
-    await detect(db_session, at=BASE + dt.timedelta(seconds=30))
+    await stay(db_session, at=BASE + dt.timedelta(seconds=10))
     await tracker.run_once()
 
     types = await types_in_log(db_session)

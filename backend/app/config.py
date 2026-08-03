@@ -92,6 +92,36 @@ class Settings(BaseSettings):
     # across a multi-day activation; eviction costs one spurious zone_enter.
     tracker_max_tracked_people: int = 10_000
 
+    # ── session hygiene ───────────────────────────────────────────────────────
+    # Ported from the postgres-track's browser-side deriver
+    # (dashboard/src/lib/live-session/spatial-deriver.ts), whose header cites
+    # CHI '26: 71% of raw sessions are invalid without these. Untreated, all
+    # three failures below produce events that look perfectly ordinary and land
+    # in a client's ROI report as findings.
+
+    # A zone change must persist this long before it is believed. Somebody
+    # standing on a boundary flickers between two zones at frame rate; without
+    # a confirm window that is dozens of enter/exit/dwell pairs a minute, each
+    # one indistinguishable from a real visit.
+    #
+    # Note this means a zone needs two detections spaced at least this far
+    # apart to register at all. At 20fps that is 12 frames; for sparse
+    # synthetic input it is the difference between events and silence.
+    tracker_zone_confirm_seconds: float = 0.6
+
+    # Dwells shorter than this are noise, not visits, and are dropped. The exit
+    # is still emitted — the person did leave — but nothing claims they spent
+    # time there.
+    tracker_min_dwell_seconds: float = 1.0
+
+    # A track that stops being detected while inside a zone is assumed to have
+    # left at its last sighting. Without this its exit and dwell are never
+    # emitted at all: anyone who walks out of frame from inside a zone simply
+    # vanishes from the report, so the activation under-reports the visits that
+    # ended in the least convenient place. Measured on event time, not wall
+    # clock, so a replay reproduces it exactly.
+    tracker_dropout_seconds: float = 20.0
+
     # ── auth (multi-tenant.md §3, Week 1 tasks 1.6/1.7) ───────────────────────
     # Tokens are issued and verified locally with this secret. Deliberately not
     # Firebase-verified on the hot path: event-bus-spec.md §1 requires the edge

@@ -145,12 +145,39 @@ consumer's job and is consent-gated (`consent-and-identity.md`).
 `{ "anon_id", "zone_id", "at" }`
 
 **`spatial.zone_exit`** — producer: tracker:
-`{ "anon_id", "zone_id", "at", "entered_at" }`
+`{ "anon_id", "zone_id", "at", "entered_at", "reason" }`
 
 **`spatial.dwell`** — producer: tracker:
-`{ "anon_id", "zone_id", "duration", "started_at", "ended_at", "exceeded_threshold" }`
+`{ "anon_id", "zone_id", "duration", "started_at", "ended_at", "exceeded_threshold", "reason" }`
 — `duration` in seconds; `exceeded_threshold` compares it to the per-session
 dwell threshold (30s today, matching `agents/definitions/dwell.ts`).
+
+`reason` is `"move"` or `"dropout"`. **A dropout duration is a lower bound, not
+a measurement**: the track stopped being detected inside the zone and the visit
+was closed at its last sighting, so the person may well have stayed longer.
+Anything averaging or ranking dwell should be able to tell the two apart —
+`spatial.zone_exit` carries the same field for the same reason.
+
+### Session hygiene: what counts as a visit
+
+Raw polygon membership is not a visit, and the difference is not cosmetic. The
+tracker applies three rules before emitting anything (`backend/app/consumers/
+tracker.py`, ported from the postgres-track's `spatial-deriver.ts`, whose header
+cites CHI '26 — 71% of raw sessions are invalid without them):
+
+| Rule | Setting | What it prevents |
+|---|---|---|
+| **Confirm window** | `tracker_zone_confirm_seconds` (0.6s) | Someone on a zone edge crossing it at frame rate. Each wobble is otherwise a complete enter/exit/dwell triple, inflating footfall and halving average dwell, with nothing in the data to show for it. |
+| **Minimum dwell** | `tracker_min_dwell_seconds` (1.0s) | Clipping a corner counting as time spent. The exit still fires; only the dwell is dropped. |
+| **Dropout sweep** | `tracker_dropout_seconds` (20s) | A track vanishing inside a zone emitting *nothing at all* — the visit silently discarded, which under-reports precisely the long stays at the far end of a booth. |
+
+Timestamps use the **real crossing**, never the moment of confirmation, so the
+window is not charged to the visitor. All of it runs on event time rather than
+wall clock, which is what keeps a replay byte-identical.
+
+**Consequence for producers:** a zone must be seen twice, at least the confirm
+window apart, to register at all. Real perception at ~20fps satisfies this in 12
+frames; sparse synthetic input does not, and will produce silence.
 
 **`session.zones_updated`** — producer: `POST /v1/sessions` (an operator):
 `{ "zone_ids": ["z_entry", …], "zone_count": 3, "by": "u_op" }`

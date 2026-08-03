@@ -244,6 +244,7 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 | Cost telemetry / unit economics | `cost.metered` meter — P3 |
 | Group visits | `Group` node (in `data-model.md`) — P1/P2 |
 | Negative signals (pass-by/skip) | `spatial.passby` event — P2 |
+| Session hygiene (boundary flicker, track dropout, sub-second dwells) | ✅ confirm window + dropout sweep + minimum dwell in `consumers/tracker.py`, ported from the postgres-track's `spatial-deriver.ts` (CHI '26: 71% of raw sessions invalid without them) |
 
 ---
 

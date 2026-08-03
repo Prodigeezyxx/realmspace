@@ -27,6 +27,35 @@ The events go back into the same log via repository.append_event — the tracker
 is just another producer, with no privileged path. The graph writer picks them
 up from there.
 
+## Session hygiene
+
+Raw polygon membership is not a visit. Three things corrupt it, and all three
+produce events that look entirely ordinary downstream — they end up in a
+client's ROI report as findings, which is why they are handled here rather than
+filtered later:
+
+  **Boundary flicker.** Somebody standing on a zone edge crosses it at frame
+  rate. Untreated, one person loitering by a doorway generates dozens of
+  enter/exit/dwell triples a minute, each indistinguishable from a real visit.
+  A membership change must therefore hold for `tracker_zone_confirm_seconds`
+  before it is believed — but the timestamps use the *real* crossing, not the
+  moment of confirmation, so dwell durations stay accurate.
+
+  **Sub-second dwells.** Passing through a corner of a zone is not time spent
+  there. Below `tracker_min_dwell_seconds` the dwell is dropped; the exit is
+  still emitted, because the person did leave.
+
+  **Dropout.** A track that stops being detected inside a zone used to emit
+  nothing at all — no exit, no dwell — so every visit that ended by walking out
+  of frame was silently discarded and the activation under-reported. After
+  `tracker_dropout_seconds` of silence the visit is closed at the last sighting
+  and marked `reason: "dropout"`, so a consumer can discount it knowingly
+  rather than never see it.
+
+Ported from the postgres-track's `spatial-deriver.ts`, which derives the same
+events in the browser. Two tracks, one definition of what counts as a visit —
+the bake-off should turn on the graph store, not on which one counts better.
+
 ## In-memory state, and what that costs
 
 Current zone per person lives in a dict, not the database. That is the right
@@ -37,6 +66,10 @@ their dwell clock restarts.
 
 Not hidden, not free. The fix, when it matters, is to rebuild state at startup
 from the graph's ENTERED edges that have no matching LEFT.
+
+All timing here is **event time**, never wall clock. That is what keeps a replay
+byte-identical to the original run: the same detections in, the same spatial
+events with the same derived ids out.
 """
 
 from __future__ import annotations
@@ -44,6 +77,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import time
+from dataclasses import dataclass, field
 
 from app import repository
 from app.config import get_settings
@@ -65,6 +99,33 @@ DWELL = "spatial.dwell"
 #: Emitted by POST /v1/sessions when an operator redraws zones. See handle().
 ZONES_UPDATED = "session.zones_updated"
 
+#: Why a visit ended. Carried on zone_exit and dwell so a consumer can weigh
+#: them differently — a dwell that ended in a dropout is a lower bound on the
+#: real one, and the report should be able to say so.
+REASON_MOVE = "move"
+REASON_DROPOUT = "dropout"
+
+
+@dataclass
+class TrackState:
+    """What the tracker remembers about one person.
+
+    `confirmed` is where they are believed to be; `candidate` is a membership
+    change that has not yet held long enough to believe. Keeping the two apart
+    is the whole of the flicker fix — the old code had only the former, so every
+    boundary wobble was immediately a fact.
+    """
+
+    #: Believed zone, or None for "in frame but in no zone".
+    confirmed: str | None = None
+    #: When the confirmed stay actually began — the crossing, not its confirmation.
+    entered_at: dt.datetime | None = None
+    #: A pending change: the zone seen, and when it was first seen.
+    candidate: str | None = None
+    candidate_since: dt.datetime | None = None
+    #: Last detection of this person, for dropout.
+    last_seen: dt.datetime | None = field(default=None)
+
 
 class TrackerConsumer(Consumer):
     name = "tracker"
@@ -72,7 +133,7 @@ class TrackerConsumer(Consumer):
 
     def __init__(self) -> None:
         super().__init__()
-        # (tenant_id, session_id, anon_id) -> (zone_id, entered_at_iso)
+        # (tenant_id, session_id, anon_id) -> TrackState
         #
         # Bounded: dicts keep insertion order, so when this exceeds the cap the
         # oldest entries are evicted first. Without a cap it only ever shrinks
@@ -83,7 +144,7 @@ class TrackerConsumer(Consumer):
         # Evicting someone still standing in a zone costs one spurious
         # zone_enter on their next detection, which is the same, already
         # documented consequence as a restart. Better than unbounded growth.
-        self._where: dict[tuple[str, str, str], tuple[str, str]] = {}
+        self._where: dict[tuple[str, str, str], TrackState] = {}
         # (tenant_id, session_id) -> (zones, fetched_at_monotonic)
         self._zones: dict[tuple[str, str], tuple[list[dict], float]] = {}
 
@@ -190,63 +251,48 @@ class TrackerConsumer(Consumer):
         nx, ny = normalize(cx, cy, frame_w, frame_h)
         now_zone = zone_for_point(nx, ny, zones)
 
+        settings = get_settings()
+        now = event.occurred_at
         key = (event.tenant_id, event.session_id, anon_id)
-        previous = self._where.get(key)
-        prev_zone = previous[0] if previous else None
-
-        if now_zone == prev_zone:
-            return  # still in the same place — nothing happened
-
-        at = _iso(event.occurred_at)
         emitted: list[EventIn] = []
 
-        if prev_zone is not None:
-            entered_at = previous[1]  # type: ignore[index]
-            emitted.append(
-                self._event(
-                    event,
-                    type=ZONE_EXIT,
-                    parts=(ZONE_EXIT, anon_id, prev_zone, entered_at),
-                    payload={
-                        "anon_id": anon_id,
-                        "zone_id": prev_zone,
-                        "at": at,
-                        "entered_at": entered_at,
-                    },
-                )
-            )
-            duration = _seconds_between(entered_at, at)
-            emitted.append(
-                self._event(
-                    event,
-                    type=DWELL,
-                    # keyed on the visit, not the detection: one dwell per stay
-                    parts=(DWELL, anon_id, prev_zone, entered_at),
-                    payload={
-                        "anon_id": anon_id,
-                        "zone_id": prev_zone,
-                        "duration": duration,
-                        "started_at": entered_at,
-                        "ended_at": at,
-                        "exceeded_threshold": duration
-                        >= get_settings().dwell_threshold_seconds,
-                    },
-                )
-            )
+        # Sweep **before** recording this sighting, so a person who themselves
+        # went quiet is caught. Updating `last_seen` first would exempt exactly
+        # the track that had been missing — someone who leaves the frame for two
+        # minutes and returns would have the whole gap counted as dwell, which
+        # is the opposite of what a dropout means.
+        emitted += self._sweep_dropouts(event, now)
 
-        if now_zone is not None:
-            emitted.append(
-                self._event(
-                    event,
-                    type=ZONE_ENTER,
-                    parts=(ZONE_ENTER, anon_id, now_zone, at),
-                    payload={"anon_id": anon_id, "zone_id": now_zone, "at": at},
-                )
-            )
-            self._where[key] = (now_zone, at)
+        state = self._where.get(key)
+        if state is None:
+            state = TrackState()
+            self._where[key] = state
             self._prune_where()
-        else:
-            self._where.pop(key, None)
+        state.last_seen = now
+
+        if now_zone == state.confirmed:
+            # Back where we believed they were: whatever change was pending was
+            # flicker, and pretending otherwise is exactly the bug.
+            state.candidate = None
+            state.candidate_since = None
+        elif state.candidate_since is None or state.candidate != now_zone:
+            # A new candidate. Note the time of the actual crossing — the
+            # emitted timestamps use this, not the later moment of confirmation,
+            # so a confirmed dwell is as long as the person was really there.
+            #
+            # `candidate_since is None` is what marks "nothing pending", not
+            # `candidate is None`: None is itself a legitimate destination,
+            # meaning "in frame, in no zone". Conflating the two made a person
+            # walking out of every zone invisible — their exit never fired,
+            # because leaving looked identical to having nothing pending.
+            state.candidate = now_zone
+            state.candidate_since = now
+        elif (
+            now - state.candidate_since
+        ).total_seconds() >= settings.tracker_zone_confirm_seconds:
+            emitted += self._commit_transition(
+                event, state, anon_id, now_zone, state.candidate_since
+            )
 
         if emitted:
             async with db.SessionLocal() as session:
@@ -258,6 +304,146 @@ class TrackerConsumer(Consumer):
                 for out in emitted:
                     await repository.append_event(session, out)
                 await session.commit()
+
+    def _close_visit(
+        self,
+        source: EventLog,
+        *,
+        anon_id: str,
+        zone_id: str,
+        entered_at: dt.datetime,
+        left_at: dt.datetime,
+        reason: str,
+    ) -> list[EventIn]:
+        """End a stay: an exit, and a dwell if the stay was long enough to count.
+
+        The exit is unconditional — they left, and the graph's LEFT edge should
+        say so. The dwell is not: below `tracker_min_dwell_seconds` the person
+        clipped a corner rather than spent time there, and emitting it would put
+        a visit in the report that nobody made.
+        """
+        settings = get_settings()
+        entered_iso = _iso(entered_at)
+        left_iso = _iso(left_at)
+        duration = max((left_at - entered_at).total_seconds(), 0.0)
+
+        out = [
+            self._event(
+                source,
+                type=ZONE_EXIT,
+                parts=(ZONE_EXIT, anon_id, zone_id, entered_iso),
+                payload={
+                    "anon_id": anon_id,
+                    "zone_id": zone_id,
+                    "at": left_iso,
+                    "entered_at": entered_iso,
+                    "reason": reason,
+                },
+            )
+        ]
+
+        if duration >= settings.tracker_min_dwell_seconds:
+            out.append(
+                self._event(
+                    source,
+                    type=DWELL,
+                    # keyed on the visit, not the detection: one dwell per stay
+                    parts=(DWELL, anon_id, zone_id, entered_iso),
+                    payload={
+                        "anon_id": anon_id,
+                        "zone_id": zone_id,
+                        "duration": duration,
+                        "started_at": entered_iso,
+                        "ended_at": left_iso,
+                        "exceeded_threshold": duration
+                        >= settings.dwell_threshold_seconds,
+                        "reason": reason,
+                    },
+                )
+            )
+        return out
+
+    def _commit_transition(
+        self,
+        source: EventLog,
+        state: TrackState,
+        anon_id: str,
+        now_zone: str | None,
+        crossed_at: dt.datetime,
+    ) -> list[EventIn]:
+        """Believe a zone change that has now held long enough."""
+        emitted: list[EventIn] = []
+
+        if state.confirmed is not None and state.entered_at is not None:
+            emitted += self._close_visit(
+                source,
+                anon_id=anon_id,
+                zone_id=state.confirmed,
+                entered_at=state.entered_at,
+                left_at=crossed_at,
+                reason=REASON_MOVE,
+            )
+
+        if now_zone is not None:
+            at = _iso(crossed_at)
+            emitted.append(
+                self._event(
+                    source,
+                    type=ZONE_ENTER,
+                    parts=(ZONE_ENTER, anon_id, now_zone, at),
+                    payload={"anon_id": anon_id, "zone_id": now_zone, "at": at},
+                )
+            )
+            state.confirmed = now_zone
+            state.entered_at = crossed_at
+        else:
+            state.confirmed = None
+            state.entered_at = None
+
+        state.candidate = None
+        state.candidate_since = None
+        return emitted
+
+    def _sweep_dropouts(self, source: EventLog, now: dt.datetime) -> list[EventIn]:
+        """Close the visits of anyone who stopped being detected inside a zone.
+
+        Without this they emit nothing at all — no exit, no dwell — so every
+        visit that ended by walking out of frame is discarded, and the longest
+        stays are the likeliest to end that way. The result is an activation
+        that quietly under-reports exactly the visitors it should be proudest of.
+
+        Scoped to the same tenant and session as the triggering event: a busy
+        session must not scan every tenant the process has ever seen, and the
+        timestamps only make sense within one session's clock anyway.
+        """
+        timeout = get_settings().tracker_dropout_seconds
+        emitted: list[EventIn] = []
+
+        for key, state in self._where.items():
+            if key[0] != source.tenant_id or key[1] != source.session_id:
+                continue
+            if state.confirmed is None or state.entered_at is None:
+                continue
+            if state.last_seen is None or (now - state.last_seen).total_seconds() < timeout:
+                continue
+
+            emitted += self._close_visit(
+                source,
+                anon_id=key[2],
+                zone_id=state.confirmed,
+                entered_at=state.entered_at,
+                # Closed at the last sighting, not at the moment we noticed.
+                # The person left some time between those two, and the earlier
+                # of them is the one we can actually defend.
+                left_at=state.last_seen,
+                reason=REASON_DROPOUT,
+            )
+            state.confirmed = None
+            state.entered_at = None
+            state.candidate = None
+            state.candidate_since = None
+
+        return emitted
 
     def _event(
         self,
@@ -287,7 +473,3 @@ def _iso(value: dt.datetime) -> str:
     return value.astimezone(dt.timezone.utc).isoformat()
 
 
-def _seconds_between(start_iso: str, end_iso: str) -> float:
-    start = dt.datetime.fromisoformat(start_iso)
-    end = dt.datetime.fromisoformat(end_iso)
-    return max((end - start).total_seconds(), 0.0)

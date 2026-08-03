@@ -118,6 +118,16 @@ export interface DetectionPayload {
   frameWidth?: number;
   frameHeight?: number;
 }
+/**
+ * Why a stay ended.
+ *
+ * `dropout` means the track stopped being detected inside the zone and the
+ * visit was closed at its last sighting — so the duration is a **lower bound**
+ * on the real one, not a measurement of it. Anything averaging or ranking
+ * dwell should be able to say which it is looking at.
+ */
+export type ZoneExitReason = "move" | "dropout";
+
 export interface ZoneMovePayload {
   anonId: string;
   zoneId: string;
@@ -125,6 +135,8 @@ export interface ZoneMovePayload {
   at?: string;
   /** zone_exit only — when this visit to the zone began. */
   enteredAt?: string;
+  /** zone_exit only. */
+  reason?: ZoneExitReason;
 }
 export interface DwellPayload {
   anonId: string;
@@ -135,6 +147,8 @@ export interface DwellPayload {
   endedAt?: string;
   /** Past the session's configured engagement threshold. */
   exceededThreshold?: boolean;
+  /** `dropout` means this duration is a lower bound — see ZoneExitReason. */
+  reason?: ZoneExitReason;
 }
 export interface ZonesUpdatedPayload {
   zoneIds: string[];

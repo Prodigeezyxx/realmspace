@@ -17,7 +17,57 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-03 (late)
+## [Unreleased] — last updated 2026-08-03 (night)
+
+### Fixed — 2026-08-03 (night) — `[neo4j-track]` the tracker now knows what counts as a visit
+
+Ported from the `postgres-track`'s browser-side deriver, which had solved this
+and we had not. Two tracks, one definition of a visit — the bake-off should turn
+on the graph store, not on which one counts better.
+
+- **Somebody standing in a doorway was being counted as dozens of visitors.**
+  A person on the edge of a zone crosses in and out at camera frame rate, and
+  every wobble was recorded as a complete arrival, stay and departure. One
+  loiterer inflated the headcount, dragged the average visit length down, and
+  left nothing in the data to suggest anything was wrong. A zone change now has
+  to hold for a moment before it is believed.
+  *`tracker_zone_confirm_seconds`, default 0.6s. Timestamps use the real
+  crossing, not the moment of confirmation, so the wait is not charged to the
+  visitor — otherwise every stay in every report would be short by 0.6s,
+  systematically, always understating the client's results.*
+
+- **Anyone who walked out of shot while inside a zone vanished from the report
+  entirely.** No departure, no stay recorded — the visit was simply dropped. The
+  visits likeliest to end that way are the long ones at the far end of a booth,
+  so the system was quietly under-reporting exactly the engagement a client is
+  paying to prove. Their visit is now closed at the last moment they were seen,
+  and marked as such so nothing treats a cut-short stay as a complete one.
+  *`tracker_dropout_seconds`, default 20s; `reason: "dropout"` on the exit and
+  dwell. In the verification capture, two of eight stays ended this way — before
+  this, two of eight stays did not exist.*
+
+- **Clipping the corner of a zone no longer counts as time spent in it.**
+  *`tracker_min_dwell_seconds`, default 1.0s. The exit still fires; only the
+  stay is dropped.*
+
+- **A separate bug the new tests caught: anyone leaving every zone at once was
+  never recorded as leaving.** Walking out of all zones looked identical to
+  "nothing has changed", so their last visit stayed open forever.
+  *The pending-change check confused "no change pending" with "changing to no
+  zone" — both were `None`.*
+
+- **The tests now feed the shape a camera actually produces.** One detection per
+  zone used to be enough; it is not, and that is the point rather than an
+  inconvenience — a single frame is not evidence of a visit. Every tracker test
+  now supplies detections across a stay.
+  *Also caught a weak test: the first flicker test passed with the confirm
+  window switched off, because single alternating frames never confirm either
+  way. Rewritten with paired frames, which is the weakest pattern that does.*
+
+- **100 backend tests (was 95).** **Verified by breaking it:** switching off all
+  three rules fails three tests, one per rule. The dashboard's captured backend
+  fixture was re-recorded against the new tracker and its hand count redone —
+  eight stays, 60.6s average, three entry crossings.
 
 ### Changed — 2026-08-03 (late) — `[neo4j-track]` the report now says only what the data supports
 

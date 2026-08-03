@@ -98,6 +98,34 @@ async def detect(
     await db_session.commit()
 
 
+async def stay(
+    db_session: AsyncSession,
+    *,
+    bbox: list[int],
+    at: dt.datetime,
+    seconds: float = 0,
+    anon_id: str = "P-001",
+    tenant_id: str = T,
+    step: float = 5.0,
+) -> None:
+    """Detections spread across a stay, the way a camera actually produces them.
+
+    A single detection per zone was enough before the session-hygiene work; it
+    is not now, and that is the point rather than an inconvenience. A zone must
+    be held for `tracker_zone_confirm_seconds` to be believed, and a track that
+    goes quiet for `tracker_dropout_seconds` has its visit closed. Both are true
+    of the real signal at 20fps and neither is true of one lonely detection, so
+    the tests feed the shape production sees.
+    """
+    t = at
+    end = at + dt.timedelta(seconds=seconds)
+    while True:
+        await detect(db_session, bbox=bbox, at=t, anon_id=anon_id, tenant_id=tenant_id)
+        if t >= end:
+            break
+        t = min(t + dt.timedelta(seconds=step), end)
+
+
 async def types_in_log(db_session: AsyncSession, tenant_id: str = T) -> list[str]:
     rows = await repository.read_events(
         db_session, tenant_id=tenant_id, since_seq=0, limit=100
@@ -146,7 +174,7 @@ async def test_entering_a_zone_emits_zone_enter(
     db_session: AsyncSession, graph_session: GraphSession
 ) -> None:
     await seed_zones(graph_session)
-    await detect(db_session, bbox=LEFT_PX, at=BASE)
+    await stay(db_session, bbox=LEFT_PX, at=BASE, seconds=5)
 
     await TrackerConsumer().run_once()
 
@@ -160,8 +188,8 @@ async def test_moving_between_zones_emits_exit_dwell_enter(
 ) -> None:
     """The full transition, with dwell carrying the duration of the stay."""
     await seed_zones(graph_session)
-    await detect(db_session, bbox=LEFT_PX, at=BASE)
-    await detect(db_session, bbox=RIGHT_PX, at=BASE + dt.timedelta(seconds=45))
+    await stay(db_session, bbox=LEFT_PX, at=BASE, seconds=45)
+    await stay(db_session, bbox=RIGHT_PX, at=BASE + dt.timedelta(seconds=45), seconds=5)
 
     await TrackerConsumer().run_once()
 
@@ -193,6 +221,136 @@ async def test_staying_still_emits_nothing_further(
 
     kinds = await types_in_log(db_session)
     assert kinds.count("spatial.zone_enter") == 1
+
+
+# ── session hygiene ───────────────────────────────────────────────────────────
+#
+# Ported from the postgres-track's spatial-deriver.ts, whose header cites CHI '26:
+# 71% of raw sessions are invalid without these. Every failure they prevent looks
+# like ordinary data downstream, which is why each needs a test that would catch
+# the heuristic being removed.
+
+
+async def test_boundary_flicker_does_not_become_visits(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """Someone loitering on a zone edge is one visitor, not twenty visits.
+
+    Frames wobbling across the boundary in runs of two, 100ms apart — every run
+    far inside the confirm window. Untreated this is the single worst corruption
+    of the report: each wobble is a complete, plausible enter/exit/dwell triple,
+    so one person standing in a doorway inflates footfall, halves average dwell,
+    and leaves nothing in the data to suggest anything went wrong.
+
+    The runs of two matter. With single alternating frames no zone is ever seen
+    twice in a row, so nothing confirms even with the window switched off and the
+    test would pass against the very bug it exists to catch. Pairs are the
+    weakest pattern that *does* confirm without a window — which makes this fail
+    the moment `tracker_zone_confirm_seconds` goes to zero.
+    """
+    await seed_zones(graph_session)
+    for i in range(12):
+        await detect(
+            db_session,
+            bbox=LEFT_PX if (i // 2) % 2 == 0 else RIGHT_PX,
+            at=BASE + dt.timedelta(milliseconds=100 * i),
+        )
+
+    await TrackerConsumer().run_once()
+
+    kinds = await types_in_log(db_session)
+    assert kinds.count("spatial.zone_enter") == 0
+    assert kinds.count("spatial.dwell") == 0
+
+
+async def test_a_confirmed_dwell_is_timed_from_the_real_crossing(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """The confirm window must not be charged to the visitor.
+
+    If dwell were measured from the moment we *believed* the entry rather than
+    from the crossing itself, every visit in every report would be short by the
+    confirm window. Small per visit, systematic across a session, and always in
+    the direction that understates the client's results.
+    """
+    await seed_zones(graph_session)
+    await stay(db_session, bbox=LEFT_PX, at=BASE, seconds=30, step=1)
+    await stay(db_session, bbox=RIGHT_PX, at=BASE + dt.timedelta(seconds=30), seconds=2)
+
+    await TrackerConsumer().run_once()
+
+    rows = await repository.read_events(
+        db_session, tenant_id=T, since_seq=0, limit=100, type="spatial.dwell"
+    )
+    # Exactly 30 — not 29.4, which is what timing from the confirmation gives.
+    assert rows[0].payload["duration"] == pytest.approx(30.0)
+
+
+async def test_clipping_a_corner_is_not_a_dwell(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """A sub-second stay is noise. The exit still fires — they did leave."""
+    await seed_zones(graph_session)
+    # Held just long enough to confirm, then gone: a real crossing, but not a
+    # visit anybody would defend calling one.
+    await stay(db_session, bbox=LEFT_PX, at=BASE, seconds=0.7, step=0.7)
+    await stay(db_session, bbox=RIGHT_PX, at=BASE + dt.timedelta(seconds=0.7), seconds=2)
+
+    await TrackerConsumer().run_once()
+
+    kinds = await types_in_log(db_session)
+    assert kinds.count("spatial.zone_exit") == 1
+    assert kinds.count("spatial.dwell") == 0
+
+
+async def test_walking_out_of_frame_still_closes_the_visit(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """The under-reporting bug: a track that vanishes inside a zone.
+
+    Before the dropout sweep this emitted no exit and no dwell at all, so the
+    visit was simply lost — and the visits likeliest to end this way are the long
+    ones at the far end of the booth. The activation therefore under-reported
+    exactly the engagement it most wanted to prove.
+
+    The visit is closed at the last sighting, not at the moment we noticed, and
+    marked so a consumer can weigh it knowingly.
+    """
+    await seed_zones(graph_session)
+    await stay(db_session, bbox=LEFT_PX, at=BASE, seconds=60, step=5)
+    # Gone. Somebody else keeps the session alive so the sweep has a clock.
+    await stay(
+        db_session,
+        bbox=RIGHT_PX,
+        at=BASE + dt.timedelta(seconds=120),
+        seconds=5,
+        anon_id="P-002",
+    )
+
+    await TrackerConsumer().run_once()
+
+    rows = await repository.read_events(
+        db_session, tenant_id=T, since_seq=0, limit=200, type="spatial.dwell"
+    )
+    dropout = [r for r in rows if r.payload["anon_id"] == "P-001"]
+    assert len(dropout) == 1
+    assert dropout[0].payload["reason"] == "dropout"
+    # 60s — the stay up to the last sighting, not the 120s until we noticed.
+    assert dropout[0].payload["duration"] == pytest.approx(60.0)
+
+
+async def test_a_person_still_being_seen_is_never_dropped_out(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """The sweep must not close a visit that is plainly still happening."""
+    await seed_zones(graph_session)
+    await stay(db_session, bbox=LEFT_PX, at=BASE, seconds=120, step=5)
+
+    await TrackerConsumer().run_once()
+
+    kinds = await types_in_log(db_session)
+    assert kinds.count("spatial.zone_exit") == 0
+    assert kinds.count("spatial.dwell") == 0
 
 
 async def test_detection_without_frame_dimensions_is_dead_lettered(
@@ -241,8 +399,8 @@ async def test_replay_is_a_no_op(
     would be counted twice, silently, in the ROI numbers.
     """
     await seed_zones(graph_session)
-    await detect(db_session, bbox=LEFT_PX, at=BASE)
-    await detect(db_session, bbox=RIGHT_PX, at=BASE + dt.timedelta(seconds=45))
+    await stay(db_session, bbox=LEFT_PX, at=BASE, seconds=45)
+    await stay(db_session, bbox=RIGHT_PX, at=BASE + dt.timedelta(seconds=45), seconds=5)
 
     tracker, writer = TrackerConsumer(), GraphWriterConsumer()
     await tracker.run_once()
@@ -296,8 +454,8 @@ async def test_replay_with_a_live_consumer_is_also_a_no_op(
     Regression test for a bug the fresh-instance version above could not catch.
     """
     await seed_zones(graph_session)
-    await detect(db_session, bbox=LEFT_PX, at=BASE)
-    await detect(db_session, bbox=RIGHT_PX, at=BASE + dt.timedelta(seconds=45))
+    await stay(db_session, bbox=LEFT_PX, at=BASE, seconds=45)
+    await stay(db_session, bbox=RIGHT_PX, at=BASE + dt.timedelta(seconds=45), seconds=5)
 
     tracker, writer = TrackerConsumer(), GraphWriterConsumer()
     await tracker.run_once()
@@ -338,8 +496,8 @@ async def test_graph_writer_builds_person_and_edges(
     db_session: AsyncSession, graph_session: GraphSession
 ) -> None:
     await seed_zones(graph_session)
-    await detect(db_session, bbox=LEFT_PX, at=BASE)
-    await detect(db_session, bbox=RIGHT_PX, at=BASE + dt.timedelta(seconds=45))
+    await stay(db_session, bbox=LEFT_PX, at=BASE, seconds=45)
+    await stay(db_session, bbox=RIGHT_PX, at=BASE + dt.timedelta(seconds=45), seconds=5)
 
     await TrackerConsumer().run_once()
     await GraphWriterConsumer().run_once()
