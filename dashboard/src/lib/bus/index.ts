@@ -32,7 +32,9 @@ export { emit, type EmitOptions } from "./emit";
  */
 export {
   connectLiveFeed,
+  backfillSession,
   flushOutbound,
+  markLocalOnly,
   ensureToken,
   clearToken,
   isRemoteBusEnabled,

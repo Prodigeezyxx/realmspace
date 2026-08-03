@@ -232,6 +232,14 @@ class SessionConfigIn(BaseModel):
         "first_touch", "last_touch", "linear", "time_decay", "influenced"
     ] = "influenced"
 
+    #: **Operator-supplied, not measured.** Influenced revenue comes from CRM
+    #: attribution, which is Phase 4; until then the only honest sources are the
+    #: client's own figure or nothing at all. Left null, the ROI ratio reports as
+    #: unknown rather than as zero — those are different answers and the report
+    #: must not conflate them. Anything displaying these states their origin.
+    revenue_influenced: float | None = Field(default=None, ge=0)
+    qualified_leads: int | None = Field(default=None, ge=0)
+
     #: **Omitted leaves the zone set untouched; a list replaces it entirely**,
     #: including an empty one. The wizard always posts the whole set, so a zone
     #: the operator deleted has to disappear rather than linger and keep

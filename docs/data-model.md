@@ -36,7 +36,13 @@ there takes `tenant_id` as a required argument.
   engaged_threshold_seconds,  // dwell above this counts as "engaged" (default 60)
   activation_cost,            // denominator of CPEV, CPQL and the ROI ratio
   currency,                   // 3-letter code, default 'USD'
-  attribution_model           // first_touch|last_touch|linear|time_decay|influenced
+  attribution_model,          // first_touch|last_touch|linear|time_decay|influenced
+
+  // Operator-supplied, NOT measured. Influenced revenue comes from CRM
+  // attribution (Phase 4); until then the honest options are the client's own
+  // figure or nothing. Null → the ROI ratio reports unknown, never zero.
+  revenue_influenced,
+  qualified_leads
 })
 // key: (tenant_id, id)
 // written by: POST /v1/sessions

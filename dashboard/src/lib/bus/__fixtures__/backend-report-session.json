@@ -1,0 +1,527 @@
+[
+  {
+    "eventId": "12d9f602-8886-4db4-a55f-50ef49e150ff",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "session.zones_updated",
+    "payload": {
+      "by": "u_7987415fba11",
+      "zone_ids": [
+        "z_entry",
+        "z_mirror",
+        "z_out"
+      ],
+      "zone_count": 3
+    },
+    "occurredAt": 1785749909257,
+    "seq": 2,
+    "recordedAt": 1785749909135
+  },
+  {
+    "eventId": "27e12279-6ab5-4f2e-999e-8f587c00cbb5",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785751200000,
+    "seq": 3,
+    "recordedAt": 1785749909275
+  },
+  {
+    "eventId": "a10d9ca3-3f75-4da1-96d7-20d77efbb004",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        400,
+        400,
+        500,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785751290000,
+    "seq": 4,
+    "recordedAt": 1785749909290
+  },
+  {
+    "eventId": "1e66787a-f958-4904-a449-7df38796c59f",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        700,
+        400,
+        800,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785751410000,
+    "seq": 5,
+    "recordedAt": 1785749909305
+  },
+  {
+    "eventId": "da1422f0-a6bc-424d-9acd-9048d0c84893",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785751800000,
+    "seq": 6,
+    "recordedAt": 1785749909319
+  },
+  {
+    "eventId": "a96b9705-9ff3-42a9-9776-745c6de54a19",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        700,
+        400,
+        800,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785751830000,
+    "seq": 7,
+    "recordedAt": 1785749909332
+  },
+  {
+    "eventId": "39726a84-6b60-4a31-8fd6-0a88c8fb463f",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785751500000,
+    "seq": 8,
+    "recordedAt": 1785749909343
+  },
+  {
+    "eventId": "7973b900-28e4-490e-bdda-1746f7da369b",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        700,
+        400,
+        800,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785751530000,
+    "seq": 9,
+    "recordedAt": 1785749909354
+  },
+  {
+    "eventId": "dbfe19ff-d765-4a0b-be92-8d400cdef26d",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        400,
+        400,
+        500,
+        500
+      ],
+      "person_id": "P3",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785751560000,
+    "seq": 10,
+    "recordedAt": 1785749909366
+  },
+  {
+    "eventId": "06a53850-fd00-4da3-b4b2-d53ce81be7a5",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        700,
+        400,
+        800,
+        500
+      ],
+      "person_id": "P3",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785751740000,
+    "seq": 11,
+    "recordedAt": 1785749909378
+  },
+  {
+    "eventId": "31c62b1b-f59b-5221-b7ca-778fb3857b1a",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_enter",
+    "payload": {
+      "at": "2026-08-03T10:00:00+00:00",
+      "anon_id": "P1",
+      "zone_id": "z_entry"
+    },
+    "occurredAt": 1785751200000,
+    "seq": 12,
+    "recordedAt": 1785749909641
+  },
+  {
+    "eventId": "c234c561-8921-5a06-a4fe-29da949d619b",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_exit",
+    "payload": {
+      "at": "2026-08-03T10:01:30+00:00",
+      "anon_id": "P1",
+      "zone_id": "z_entry",
+      "entered_at": "2026-08-03T10:00:00+00:00"
+    },
+    "occurredAt": 1785751290000,
+    "seq": 13,
+    "recordedAt": 1785749909643
+  },
+  {
+    "eventId": "77ce0ae0-010c-5bcc-83c4-1be3357900b6",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.dwell",
+    "payload": {
+      "anon_id": "P1",
+      "zone_id": "z_entry",
+      "duration": 90.0,
+      "ended_at": "2026-08-03T10:01:30+00:00",
+      "started_at": "2026-08-03T10:00:00+00:00",
+      "exceeded_threshold": true
+    },
+    "occurredAt": 1785751290000,
+    "seq": 14,
+    "recordedAt": 1785749909643
+  },
+  {
+    "eventId": "ce82b3f9-81de-5178-b5e6-d05517148c0b",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_enter",
+    "payload": {
+      "at": "2026-08-03T10:01:30+00:00",
+      "anon_id": "P1",
+      "zone_id": "z_mirror"
+    },
+    "occurredAt": 1785751290000,
+    "seq": 15,
+    "recordedAt": 1785749909643
+  },
+  {
+    "eventId": "2436f75b-9e27-50bb-8b79-db87c572bf6b",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_exit",
+    "payload": {
+      "at": "2026-08-03T10:03:30+00:00",
+      "anon_id": "P1",
+      "zone_id": "z_mirror",
+      "entered_at": "2026-08-03T10:01:30+00:00"
+    },
+    "occurredAt": 1785751410000,
+    "seq": 16,
+    "recordedAt": 1785749909647
+  },
+  {
+    "eventId": "7c79e807-ca3a-5402-b97d-3b20dd6b2168",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.dwell",
+    "payload": {
+      "anon_id": "P1",
+      "zone_id": "z_mirror",
+      "duration": 120.0,
+      "ended_at": "2026-08-03T10:03:30+00:00",
+      "started_at": "2026-08-03T10:01:30+00:00",
+      "exceeded_threshold": true
+    },
+    "occurredAt": 1785751410000,
+    "seq": 17,
+    "recordedAt": 1785749909647
+  },
+  {
+    "eventId": "e94378e5-7cd4-5616-ab5f-4250312d0fbc",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_enter",
+    "payload": {
+      "at": "2026-08-03T10:03:30+00:00",
+      "anon_id": "P1",
+      "zone_id": "z_out"
+    },
+    "occurredAt": 1785751410000,
+    "seq": 18,
+    "recordedAt": 1785749909647
+  },
+  {
+    "eventId": "0e42fbcb-4ec4-58f6-8c6e-8aa73acd65c7",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_exit",
+    "payload": {
+      "at": "2026-08-03T10:10:00+00:00",
+      "anon_id": "P1",
+      "zone_id": "z_out",
+      "entered_at": "2026-08-03T10:03:30+00:00"
+    },
+    "occurredAt": 1785751800000,
+    "seq": 19,
+    "recordedAt": 1785749909651
+  },
+  {
+    "eventId": "40af7864-f845-5c55-8b50-25e344210a8e",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.dwell",
+    "payload": {
+      "anon_id": "P1",
+      "zone_id": "z_out",
+      "duration": 390.0,
+      "ended_at": "2026-08-03T10:10:00+00:00",
+      "started_at": "2026-08-03T10:03:30+00:00",
+      "exceeded_threshold": true
+    },
+    "occurredAt": 1785751800000,
+    "seq": 20,
+    "recordedAt": 1785749909651
+  },
+  {
+    "eventId": "e4544aff-e67e-589e-9d20-4a2bc35ae09c",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_enter",
+    "payload": {
+      "at": "2026-08-03T10:10:00+00:00",
+      "anon_id": "P1",
+      "zone_id": "z_entry"
+    },
+    "occurredAt": 1785751800000,
+    "seq": 21,
+    "recordedAt": 1785749909651
+  },
+  {
+    "eventId": "c5db4ce6-e82d-5d2f-85c3-9ab49868825d",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_exit",
+    "payload": {
+      "at": "2026-08-03T10:10:30+00:00",
+      "anon_id": "P1",
+      "zone_id": "z_entry",
+      "entered_at": "2026-08-03T10:10:00+00:00"
+    },
+    "occurredAt": 1785751830000,
+    "seq": 22,
+    "recordedAt": 1785749909654
+  },
+  {
+    "eventId": "e6b914a5-d9e2-5bf2-b2e9-c3b3a095c51d",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.dwell",
+    "payload": {
+      "anon_id": "P1",
+      "zone_id": "z_entry",
+      "duration": 30.0,
+      "ended_at": "2026-08-03T10:10:30+00:00",
+      "started_at": "2026-08-03T10:10:00+00:00",
+      "exceeded_threshold": true
+    },
+    "occurredAt": 1785751830000,
+    "seq": 23,
+    "recordedAt": 1785749909654
+  },
+  {
+    "eventId": "010d3e0d-b619-5502-b992-4cffbef64b4f",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_enter",
+    "payload": {
+      "at": "2026-08-03T10:10:30+00:00",
+      "anon_id": "P1",
+      "zone_id": "z_out"
+    },
+    "occurredAt": 1785751830000,
+    "seq": 24,
+    "recordedAt": 1785749909654
+  },
+  {
+    "eventId": "43ba9944-a2c4-5492-93f8-7a61cabacbd7",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_enter",
+    "payload": {
+      "at": "2026-08-03T10:05:00+00:00",
+      "anon_id": "P2",
+      "zone_id": "z_entry"
+    },
+    "occurredAt": 1785751500000,
+    "seq": 25,
+    "recordedAt": 1785749909658
+  },
+  {
+    "eventId": "19f8cda2-3d20-52fe-99f9-3be3d124a991",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_exit",
+    "payload": {
+      "at": "2026-08-03T10:05:30+00:00",
+      "anon_id": "P2",
+      "zone_id": "z_entry",
+      "entered_at": "2026-08-03T10:05:00+00:00"
+    },
+    "occurredAt": 1785751530000,
+    "seq": 26,
+    "recordedAt": 1785749909659
+  },
+  {
+    "eventId": "56c25229-a0ce-5ee4-90ee-36ee4c2687cb",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.dwell",
+    "payload": {
+      "anon_id": "P2",
+      "zone_id": "z_entry",
+      "duration": 30.0,
+      "ended_at": "2026-08-03T10:05:30+00:00",
+      "started_at": "2026-08-03T10:05:00+00:00",
+      "exceeded_threshold": true
+    },
+    "occurredAt": 1785751530000,
+    "seq": 27,
+    "recordedAt": 1785749909659
+  },
+  {
+    "eventId": "bdb6488a-2946-5534-89ff-3e1bf6d65ef8",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_enter",
+    "payload": {
+      "at": "2026-08-03T10:05:30+00:00",
+      "anon_id": "P2",
+      "zone_id": "z_out"
+    },
+    "occurredAt": 1785751530000,
+    "seq": 28,
+    "recordedAt": 1785749909659
+  },
+  {
+    "eventId": "946c05c8-7bf9-51b1-af1c-18aaf30d785f",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_enter",
+    "payload": {
+      "at": "2026-08-03T10:06:00+00:00",
+      "anon_id": "P3",
+      "zone_id": "z_mirror"
+    },
+    "occurredAt": 1785751560000,
+    "seq": 29,
+    "recordedAt": 1785749909663
+  },
+  {
+    "eventId": "b3ad3b5b-fbc7-559f-9688-d65587fd09bc",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_exit",
+    "payload": {
+      "at": "2026-08-03T10:09:00+00:00",
+      "anon_id": "P3",
+      "zone_id": "z_mirror",
+      "entered_at": "2026-08-03T10:06:00+00:00"
+    },
+    "occurredAt": 1785751740000,
+    "seq": 30,
+    "recordedAt": 1785749909664
+  },
+  {
+    "eventId": "e84723e1-562b-5f5c-b855-73520bd65689",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.dwell",
+    "payload": {
+      "anon_id": "P3",
+      "zone_id": "z_mirror",
+      "duration": 180.0,
+      "ended_at": "2026-08-03T10:09:00+00:00",
+      "started_at": "2026-08-03T10:06:00+00:00",
+      "exceeded_threshold": true
+    },
+    "occurredAt": 1785751740000,
+    "seq": 31,
+    "recordedAt": 1785749909664
+  },
+  {
+    "eventId": "2fa81812-3af1-5b70-8516-35f565650485",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_enter",
+    "payload": {
+      "at": "2026-08-03T10:09:00+00:00",
+      "anon_id": "P3",
+      "zone_id": "z_out"
+    },
+    "occurredAt": 1785751740000,
+    "seq": 32,
+    "recordedAt": 1785749909664
+  }
+]

@@ -178,10 +178,12 @@ async def upsert_session(
     activation_cost: float | None = None,
     currency: str = "USD",
     attribution_model: str = "influenced",
+    revenue_influenced: float | None = None,
+    qualified_leads: int | None = None,
 ) -> dict[str, Any]:
     """Create or update a Session node (data-model.md → `(:Session {...})`).
 
-    The last four properties are the activation's **measurement parameters**,
+    The trailing properties are the activation's **measurement parameters**,
     added for roi-framework.md §5 — "the strongest ROI comes from planning it
     into the activation, not bolting it on". Every Layer-4 metric is defined in
     terms of them: CPEV and CPQL divide by `activation_cost`, the engagement
@@ -192,6 +194,19 @@ async def upsert_session(
     They are stored, not computed, for that last reason: a parameter picked
     after the fact is an argument, and §3's design principle is that we never
     inflate.
+
+    ## revenue_influenced and qualified_leads are operator-supplied
+
+    Those two are different in kind from the rest and the difference matters.
+    Everything else here is a *setting*; these two are *the client's own
+    figures*, typed in by a human, because realmspace cannot yet measure them —
+    influenced revenue comes from CRM attribution, which is Phase 4. Until then
+    the honest options are to take the client's number or to show nothing, and
+    showing nothing is what happens when these are left null: the ROI ratio
+    reports as unknown rather than as zero.
+
+    They must never be presented as measured. Anything rendering them says where
+    they came from.
     """
     result = await session.run(
         """
@@ -208,7 +223,9 @@ async def upsert_session(
             s.engaged_threshold_seconds = $engaged_threshold_seconds,
             s.activation_cost           = $activation_cost,
             s.currency                  = $currency,
-            s.attribution_model         = $attribution_model
+            s.attribution_model         = $attribution_model,
+            s.revenue_influenced        = $revenue_influenced,
+            s.qualified_leads           = $qualified_leads
         RETURN s
         """,
         tenant_id=tenant_id,
@@ -226,6 +243,8 @@ async def upsert_session(
         activation_cost=activation_cost,
         currency=currency,
         attribution_model=attribution_model,
+        revenue_influenced=revenue_influenced,
+        qualified_leads=qualified_leads,
     )
     record = await result.single()
     return dict(record["s"])

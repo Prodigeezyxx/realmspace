@@ -90,6 +90,8 @@ def _config_out(props: dict, zones: list[dict]) -> SessionConfigOut:
         activation_cost=props.get("activation_cost"),
         currency=props.get("currency") or "USD",
         attribution_model=props.get("attribution_model") or "influenced",
+        revenue_influenced=props.get("revenue_influenced"),
+        qualified_leads=props.get("qualified_leads"),
         zones=[ZoneConfig(**z) for z in zones],
     )
 
@@ -135,6 +137,8 @@ async def put_session_config(
         activation_cost=config.activation_cost,
         currency=config.currency,
         attribution_model=config.attribution_model,
+        revenue_influenced=config.revenue_influenced,
+        qualified_leads=config.qualified_leads,
     )
 
     if config.zones is not None:

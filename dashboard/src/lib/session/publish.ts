@@ -38,6 +38,96 @@ export const ZONE_TYPE_TO_KIND: Record<ZoneType, ZoneKind> = {
   other: "other",
 };
 
+/**
+ * A session's configuration as the backend holds it — the authority for how the
+ * activation is scored.
+ *
+ * Read back rather than taken from this browser's own store, and that is the
+ * point: an operator may have redrawn a zone or set the cost from another
+ * machine, and the report must divide by what was actually agreed, not by
+ * whatever this laptop last saw.
+ */
+export interface RemoteSessionConfig {
+  sessionId: string;
+  venue?: string | null;
+  campaign?: string | null;
+  engagedThresholdSeconds: number;
+  activationCost: number | null;
+  currency: string;
+  attributionModel: string;
+  /** Operator-supplied, never measured. Null means unknown, not zero. */
+  revenueInfluenced: number | null;
+  qualifiedLeads: number | null;
+  zones: {
+    id: string;
+    name: string;
+    type: string;
+    weight: number;
+    funnelOrder: number | null;
+    polygon: [number, number][] | null;
+    capacity: number | null;
+  }[];
+}
+
+/**
+ * Fetch a session's configuration. `null` distinguishes "no backend" and "never
+ * configured" from a config that happens to be empty — the report needs to say
+ * which, because a session nobody set up and a session nobody attended look
+ * identical once the difference is thrown away.
+ */
+export async function fetchSessionConfig(
+  sessionId: string,
+  email: string
+): Promise<RemoteSessionConfig | null> {
+  if (!isRemoteBusEnabled()) return null;
+  const token = await ensureToken(email);
+  if (!token) return null;
+
+  try {
+    const res = await fetch(
+      `${busUrl()}/v1/sessions/${encodeURIComponent(sessionId)}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) return null; // 404 = never configured
+    return (await res.json()) as RemoteSessionConfig;
+  } catch {
+    return null;
+  }
+}
+
+/** Graph-derived aggregates for a session: unique people and dwell per zone. */
+export interface RemoteSessionGraph {
+  sessionId: string;
+  uniquePeople: number;
+  zones: RemoteSessionConfig["zones"];
+  dwellByZone: {
+    zoneId: string;
+    zone: string | null;
+    avgDwell: number | null;
+    visitors: number;
+  }[];
+}
+
+export async function fetchSessionGraph(
+  sessionId: string,
+  email: string
+): Promise<RemoteSessionGraph | null> {
+  if (!isRemoteBusEnabled()) return null;
+  const token = await ensureToken(email);
+  if (!token) return null;
+
+  try {
+    const res = await fetch(
+      `${busUrl()}/v1/sessions/${encodeURIComponent(sessionId)}/graph`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as RemoteSessionGraph;
+  } catch {
+    return null;
+  }
+}
+
 export interface PublishResult {
   ok: boolean;
   /** Why not, when `ok` is false. Shown to the operator, not swallowed. */
@@ -82,6 +172,8 @@ export function sessionToWire(session: Session) {
     activationCost: m.activationCost ?? null,
     currency: m.currency ?? "USD",
     attributionModel: m.attributionModel ?? "influenced",
+    revenueInfluenced: m.revenueInfluenced ?? null,
+    qualifiedLeads: m.qualifiedLeads ?? null,
     zones: session.zones.map(zoneToWire),
   };
 }

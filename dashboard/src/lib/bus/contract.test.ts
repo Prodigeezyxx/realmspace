@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 import { computeScorecard } from "@/lib/roi/scorecard";
 import type { RealmEvent } from "@/lib/contracts";
 import fixture from "./__fixtures__/backend-events.json";
+import reportFixture from "./__fixtures__/backend-report-session.json";
 import { eventFromWire, type WireEvent } from "./wire";
 
 /** The fixture as the local log would hold it after mirroring. */
@@ -77,6 +78,59 @@ describe("a real session, end to end", () => {
     expect(card.engagement.dwellWeightedAttention).toBe(180);
     expect(card.engagement.engagementRate).toBe(1);
     expect(card.pipeline.costPerEngagedVisit).toBe(10_000);
+  });
+
+  it("matches a hand count of the raw log", () => {
+    /*
+     * A second capture, from a scenario built so the answers can be worked out
+     * on paper from `GET /events` and then compared. This is the check the plan
+     * calls for — the numbers on the report verified against the log by hand,
+     * once, rather than against our own expectations of it.
+     *
+     * Three people through a three-zone room:
+     *
+     *   P1  z_entry 90s → z_mirror 120s → z_out 390s, then back in: z_entry 30s
+     *   P2  z_entry 30s only
+     *   P3  straight to z_mirror 180s, never through the entry
+     *
+     * By hand, from the six dwell events in the fixture:
+     *   unique visitors  3               (P1, P2, P3)
+     *   footfall         3               entry crossings — P1 twice, P2 once.
+     *                                    Not 2 (distinct people) and not 6 (all
+     *                                    zone entries); this is the definition
+     *                                    the old code had wrong in both ways.
+     *   avg dwell        140s            (90+120+390+30+30+180) / 6
+     *   weighted attn    1440            entry 150×1 + mirror 300×3 + out 390×1
+     *   engaged          2 of 3          P1 and P3 clear 60s; P2's 30s does not
+     *   CPEV             4500            9000 / 2 engaged
+     *   ROI ratio        null            no revenue was supplied
+     */
+    const events: RealmEvent[] = (reportFixture as WireEvent[]).map((wire, i) => ({
+      ...eventFromWire(wire),
+      seq: i + 1,
+      eventId: wire.eventId,
+      occurredAt: wire.occurredAt,
+      recordedAt: wire.recordedAt,
+    })) as RealmEvent[];
+
+    const card = computeScorecard(events, {
+      engagedThresholdSec: 60,
+      activationCost: 9000,
+      zones: [
+        { id: "z_entry", name: "Entry", kind: "entry", weight: 1 },
+        { id: "z_mirror", name: "Mirror Room", kind: "experience", weight: 3 },
+        { id: "z_out", name: "Outside", kind: "other", weight: 1 },
+      ],
+    });
+
+    expect(card.reach.uniqueVisitors).toBe(3);
+    expect(card.reach.entries).toBe(3);
+    expect(card.engagement.avgDwellSec).toBe(140);
+    expect(card.engagement.dwellWeightedAttention).toBe(1440);
+    expect(card.engagement.engagementRate).toBe(0.667);
+    expect(card.pipeline.costPerEngagedVisit).toBe(4500);
+    expect(card.pipeline.roiRatio).toBeNull();
+    expect(card.benchmarkVerdict).toBe("unknown");
   });
 
   it("produces no NaN anywhere in the scorecard", () => {

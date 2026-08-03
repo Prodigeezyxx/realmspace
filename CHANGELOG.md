@@ -17,7 +17,70 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-03 (evening)
+## [Unreleased] — last updated 2026-08-03 (late)
+
+### Changed — 2026-08-03 (late) — `[neo4j-track]` the report now says only what the data supports
+
+- **The report was showing numbers nobody measured.** It rendered for the demo
+  session only, and its figures were typed in by hand months ago — 1,287
+  visitors, a 4.2× return, four recommendations about a day that never happened.
+  Worse, the ROI scorecard used invented economics *even on a real session*, so
+  the headline return was fiction no matter what the cameras saw. All of it is
+  gone. Every figure on the page now traces to an event in the log or to a
+  setting the operator chose.
+  *`DEMO`, the hardcoded `activationCost: 12000` / `revenueInfluenced: 50400`,
+  and the `catch {}` that turned any error into demo numbers are deleted from
+  `RoiScorecard.tsx`. `/report` has one code path for every session.*
+
+- **Blank now means something.** When a number cannot be computed the report
+  says so and says why — "no zone is marked as the entry", "set an activation
+  cost to compute this" — instead of printing a zero. A client reading a 0 has
+  been told nobody came; that is a different claim from "we weren't measuring",
+  and running them together is how a broken camera gets reported as a quiet day.
+  *Three distinct empty states: never configured, configured but no activity,
+  and per-figure "not measurable yet" markers.*
+
+- **Two metrics were defined wrongly and have been corrected.** Footfall counted
+  anyone walking into any zone, so a visitor crossing the room counted as extra
+  people arriving; it now counts crossings of the entry zone specifically, as
+  the ROI framework defines it. And "peak concurrency" only ever knew how many
+  people were standing inside a drawn zone — it is now named for that.
+  *`reach.entries` (null when no entry zone is configured) and
+  `reach.peakZoneConcurrency` in `lib/roi/scorecard.ts`.*
+
+- **The ROI ratio stays blank until someone supplies the revenue.** realmspace
+  measures behaviour; it cannot see money until the CRM work lands. So revenue
+  and qualified leads are now optional figures the client provides, marked as
+  theirs everywhere they appear. Left empty, the ratio reads "—" rather than
+  being estimated. Cost per engaged visit *is* fully measured and leads the card
+  instead.
+  *`Session.revenue_influenced` / `qualified_leads` on the graph node and in the
+  wizard; `roi-framework.md` §3 — "we never inflate".*
+
+- **The demo still works, and now it works the same way the product does.**
+  Rather than keep a second, fake report for the pitch, the demo session is
+  seeded with a day's worth of synthetic visitors. The report then computes them
+  with exactly the same code as a live activation. The events are invented and
+  labelled as such; no *number* is.
+  *`lib/mock/seed-demo.ts` — deterministic (seeded PRNG), identical on every
+  run, and pinned to this browser so 140 invented visitors can never reach the
+  real append-only log.*
+
+- **"Generate from session data" now does.** The button read mock files and
+  random numbers, producing a different summary each press, none of them about
+  the session on screen.
+  *`ReportGenerator` feeds the real scorecard to the existing template skill.*
+
+- **The operator can add their own read of the day**, kept visually separate
+  from every computed figure — a human judgement and a measurement should not
+  look like the same kind of claim.
+
+- **58 dashboard tests (was 28), 95 backend.** Including a second captured
+  backend response built so the answers can be worked out on paper: three
+  visitors, one of whom leaves and comes back, hand-counted to 3 people, 3
+  entry crossings, 140s average dwell — and the pipeline reproduces all of it.
+  **Verified by breaking it:** restoring the old footfall definition and the old
+  revenue handling fails six tests.
 
 ### Added — 2026-08-03 (evening) — `[neo4j-track]` the dashboard is plugged into the backend
 

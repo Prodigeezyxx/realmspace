@@ -32,7 +32,7 @@
  * a verified tenant, and we adopt it rather than asserting one.
  */
 
-import { append, read, getCursor, setCursor } from "./log";
+import { append, read, getCursor, setCursor, headSeq } from "./log";
 import { eventFromWire, eventToWire, type WireEvent } from "./wire";
 import { setTenantId } from "@/lib/tenant/context";
 import type { RealmEvent } from "@/lib/contracts";
@@ -222,6 +222,23 @@ export async function flushOutbound(
   return sent;
 }
 
+/**
+ * Declare everything currently in a partition local-only: advance the outbound
+ * cursor to the head without sending anything.
+ *
+ * There is exactly one caller and one reason. The demo session's events are
+ * synthetic (`lib/mock/seed-demo.ts`), and they live in the same durable log as
+ * real ones — which is the point, because it means the report computes them with
+ * the same code. But `flushOutbound` walks that log from a cursor, so the next
+ * genuine `emit()` would post 140 invented visitors into the real event log,
+ * where they would be indistinguishable from a real activation and permanent
+ * (the log is append-only). Marking them keeps the demo entirely on this
+ * machine.
+ */
+export function markLocalOnly(tenantId: string, sessionId: string): void {
+  setCursor(OUTBOUND_CURSOR, tenantId, sessionId, headSeq(tenantId, sessionId));
+}
+
 /* ── inbound: WebSocket → local log ──────────────────────────────────────── */
 
 function remoteSeqKey(tenantId: string, sessionId: string) {
@@ -253,6 +270,59 @@ export function mirror(wire: WireEvent): void {
     setRemoteSeq(wire.tenantId, wire.sessionId, wire.seq);
     publish({ lastSeq: wire.seq });
   }
+}
+
+/**
+ * Pull a session's whole history into the local log, oldest first.
+ *
+ * The live socket only carries what happens while a browser is watching. Open
+ * `/report` on a session this machine never had open — the normal case, a week
+ * later, on someone else's laptop — and the local log is empty. Without this the
+ * report would show an empty state for a session with thousands of events in it.
+ *
+ * Reuses `mirror()`, so it is idempotent against whatever the socket already
+ * delivered and the two can run in any order. Returns how many events were read.
+ *
+ * Pages on `seq` rather than an offset: `seq` has permanent gaps (a deduped
+ * insert burns a value), so paging by count would skip events.
+ */
+export async function backfillSession(
+  tenantId: string,
+  sessionId: string,
+  email: string
+): Promise<number> {
+  if (!isRemoteBusEnabled()) return 0;
+  const jwt = await ensureToken(email);
+  if (!jwt) return 0;
+
+  const PAGE = 500;
+  let since = 0;
+  let total = 0;
+
+  // Bounded so a pathological log cannot spin forever in a render path.
+  for (let page = 0; page < 200; page++) {
+    const res = await fetch(
+      `${busUrl()}/events?since_seq=${since}&limit=${PAGE}` +
+        `&session_id=${encodeURIComponent(sessionId)}`,
+      { headers: { Authorization: `Bearer ${jwt}` } }
+    );
+    if (!res.ok) break;
+
+    const batch = (await res.json()) as WireEvent[];
+    if (!batch.length) break;
+
+    for (const wire of batch) {
+      // The server filters by session, but the log is partitioned by
+      // (tenant, session) and a mismatch here would write into the wrong
+      // partition — worth one comparison rather than trusting the query.
+      if (wire.tenantId === tenantId && wire.sessionId === sessionId) mirror(wire);
+    }
+    total += batch.length;
+    since = batch[batch.length - 1].seq;
+    if (batch.length < PAGE) break;
+  }
+
+  return total;
 }
 
 interface ConnectOptions {

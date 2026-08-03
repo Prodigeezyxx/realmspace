@@ -144,6 +144,16 @@ export interface Measurement {
     | "linear"
     | "time_decay"
     | "influenced";
+  /**
+   * **The client's own figures, typed in — not measured by realmspace.**
+   *
+   * Influenced revenue comes from CRM attribution, which is Phase 4. Until then
+   * the only honest options are to take the client's number or to show nothing,
+   * so these stay optional and everything that renders them says where they came
+   * from. Left unset, the ROI ratio reports as unknown rather than as zero.
+   */
+  revenueInfluenced?: number;
+  qualifiedLeads?: number;
 }
 
 export interface Session {
@@ -181,6 +191,15 @@ export interface Session {
   privacy: Privacy;
   /** How the ROI is computed. See `Measurement`. */
   measurement?: Measurement;
+  /**
+   * The operator's own read of the activation, written after it ran.
+   *
+   * Deliberately separate from `notes`, which is the pre-event brief collected
+   * in the wizard. This appears on the client report as commentary, visually
+   * distinct from every computed figure, because a human judgement and a
+   * measurement should never be presented as the same kind of claim.
+   */
+  reportNote?: string;
 
   // ── System
   createdAt: string;

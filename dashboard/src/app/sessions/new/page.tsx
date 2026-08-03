@@ -143,6 +143,9 @@ export default function NewSessionPage() {
   const [currency, setCurrency] = useState("USD");
   const [attributionModel, setAttributionModel] =
     useState<NonNullable<Measurement["attributionModel"]>>("influenced");
+  // Client-supplied, not measured — see Measurement in session/types.ts.
+  const [revenueInfluenced, setRevenueInfluenced] = useState<number | "">("");
+  const [qualifiedLeads, setQualifiedLeads] = useState<number | "">("");
 
   // ── Publishing to the backend
   const { user } = useAuth();
@@ -254,6 +257,10 @@ export default function NewSessionPage() {
           typeof activationCost === "number" ? activationCost : undefined,
         currency,
         attributionModel,
+        revenueInfluenced:
+          typeof revenueInfluenced === "number" ? revenueInfluenced : undefined,
+        qualifiedLeads:
+          typeof qualifiedLeads === "number" ? qualifiedLeads : undefined,
       },
       notes: notes.trim() || undefined,
     };
@@ -820,6 +827,51 @@ export default function NewSessionPage() {
                     ))}
                   </Select>
                 </Field>
+              </div>
+
+              <div className="mt-5 panel p-5 space-y-4">
+                <div>
+                  <div className="text-sm font-semibold tracking-tight">
+                    The client&apos;s own pipeline figures
+                  </div>
+                  <p className="text-xs text-text-secondary mt-1.5 leading-relaxed max-w-2xl">
+                    realmspace measures behaviour, not revenue — attributed
+                    revenue arrives with the CRM phase. Until then these are the
+                    client&apos;s numbers, and the report labels them as such
+                    wherever they appear. Leave them blank and the ROI ratio shows
+                    as unknown rather than being estimated.
+                  </p>
+                </div>
+                <div className="grid md:grid-cols-2 gap-5">
+                  <Field
+                    label="Influenced revenue (optional)"
+                    hint="Pipeline or closed revenue the client attributes to this activation."
+                  >
+                    <NumberInput
+                      min={0}
+                      value={revenueInfluenced}
+                      onChange={(e) =>
+                        setRevenueInfluenced(
+                          e.target.value ? parseFloat(e.target.value) : ""
+                        )
+                      }
+                    />
+                  </Field>
+                  <Field
+                    label="Qualified leads (optional)"
+                    hint="Leave blank to use the count of consented captures we measure."
+                  >
+                    <NumberInput
+                      min={0}
+                      value={qualifiedLeads}
+                      onChange={(e) =>
+                        setQualifiedLeads(
+                          e.target.value ? parseInt(e.target.value, 10) : ""
+                        )
+                      }
+                    />
+                  </Field>
+                </div>
               </div>
             </section>
 

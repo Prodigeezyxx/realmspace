@@ -114,9 +114,24 @@ detection → dashboard.
       the mismatch was silent — an untranslated dwell scores as `NaN` plus a
       phantom visitor rather than raising. Tested against a verbatim capture of
       real backend output.
-- 🔲 Report templated from **real session data** (replace static numbers)
-- 🔲 **4-layer scorecard** (Reach/Engagement/Affinity/Pipeline) — `roi-framework.md`
-- 🔲 Signature metrics: dwell-weighted attention, engagement rate, funnel, CPEV
+- ✅ Report templated from **real session data** — `/report` renders for every
+      session, not only the demo, and every figure traces to an event in the log
+      or to a parameter the operator set. The hand-written cover numbers
+      (`1,287 visitors`, `4.2×`, four invented recommendations) are gone.
+- ✅ **4-layer scorecard** wired to real data — the `DEMO` fallback and the
+      hardcoded `activationCost`/`revenueInfluenced` that made the headline ROI
+      fiction are deleted. Anything uncomputable renders as `—` **and names what
+      is missing**, because "we don't know" and "zero" are different answers.
+- ✅ Signature metrics: dwell-weighted attention (per-zone weights from the
+      session config), engagement rate (against the configured threshold),
+      funnel (in the operator's declared order, never sorted by traffic), CPEV.
+      Two definitions corrected against `roi-framework.md` §2 in the process:
+      footfall now counts entry-zone crossings rather than anyone entering any
+      zone, and returns null when no entry zone is configured; peak concurrency
+      is renamed to peak *zone* occupancy, which is what it measures.
+      **ROI ratio needs influenced revenue**, which nothing measures until Phase
+      4 — it is an optional operator-supplied figure, labelled as the client's
+      own on every surface, and blank rather than estimated when absent.
 - 🔲 Live ROI tile on the dashboard (day-2 optimisation)
 - 🔲 **Ask the Room** real: LLM → constrained Cypher (allow-list, validated) →
       graph → answer (replace regex mocks). *Needs AI provider key.*

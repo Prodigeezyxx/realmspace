@@ -23,9 +23,23 @@ import type { ZoneNode } from "@/lib/contracts";
 
 export interface ReachLayer {
   uniqueVisitors: number;
-  entries: number;
+  /**
+   * Footfall: `count(ENTERED entry-zone)` — crossings, not people, so someone
+   * who leaves and comes back counts twice. That is what footfall means.
+   *
+   * **null when no zone is marked `entry`**, because then it genuinely cannot
+   * be computed. Reporting 0 would say nobody came; null says we were not told
+   * where the door is. The report must render those differently.
+   */
+  entries: number | null;
   passBy: number; // negative signal — detected nearby, never entered
-  peakConcurrency: number;
+  /**
+   * Most people inside a zone at once. Named for what it measures: derived from
+   * enter/exit deltas, so someone in the space but not standing in any drawn
+   * zone is not counted. It is a floor on true occupancy, never an estimate of
+   * it — calling it "peak concurrency" overstated what the number knows.
+   */
+  peakZoneConcurrency: number;
 }
 export interface EngagementLayer {
   avgDwellSec: number;
@@ -92,8 +106,17 @@ export function computeScorecard(
   let weightedAttention = 0;
   let surfaceInteractions = 0;
   let leadsCaptured = 0;
+  let entryCrossings = 0;
 
-  // concurrency estimate via enter/exit deltas
+  // Which zones are the door. roi-framework.md §2 defines footfall against the
+  // entry zone specifically, not against any zone — a visitor reaching the
+  // product wall is not a second person walking in.
+  const entryZoneIds = new Set(
+    (inputs.zones ?? []).filter((z) => z.kind === "entry").map((z) => z.id)
+  );
+
+  // Zone occupancy via enter/exit deltas. Moving A→B is exit-then-enter, so it
+  // nets to zero; entering the first zone is +1 and leaving every zone is −1.
   let concurrent = 0;
   let peak = 0;
 
@@ -103,6 +126,7 @@ export function computeScorecard(
         const p = e.payload as ZoneMovePayload;
         persons.add(p.anonId);
         entered.add(p.anonId);
+        if (entryZoneIds.has(p.zoneId)) entryCrossings++;
         concurrent++;
         peak = Math.max(peak, concurrent);
         break;
@@ -153,9 +177,9 @@ export function computeScorecard(
 
   const reach: ReachLayer = {
     uniqueVisitors: unique,
-    entries: entered.size,
+    entries: entryZoneIds.size ? entryCrossings : null,
     passBy: passByPersons.size,
-    peakConcurrency: peak,
+    peakZoneConcurrency: peak,
   };
 
   const engagement: EngagementLayer = {
@@ -173,16 +197,23 @@ export function computeScorecard(
   };
 
   const cost = inputs.activationCost ?? null;
+  // Operator-supplied, never measured — realmspace cannot see revenue until
+  // Phase 4's CRM attribution. Absent stays absent: every metric below that
+  // needs it reports null, so the report says "not known" instead of implying
+  // a result nobody has.
   const rev = inputs.revenueInfluenced ?? null;
   const qLeads = inputs.qualifiedLeads ?? leadsCaptured;
 
+  // `!= null` rather than truthiness throughout: a free activation has a cost
+  // of 0, and `0 && …` would report its cost-per-visit as unknown instead of
+  // as zero.
   const pipeline: PipelineLayer = {
     leadsCaptured,
     firstPartyCaptureRate: engaged ? +((leadsCaptured / engaged)).toFixed(3) : 0,
-    costPerEngagedVisit: cost && engaged ? +(cost / engaged).toFixed(2) : null,
-    costPerQualifiedLead: cost && qLeads ? +(cost / qLeads).toFixed(2) : null,
-    pipelineMultiple: cost && rev ? +(rev / cost).toFixed(2) : null,
-    roiRatio: cost && rev ? +(((rev - cost) / cost)).toFixed(2) : null,
+    costPerEngagedVisit: cost != null && engaged ? +(cost / engaged).toFixed(2) : null,
+    costPerQualifiedLead: cost != null && qLeads ? +(cost / qLeads).toFixed(2) : null,
+    pipelineMultiple: cost && rev != null ? +(rev / cost).toFixed(2) : null,
+    roiRatio: cost && rev != null ? +(((rev - cost) / cost)).toFixed(2) : null,
   };
 
   let benchmarkVerdict: Scorecard["benchmarkVerdict"] = "unknown";

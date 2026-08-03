@@ -254,6 +254,29 @@ async def test_config_round_trips_including_the_measurement_parameters(
     assert z["polygon"] == [[0.0, 0.0], [0.5, 0.0], [0.5, 1.0], [0.0, 1.0]]
 
 
+async def test_operator_supplied_figures_round_trip_and_default_to_absent(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """Influenced revenue is typed in by a human, and absent is not zero.
+
+    Nothing measures it until Phase 4's CRM attribution. A session that has not
+    been given one must come back with `None` so the report can say "unknown"
+    — reporting a 0 would make an unmeasured activation look like a failed one.
+    """
+    await operator.post("/v1/sessions", json=config_body([zone("z_a", "A", LEFT_POLY)]))
+    body = (await operator.get(f"/v1/sessions/{S}")).json()
+    assert body["revenueInfluenced"] is None
+    assert body["qualifiedLeads"] is None
+
+    await operator.post(
+        "/v1/sessions",
+        json=config_body(None, revenueInfluenced=50400, qualifiedLeads=318),
+    )
+    body = (await operator.get(f"/v1/sessions/{S}")).json()
+    assert body["revenueInfluenced"] == 50400
+    assert body["qualifiedLeads"] == 318
+
+
 async def test_defaults_match_the_scorecard_the_dashboard_already_computes(
     operator: AsyncClient, graph_session: GraphSession
 ) -> None:
