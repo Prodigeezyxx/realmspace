@@ -17,7 +17,49 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-04 (evening)
+## [Unreleased] — last updated 2026-08-04 (late)
+
+### Added — 2026-08-04 (late) — `[neo4j-track]` the twin replays a session that actually happened
+
+- **A recorded session could never be replayed.** The 3D twin had a scrubber,
+  play/pause and speed controls — and played five hand-drawn paths through a
+  fictional ten minutes. The one thing it existed to do, replay a real
+  activation, was blocked by a check that only ever let the demo through.
+  *Positions now come from the session's own event log. `lib/twin/replay.ts`;
+  the `!isDemo && !detectorRunning` gate replaced with "does this session have
+  any events", and the 620-second constant replaced with the session's real
+  length.*
+
+- **Two kinds of path, and the twin does not pretend they are the same.** Where
+  a camera actually saw somebody, the avatar walks where they walked. Where the
+  system only knows *which zone* they were in, the avatar stands at the middle
+  of that zone — and is marked as such, with a note saying the line between two
+  zones is not a route anyone took. Drawing a guessed path as though it were
+  traced would be the twin's version of the invented ROI figure the report just
+  had removed: convincing, and impossible for the viewer to check.
+
+- **The replay does not go through the browser's event store**, which only holds
+  the last 5,000 events and silently discards the rest. A busy session fills
+  that in minutes, and the discarding would have quietly broken the report too —
+  the earliest visits would simply have stopped existing. The twin asks the
+  server for the session directly and holds it in memory while the page is open.
+
+- **The visitor list shows who is in the room at that moment**, rather than five
+  fictional people with hand-written totals. A real activation has hundreds, and
+  the useful question while scrubbing a timeline is who is there now.
+
+- **90 dashboard tests (was 77).** Includes the real captured backend session
+  replaying as measured paths. **Verified by breaking it:** making the zone
+  fallback win over real detections, dropping the measured/inferred distinction,
+  or restoring the hardcoded duration each fails its own test.
+
+- **Expect a visual change on the demo.** It goes from five smooth paths to
+  around 140 people stepping between zone centres, because the demo's events are
+  zone-level. It is denser and less pretty, and it is what the data supports.
+
+- **Not done:** the twin's booth model still comes from the demo's floor plan
+  rather than the active session's own zones, so a real activation replays its
+  people onto the wrong room. Called out rather than left to be discovered.
 
 ### Added — 2026-08-04 (evening) — `[neo4j-track]` the live screen finally shows the real activation
 

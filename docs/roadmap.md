@@ -151,7 +151,15 @@ detection → dashboard.
       the same grounds as the report's.
 - 🔲 **Ask the Room** real: LLM → constrained Cypher (allow-list, validated) →
       graph → answer (replace regex mocks). *Needs AI provider key.*
-- 🔲 Twin plays back **recorded** sessions from the bus (replace seed paths)
+- ✅ Twin plays back **recorded** sessions from the bus — `lib/twin/replay.ts`
+      builds paths from the log; positions come from `perception.detection`
+      bboxes where they exist and from **zone centres** where they do not, with
+      the two rendered and labelled differently because a line between two zone
+      centres is not a route anybody walked. Real session bounds replace the
+      620-second constant, and the `!isDemo && !detectorRunning` gate is gone —
+      it meant a recorded session, the thing the twin exists for, could never be
+      replayed. The twin pages `GET /events` itself rather than going through the
+      5,000-event local ring buffer, which a real session would overflow.
 
 **Acceptance:** 24h after a session, a client gets a data-true report with the
 4-layer scorecard and a stated ROI ratio vs. benchmark; Ask answers a live

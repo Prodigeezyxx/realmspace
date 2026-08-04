@@ -6,7 +6,7 @@ import { useMemo, useRef } from "react";
 import * as THREE from "three";
 
 import { getEventContext } from "@/lib/event-context";
-import { peopleTracks, positionsAt } from "@/lib/mock/people";
+import type { Replay } from "@/lib/twin/replay";
 import { session, zones, type Zone } from "@/lib/mock/session";
 import { useActiveSession } from "@/lib/session/store";
 import {
@@ -35,6 +35,7 @@ export function TwinScene({
   liveAvatars,
   liveHeatmap,
   liveMode = false,
+  replay,
 }: {
   time: number;
   showHeatmap: boolean;
@@ -42,6 +43,8 @@ export function TwinScene({
   liveAvatars?: TwinAvatarDelta[];
   liveHeatmap?: HeatmapOutput | null;
   liveMode?: boolean;
+  /** The session's own recorded paths — see lib/twin/replay.ts. */
+  replay: Replay;
 }) {
   const activeSession = useActiveSession();
   const ctx = getEventContext();
@@ -90,13 +93,25 @@ export function TwinScene({
       <pointLight position={[0, 6, 0]} intensity={0.4} color="#3e83f7" />
       <pointLight position={[-W / 2, 4, -D / 2]} intensity={0.3} color="#00d4ff" />
 
-      <Booth showHeatmap={showHeatmap} w={W} d={D} liveHeatmap={liveHeatmap} />
+      <Booth
+        showHeatmap={showHeatmap}
+        w={W}
+        d={D}
+        liveHeatmap={liveHeatmap}
+        replay={replay}
+      />
       <Zones zoneList={sceneZones} w={W} d={D} />
       <Surfaces items={sceneSurfaces} w={W} d={D} />
       {liveMode ? (
         <LivePeople avatars={liveAvatars ?? []} />
       ) : (
-        <People time={time} selectedPerson={selectedPerson} w={W} d={D} />
+        <People
+          time={time}
+          selectedPerson={selectedPerson}
+          replay={replay}
+          w={W}
+          d={D}
+        />
       )}
       <Cameras w={W} d={D} />
 
@@ -120,11 +135,13 @@ function Booth({
   w,
   d,
   liveHeatmap,
+  replay,
 }: {
   showHeatmap: boolean;
   w: number;
   d: number;
   liveHeatmap?: HeatmapOutput | null;
+  replay: Replay;
 }) {
   return (
     <group>
@@ -146,7 +163,9 @@ function Booth({
         infiniteGrid={false}
       />
 
-      {showHeatmap && <HeatmapOverlay w={w} d={d} liveHeatmap={liveHeatmap} />}
+      {showHeatmap && (
+        <HeatmapOverlay w={w} d={d} liveHeatmap={liveHeatmap} replay={replay} />
+      )}
 
       <mesh position={[0, 1.4, -d / 2]} castShadow>
         <boxGeometry args={[w, 2.8, 0.06]} />
@@ -177,10 +196,12 @@ function HeatmapOverlay({
   w,
   d,
   liveHeatmap,
+  replay,
 }: {
   w: number;
   d: number;
   liveHeatmap?: HeatmapOutput | null;
+  replay: Replay;
 }) {
   const COLS = liveHeatmap?.width ?? 28;
   const ROWS = liveHeatmap?.height ?? 16;
@@ -194,20 +215,25 @@ function HeatmapOverlay({
       });
       return heat;
     }
+    // Aggregate the replay's own paths, so the heatmap and the avatars can
+    // never disagree about where somebody spent their time.
     const heat = new Float32Array(COLS * ROWS);
-    peopleTracks.forEach((p) => {
-      p.waypoints.forEach(([x, y, t], i) => {
+    replay.tracks.forEach((track) => {
+      track.waypoints.forEach((wp, i) => {
         if (i === 0) return;
-        const dwell = Math.min(60, t - p.waypoints[i - 1][2]);
-        const cx = Math.floor(x * (COLS - 1));
-        const cy = Math.floor(y * (ROWS - 1));
+        // Seconds between this waypoint and the last, capped so one very long
+        // stay cannot flatten every other zone to nothing.
+        const dwell = Math.min(60, (wp.t - track.waypoints[i - 1].t) / 1000);
+        const cx = Math.floor(wp.x * (COLS - 1));
+        const cy = Math.floor(wp.y * (ROWS - 1));
+        if (cx < 0 || cy < 0 || cx >= COLS || cy >= ROWS) return;
         heat[cy * COLS + cx] += dwell;
       });
     });
     const max = Math.max(0.0001, ...heat);
     for (let i = 0; i < heat.length; i++) heat[i] /= max;
     return heat;
-  }, [liveHeatmap, COLS, ROWS]);
+  }, [liveHeatmap, COLS, ROWS, replay]);
 
   return (
     <group position={[0, 0.005, 0]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -437,15 +463,17 @@ function LivePeople({ avatars }: { avatars: TwinAvatarDelta[] }) {
 function People({
   time,
   selectedPerson,
+  replay,
   w,
   d,
 }: {
   time: number;
   selectedPerson?: string | null;
+  replay: Replay;
   w: number;
   d: number;
 }) {
-  const live = positionsAt(time);
+  const live = replay.positionsAt(time);
   return (
     <group>
       {live.map((p) => {
@@ -464,7 +492,13 @@ function People({
         );
       })}
       {selectedPerson && (
-        <PersonTrail id={selectedPerson} upTo={time} w={w} d={d} />
+        <PersonTrail
+          id={selectedPerson}
+          upTo={time}
+          replay={replay}
+          w={w}
+          d={d}
+        />
       )}
     </group>
   );
@@ -556,25 +590,29 @@ function PersonAvatar({
 function PersonTrail({
   id,
   upTo,
+  replay,
   w,
   d,
 }: {
   id: string;
   upTo: number;
+  replay: Replay;
   w: number;
   d: number;
 }) {
-  const p = peopleTracks.find((pp) => pp.id === id);
+  const p = replay.tracks.find((pp) => pp.id === id);
   const points = useMemo<[number, number, number][] | null>(() => {
     if (!p) return null;
     const pts: [number, number, number][] = [];
-    for (const [x, y, t] of p.waypoints) {
-      if (t > upTo) break;
-      const [wx, , wz] = toWorld(x, y, w, d);
+    // `upTo` is seconds since the replay began; waypoints are ms epoch.
+    const cutoff = replay.startAt + upTo * 1000;
+    for (const wp of p.waypoints) {
+      if (wp.t > cutoff) break;
+      const [wx, , wz] = toWorld(wp.x, wp.y, w, d);
       pts.push([wx, 0.05, wz]);
     }
     return pts;
-  }, [p, upTo, w, d]);
+  }, [p, upTo, w, d, replay.startAt]);
 
   if (!p || !points || points.length < 2) return null;
   return (

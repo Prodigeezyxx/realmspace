@@ -19,11 +19,11 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
-import { peopleTracks } from "@/lib/mock/people";
 import { surfaces, zones } from "@/lib/mock/session";
 import { useLiveSession } from "@/lib/live-session/store";
 import { useActiveSession } from "@/lib/session/store";
 import { useTwinLive } from "@/hooks/useTwinLive";
+import { useReplay } from "@/lib/twin/useReplay";
 import { cn, formatDuration } from "@/lib/utils";
 
 const TwinScene = dynamic(
@@ -31,45 +31,50 @@ const TwinScene = dynamic(
   { ssr: false, loading: () => <SceneLoading /> }
 );
 
-const SESSION_DURATION = 620; // seconds covered by mock tracks
 const SPEEDS = [0.5, 1, 2, 4];
 
 export default function TwinPage() {
   const activeSession = useActiveSession();
-  const isDemo = activeSession.isDemo;
   const detectorRunning = useLiveSession((s) => s.status === "running");
   const { avatars, heatmap } = useTwinLive();
   const useLiveTwin = detectorRunning;
-  const [time, setTime] = useState(180);
+
+  /*
+   * The session's own recorded paths, replacing five hardcoded mock tracks and
+   * the 620-second constant that was their length. See lib/twin/replay.ts for
+   * why a path built from zone membership is marked as inferred rather than
+   * drawn like a measured one.
+   */
+  const { status, replay, eventCount } = useReplay(activeSession);
+  const duration = replay.durationSec;
+  const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(1);
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!playing || detectorRunning) return;
+    if (!playing || detectorRunning || duration <= 0) return;
     const id = setInterval(() => {
       setTime((t) => {
         const next = t + 0.1 * speed;
-        return next > SESSION_DURATION ? 0 : next;
+        return next > duration ? 0 : next;
       });
     }, 100);
     return () => clearInterval(id);
-  }, [playing, speed, detectorRunning]);
+  }, [playing, speed, detectorRunning, duration]);
 
+  /** Whoever the replay says was in the room at this moment. */
   const activeTracks = useMemo(
-    () =>
-      peopleTracks.filter((p) => {
-        const start = p.waypoints[0][2];
-        const end = p.waypoints[p.waypoints.length - 1][2];
-        return time >= start && time <= end;
-      }),
-    [time]
+    () => replay.positionsAt(time),
+    [replay, time]
   );
 
-  if (!isDemo && !detectorRunning) {
-    return <TwinEmptyState />;
-  }
+  // Gated on *events*, not on which session it is. The old test was
+  // `!isDemo && !detectorRunning`, which meant a real recorded session — the
+  // thing the twin exists to replay — could never be shown at all.
+  if (status === "loading") return <TwinLoading />;
+  if (status === "empty" && !detectorRunning) return <TwinEmptyState />;
 
   return (
     <div className="p-5 max-w-[1600px] mx-auto space-y-4">
@@ -117,6 +122,7 @@ export default function TwinPage() {
                 liveMode={useLiveTwin}
                 liveAvatars={avatars}
                 liveHeatmap={heatmap}
+                replay={replay}
               />
               <div className="absolute top-3 left-3 flex items-center gap-2">
                 <Pill variant="live">
@@ -161,7 +167,7 @@ export default function TwinPage() {
                 <input
                   type="range"
                   min={0}
-                  max={SESSION_DURATION}
+                  max={Math.max(duration, 1)}
                   step={0.5}
                   value={time}
                   onChange={(e) => setTime(parseFloat(e.target.value))}
@@ -169,7 +175,7 @@ export default function TwinPage() {
                 />
                 <div className="flex justify-between text-[10px] tabular text-text-muted">
                   <span>{formatDuration(time)}</span>
-                  <span>{formatDuration(SESSION_DURATION)}</span>
+                  <span>{formatDuration(duration)}</span>
                 </div>
               </div>
 
@@ -197,12 +203,15 @@ export default function TwinPage() {
         <div className="col-span-12 lg:col-span-3 space-y-4">
           <Panel
             title="Visitors in scene"
-            subtitle={`${activeTracks.length} active · ${peopleTracks.length} total`}
+            subtitle={`${activeTracks.length} in the room · ${replay.tracks.length} across the session · ${eventCount.toLocaleString()} events`}
             action={<Users size={14} className="text-text-muted" />}
           >
-            <ul className="space-y-1.5">
-              {peopleTracks.map((p) => {
-                const inScene = activeTracks.some((a) => a.id === p.id);
+            {/* Only the people present at this moment. The old list showed five
+                mock visitors with hand-written dwell totals; a real session has
+                hundreds, and the useful question while scrubbing is who is in
+                the room now. */}
+            <ul className="space-y-1.5 max-h-[280px] overflow-y-auto">
+              {activeTracks.map((p) => {
                 const selected = selectedPerson === p.id;
                 return (
                   <li key={p.id}>
@@ -221,24 +230,38 @@ export default function TwinPage() {
                         className="w-2.5 h-2.5 rounded-full shrink-0"
                         style={{
                           background: p.color,
-                          boxShadow: inScene ? `0 0 10px ${p.color}` : undefined,
-                          opacity: inScene ? 1 : 0.3,
+                          boxShadow: `0 0 10px ${p.color}`,
                         }}
                       />
                       <div className="flex-1 min-w-0">
                         <div className="text-sm tabular font-medium">{p.id}</div>
                         <div className="text-[10px] text-text-muted tabular">
-                          {formatDuration(p.totalDwellSeconds)} · {p.zonesVisited.length} zones · {p.surfacesTriggered.length} surfaces
+                          {p.inferred ? "zone-level position" : "tracked position"}
                         </div>
                       </div>
-                      <span className="text-[10px] tabular text-accent-cyan">
-                        {Math.round(p.attentionScore * 100)}
-                      </span>
+                      {p.moving && (
+                        <span className="text-[10px] tabular text-accent-cyan">
+                          moving
+                        </span>
+                      )}
                     </button>
                   </li>
                 );
               })}
+              {!activeTracks.length && (
+                <li className="text-xs text-text-muted px-2.5 py-2">
+                  Nobody in the room at this moment.
+                </li>
+              )}
             </ul>
+            {replay.inferredCount > 0 && (
+              <p className="mt-3 text-[10px] text-text-muted leading-relaxed">
+                {replay.inferredCount} of {replay.tracks.length} paths are
+                zone-level: the log records which zone the person was in, not
+                where they stood in it. Those avatars sit at the zone&apos;s centre
+                and the line between zones is not a route anybody walked.
+              </p>
+            )}
             {selectedPerson && (
               <button
                 onClick={() => setSelectedPerson(null)}
@@ -309,6 +332,19 @@ function SceneLoading() {
       <span className="text-[11px] tabular tracking-[0.18em] uppercase">
         loading twin…
       </span>
+    </div>
+  );
+}
+
+function TwinLoading() {
+  return (
+    <div className="p-5 max-w-[1600px] mx-auto">
+      <EmptyState
+        variant="page"
+        icon={<Box size={20} />}
+        title="Reading the session's paths…"
+        hint="Pulling this session's events so the twin can replay them."
+      />
     </div>
   );
 }

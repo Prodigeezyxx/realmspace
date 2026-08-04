@@ -25,6 +25,7 @@ import { describe, expect, it } from "vitest";
 
 import { computeScorecard } from "@/lib/roi/scorecard";
 import { buildSurfaceRows } from "@/lib/report/derive";
+import { buildReplay } from "@/lib/twin/replay";
 import type { RealmEvent } from "@/lib/contracts";
 import fixture from "./__fixtures__/backend-report-session.json";
 import { eventFromWire, type WireEvent } from "./wire";
@@ -152,6 +153,27 @@ describe("a real session, end to end", () => {
     ]);
     expect(row.label).toBe("AR Mirror");
     expect(row.interactions).toBe(1);
+  });
+
+  it("replays as measured paths in the twin", () => {
+    // 54 real detections from a real camera-shaped producer. The twin should
+    // treat all of it as measured — no zone-centroid inference — and take its
+    // timeline from the events rather than from the 620-second constant the
+    // page used to hardcode.
+    const replay = buildReplay(mirrored, []);
+
+    expect(replay.tracks.map((t) => t.id).sort()).toEqual(["P1", "P2"]);
+    expect(replay.inferredCount).toBe(0);
+    expect(replay.durationSec).toBeGreaterThan(0);
+
+    // Everyone is somewhere real at the start of their own span.
+    const atStart = replay.positionsAt(0);
+    expect(atStart.length).toBeGreaterThan(0);
+    for (const p of atStart) {
+      expect(p.x).toBeGreaterThanOrEqual(0);
+      expect(p.x).toBeLessThanOrEqual(1);
+      expect(p.inferred).toBe(false);
+    }
   });
 
   it("produces no NaN anywhere in the scorecard", () => {
