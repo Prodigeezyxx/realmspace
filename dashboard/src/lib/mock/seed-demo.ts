@@ -18,20 +18,28 @@
  * a *number* being made up — a figure with no event behind it, which nobody can
  * audit and which is what `roi-framework.md` §3 forbids.
  *
- * ## Deterministic on purpose
+ * ## Deterministic for a given hour
  *
- * A seeded PRNG, never `Math.random()`. The demo has to show the same numbers in
- * a pitch on Tuesday as it did in rehearsal on Monday; a report whose headline
- * moves between refreshes is worse than no demo. It also makes the seeding
- * testable, which a random one would not be.
+ * A seeded PRNG, never `Math.random()`. A demo whose headline figure changes
+ * between two refreshes is worse than no demo at all, so the stream is fixed for
+ * any given anchor — and the anchor is the current hour, which is longer than
+ * any demo lasts.
+ *
+ * It deliberately is *not* fixed forever. The activation has to look like it is
+ * happening today: pinned to a date in the past, "people now" is permanently
+ * zero and the live screen has nothing true to show. So the day slides forward
+ * each hour, and the seed derives from the anchor, which reshuffles it rather
+ * than replaying yesterday with new timestamps.
  */
 
-import { append, markLocalOnly, read } from "@/lib/bus";
+import { append, clearPartition, markLocalOnly, read } from "@/lib/bus";
 import type { RealmEventInput } from "@/lib/contracts";
 import { DEMO_SESSION } from "./session";
 
 /** Marks every event this module writes, so nothing downstream has to guess. */
 export const DEMO_MARKER = "demo_seed";
+/** Which anchor a seeded event belongs to — see the trap note on seedDemoSession. */
+export const DEMO_ANCHOR = "demo_anchor";
 
 /** mulberry32 — small, fast, and identical across runs and machines. */
 function rng(seed: number): () => number {
@@ -44,9 +52,36 @@ function rng(seed: number): () => number {
   };
 }
 
-/** Doors open. Fixed, so the timeline is stable across runs. */
-const DAY_START = Date.parse("2026-05-18T10:00:00Z");
+/** How long the demo day runs, ending at the anchor. */
+const DAY_HOURS = 8;
 const VISITORS = 140;
+/**
+ * The last few visitors are still in the room: an entry and no exit, so
+ * `presentNow` is non-zero and the live screen has something true to show. It is
+ * also what an unfinished session genuinely looks like — somebody standing in a
+ * zone has not produced a dwell yet.
+ *
+ * Reserved explicitly rather than left to the arrival distribution. Landing in
+ * the last few minutes by chance is roughly a one-in-a-hundred draw, so a demo
+ * that relied on it would show an empty room more often than not, and which one
+ * you got would depend on the hour.
+ */
+const STILL_INSIDE = 6;
+const STILL_INSIDE_WINDOW_MS = 6 * 60 * 1000;
+
+/**
+ * The clock the demo hangs off, rounded down to the hour.
+ *
+ * Rounding is what keeps determinism useful. Anchoring to the exact millisecond
+ * would give a different stream on every call, so the headline figures would
+ * drift while somebody was presenting them; anchoring to a fixed date in the
+ * past would put the demo months behind and make "people now" permanently zero.
+ * An hourly anchor is stable for as long as any demo lasts and still lands the
+ * activation on today.
+ */
+export function demoAnchor(now: number = Date.now()): number {
+  return Math.floor(now / 3_600_000) * 3_600_000;
+}
 
 /**
  * The path a visitor takes, as zone ids in order, with a plausible dwell range.
@@ -61,23 +96,43 @@ const FUNNEL: { zoneId: string; reachedBy: number; dwell: [number, number] }[] =
   { zoneId: "zone_lounge", reachedBy: 0.22, dwell: [60, 600] },
 ];
 
-function isSeeded(tenantId: string): boolean {
-  return read(tenantId, DEMO_SESSION.id, { afterSeq: 0 }).some(
-    (e) => (e.payload as Record<string, unknown>)?.[DEMO_MARKER] === true
-  );
+/** The anchor of the seed already in the log, or null if there isn't one. */
+function seededAnchor(tenantId: string): number | null {
+  for (const e of read(tenantId, DEMO_SESSION.id, { afterSeq: 0 })) {
+    const p = e.payload as Record<string, unknown>;
+    if (p?.[DEMO_MARKER] === true) return (p[DEMO_ANCHOR] as number) ?? 0;
+  }
+  return null;
 }
 
 /**
- * Write the demo session's event stream, once.
+ * Write the demo session's event stream, once per anchor.
  *
- * Idempotent twice over: it returns early if the log already holds seeded
- * events, and every event carries a derived `eventId`, so even a concurrent
- * second call dedupes in the log rather than doubling the visitor count.
+ * Idempotent twice over: it returns early when the log already holds a seed for
+ * this anchor, and every event carries a derived `eventId`, so even a concurrent
+ * second call dedupes rather than doubling the visitor count.
+ *
+ * ## The trap in re-anchoring
+ *
+ * The `eventId` **must** include the anchor. It did not, and that made the
+ * timeline impossible to move: re-seeding for a new hour produced byte-identical
+ * ids, the log deduped every one of them, and the old timestamps survived. The
+ * demo would have looked shifted in the source and been completely unchanged on
+ * screen — a bug with no symptom except numbers that quietly refuse to update.
+ *
+ * A stale seed is therefore cleared rather than layered on top of, because the
+ * ids no longer collide and appending would give two days at once.
  */
-export function seedDemoSession(tenantId: string): number {
-  if (isSeeded(tenantId)) return 0;
+export function seedDemoSession(tenantId: string, now: number = Date.now()): number {
+  const anchor = demoAnchor(now);
+  const existing = seededAnchor(tenantId);
+  if (existing === anchor) return 0;
+  if (existing !== null) clearPartition(tenantId, DEMO_SESSION.id);
 
-  const rand = rng(20260518);
+  const dayStart = anchor - DAY_HOURS * 3_600_000;
+  // Seeded from the anchor so a new hour genuinely reshuffles the day rather
+  // than replaying the same one with different labels.
+  const rand = rng(anchor % 2_147_483_647);
   const events: RealmEventInput[] = [];
 
   const emit = (
@@ -89,22 +144,26 @@ export function seedDemoSession(tenantId: string): number {
     events.push({
       // Derived, not random — the same reason the backend consumers derive
       // theirs (docs/event-bus-spec.md §3): re-running this must produce the
-      // same ids so the log dedupes instead of counting the day twice.
-      eventId: `demo_${DEMO_SESSION.id}_${idParts}`,
+      // same ids so the log dedupes instead of counting the day twice. The
+      // anchor is part of the id precisely so that a *different* day does not.
+      eventId: `demo_${DEMO_SESSION.id}_${anchor}_${idParts}`,
       tenantId,
       sessionId: DEMO_SESSION.id,
       type,
-      payload: { ...payload, [DEMO_MARKER]: true },
+      payload: { ...payload, [DEMO_MARKER]: true, [DEMO_ANCHOR]: anchor },
       occurredAt: at,
     });
   };
 
   for (let v = 0; v < VISITORS; v++) {
     const anonId = `P-${String(v + 1).padStart(3, "0")}`;
-    // Arrivals spread over eight hours, bunched slightly after lunch so the
-    // traffic chart has a shape rather than a flat line.
-    const arrival =
-      DAY_START + Math.floor((rand() ** 0.8) * 8 * 3600 * 1000);
+    const stillInside = v >= VISITORS - STILL_INSIDE;
+    // Arrivals spread across the day, bunched slightly after the middle so the
+    // traffic chart has a shape rather than a flat line — except the reserved
+    // few, who walked in within the last several minutes and are still here.
+    const arrival = stillInside
+      ? anchor - Math.floor(rand() * STILL_INSIDE_WINDOW_MS)
+      : dayStart + Math.floor(rand() ** 0.8 * (DAY_HOURS * 3_600_000 - STILL_INSIDE_WINDOW_MS));
     let t = arrival;
 
     for (const step of FUNNEL) {
@@ -121,6 +180,12 @@ export function seedDemoSession(tenantId: string): number {
         { anonId, zoneId: step.zoneId, at: enteredAt },
         `enter_${anonId}_${step.zoneId}`
       );
+
+      // Still standing there: no exit, no dwell. Exactly what the log holds for
+      // a person who has not left yet, and what makes "people now" a real
+      // number rather than a decoration.
+      if (stillInside) break;
+
       emit(
         "spatial.zone_exit",
         t + duration * 1000,

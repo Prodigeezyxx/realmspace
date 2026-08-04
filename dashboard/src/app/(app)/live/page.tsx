@@ -21,12 +21,7 @@ import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { Stat } from "@/components/ui/Stat";
-import {
-  attentionSeries,
-  dwellSeries,
-  liveCounts,
-  triggerSeries,
-} from "@/lib/mock/session";
+import { attentionSeries, liveCounts } from "@/lib/mock/session";
 import { TOUCHPOINT_TYPE_OPTIONS } from "@/lib/session/presets";
 import { useActiveSession } from "@/lib/session/store";
 import {
@@ -36,7 +31,25 @@ import {
 } from "@/lib/live-session/store";
 import type { Track } from "@/lib/tracker";
 import { formatDuration, formatNumber } from "@/lib/utils";
+
 import { useAgentAlerts } from "@/hooks/useAgentStream";
+import { useLiveStats } from "@/lib/live/useLiveStats";
+import { LiveRoiTile } from "@/components/live/LiveRoiTile";
+
+/**
+ * How stale the feed is, in words.
+ *
+ * A feed that silently stopped ten minutes ago looks exactly like a quiet room,
+ * and the operator staring at the screen is the person least able to tell the
+ * difference.
+ */
+function freshness(lastAt: number | null): string {
+  if (lastAt == null) return "no events yet";
+  const seconds = Math.max(0, Math.round((Date.now() - lastAt) / 1000));
+  if (seconds < 10) return "live";
+  if (seconds < 90) return `${seconds}s since last event`;
+  return `${Math.round(seconds / 60)}m since last event`;
+}
 
 export default function LivePage() {
   const activeSession = useActiveSession();
@@ -54,6 +67,21 @@ export default function LivePage() {
     : 0;
   const isDetectorRunning = useLiveSession((s) => s.status === "running");
 
+  /*
+   * The durable log — the thing this page never read.
+   *
+   * Every number here used to come from the browser's own webcam tracker (this
+   * tab, this machine) or from a mock file, so an activation running the way the
+   * backend was built for — a real camera feeding perception → bus → tracker —
+   * showed nothing at all on the live screen.
+   *
+   * Precedence below is bus → detector → honest empty. The bus wins because it
+   * is the durable record of the whole activation across every camera, while the
+   * detector is one tab's view of one webcam.
+   */
+  const live = useLiveStats(activeSession);
+  const fromBus = live.hasData;
+
   return (
     <div className="p-5 space-y-5 max-w-[1600px] mx-auto">
       {alerts[0] && (
@@ -61,100 +89,103 @@ export default function LivePage() {
           <strong>{alerts[0].title}</strong> — {alerts[0].body}
         </div>
       )}
-      {/* ── Top KPI strip — go LIVE when the detector runs; otherwise reflect
-         the demo's curated numbers OR a clean "no data yet" for fresh sessions. */}
+      {/* ── Top KPI strip.
+         Precedence: the durable log, then this tab's detector, then an honest
+         empty. The old deltas — "+2 in last 5m", "+18 last hour", "+12% wk" —
+         are gone for the same reason the report's "+18% vs Yday" went: there is
+         no previous period in the log to compare against, so they were
+         comparisons with nothing. What replaces them is what is actually known. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiTile
           icon={<Users size={14} />}
           label="People now"
           value={
-            isDetectorRunning
-              ? realPeopleNow.toString()
-              : isDemo
-                ? liveCounts.peopleNow.toString()
+            fromBus
+              ? live.peopleNow.toString()
+              : isDetectorRunning
+                ? realPeopleNow.toString()
                 : "0"
           }
           accent="brand"
-          series={
-            isDetectorRunning
-              ? peopleHistory
-              : isDemo
-                ? [8, 11, 9, 12, 14, 13, 15, 14]
-                : []
-          }
+          series={fromBus ? live.traffic : isDetectorRunning ? peopleHistory : []}
           delta={
-            isDetectorRunning
-              ? {
-                  value: `${realFps.toFixed(1)} fps live`,
-                  direction: realPeopleNow > 0 ? "up" : "flat",
-                }
-              : isDemo
-                ? { value: "+2 in last 5m", direction: "up" }
-                : { value: "camera idle", direction: "flat" }
+            fromBus
+              ? { value: freshness(live.lastEventAt), direction: "flat" }
+              : isDetectorRunning
+                ? {
+                    value: `${realFps.toFixed(1)} fps live`,
+                    direction: realPeopleNow > 0 ? "up" : "flat",
+                  }
+                : { value: "no feed", direction: "flat" }
           }
         />
         <KpiTile
           icon={<Activity size={14} />}
-          label={isDetectorRunning ? "Unique today" : "Today"}
+          label="Unique visitors"
           value={
-            isDetectorRunning
-              ? realTotalSeen.toString()
-              : isDemo
-                ? formatNumber(liveCounts.peopleToday)
+            fromBus
+              ? formatNumber(live.scorecard.reach.uniqueVisitors)
+              : isDetectorRunning
+                ? realTotalSeen.toString()
                 : "0"
           }
-          series={isDetectorRunning ? peopleHistory : isDemo ? [] : []}
+          series={fromBus ? live.traffic : isDetectorRunning ? peopleHistory : []}
           delta={
-            isDetectorRunning
-              ? { value: "this session", direction: "up" }
-              : isDemo
-                ? {
-                    value: `+${Math.round(liveCounts.peopleVsYesterday * 100)}% vs yesterday`,
-                    direction: "up",
-                  }
+            fromBus
+              ? {
+                  value: `${formatNumber(live.eventCount)} events recorded`,
+                  direction: "flat",
+                }
+              : isDetectorRunning
+                ? { value: "this session", direction: "up" }
                 : { value: "session not started", direction: "flat" }
           }
         />
         <KpiTile
           icon={<Timer size={14} />}
-          label={isDetectorRunning ? "Session length" : "Avg dwell"}
+          label="Avg dwell"
           value={
-            isDetectorRunning
-              ? formatDuration(sessionDurationSec)
-              : isDemo
-                ? formatDuration(liveCounts.avgDwellSeconds)
+            fromBus
+              ? formatDuration(live.scorecard.engagement.avgDwellSec)
+              : isDetectorRunning
+                ? formatDuration(sessionDurationSec)
                 : "—"
           }
-          series={isDemo ? dwellSeries.slice(-12) : []}
+          series={[]}
           delta={
-            isDetectorRunning
-              ? { value: "live", direction: "up" }
-              : isDemo
-                ? { value: "+12% wk", direction: "up" }
-                : activeSession.goals.targetDwellSec
-                  ? {
-                      value: `target ${formatDuration(activeSession.goals.targetDwellSec)}`,
-                      direction: "flat",
-                    }
-                  : { value: "no target set", direction: "flat" }
+            activeSession.goals.targetDwellSec
+              ? {
+                  value: `target ${formatDuration(activeSession.goals.targetDwellSec)}`,
+                  direction:
+                    fromBus &&
+                    live.scorecard.engagement.avgDwellSec >=
+                      activeSession.goals.targetDwellSec
+                      ? "up"
+                      : "flat",
+                }
+              : fromBus
+                ? { value: "no target set", direction: "flat" }
+                : { value: "no data yet", direction: "flat" }
           }
         />
         <KpiTile
           icon={<Zap size={14} />}
-          label="Triggers fired"
-          value={isDemo ? formatNumber(liveCounts.triggers) : "0"}
-          accent="amber"
-          series={isDemo ? triggerSeries.slice(-12) : []}
-          delta={
-            isDemo
-              ? { value: "+18 last hour", direction: "up" }
-              : {
-                  value: `${activeSession.touchpoints.length} touchpoints ready`,
-                  direction: "flat",
-                }
+          label="Touchpoint uses"
+          value={
+            fromBus
+              ? formatNumber(live.scorecard.engagement.surfaceInteractions)
+              : "0"
           }
+          accent="amber"
+          series={[]}
+          delta={{
+            value: `${activeSession.touchpoints.length} touchpoints configured`,
+            direction: "flat",
+          }}
         />
       </div>
+
+      <LiveRoiTile stats={live} session={activeSession} />
 
       {/* ── Main grid */}
       <div className="grid grid-cols-12 gap-5">

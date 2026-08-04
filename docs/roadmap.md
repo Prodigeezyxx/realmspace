@@ -140,7 +140,15 @@ detection → dashboard.
       invented** — real interactions need booth hardware, so the figure stays a
       marked zero until something POSTs one. Also `session.ended`, without which
       the visitors still in the room at close were never counted at all.
-- 🔲 Live ROI tile on the dashboard (day-2 optimisation)
+- ✅ **Live ROI tile on the dashboard (day-2 optimisation)** — and the bigger
+      thing it exposed: `/live` never read the event bus at all. Every figure
+      came from the browser's own webcam tracker or a mock file, so an
+      activation fed the way the backend was built for showed nothing. The KPI
+      strip now reads the durable log first, the detector second, an honest
+      empty third. The tile renders the *same* `Scorecard` the report does, so
+      an operator cannot optimise against a number their client will never see.
+      Invented deltas (`+2 in last 5m`, `+18 last hour`, `+12% wk`) removed on
+      the same grounds as the report's.
 - 🔲 **Ask the Room** real: LLM → constrained Cypher (allow-list, validated) →
       graph → answer (replace regex mocks). *Needs AI provider key.*
 - 🔲 Twin plays back **recorded** sessions from the bus (replace seed paths)

@@ -17,7 +17,56 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-04 (afternoon)
+## [Unreleased] — last updated 2026-08-04 (evening)
+
+### Added — 2026-08-04 (evening) — `[neo4j-track]` the live screen finally shows the real activation
+
+- **The live screen was never connected to the system.** Its numbers came from
+  the camera in *your browser tab*, or from a mock file. So an activation
+  running the way the whole backend was built for — a real camera on the floor
+  feeding the server — showed nothing at all on the live view. The data had been
+  arriving for days; nothing was reading it.
+  *`/live` now reads the durable event log first, the in-browser detector second,
+  and an honest empty third. The bus wins because it is the record of the whole
+  activation across every camera; the detector is one tab's view of one webcam.*
+
+- **An ROI panel that updates while the doors are open.** The four layers —
+  reach, engagement, affinity, pipeline — computed live, so an operator can see
+  a broken funnel on day one instead of reading about it in the report on day
+  three. It runs **the same computation the report does**, which is the point: a
+  tile that could show a number the report would not would have people
+  optimising against a figure their client never sees.
+
+- **Three more invented numbers gone.** "+2 in last 5m", "+18 last hour",
+  "+12% wk" were comparisons against a previous period nobody has recorded —
+  the same defect as the report's "+18% vs Yday". Replaced with what is
+  actually known: how long since the last event arrived, how many events are
+  behind the figure, and target-versus-actual when a target was set.
+
+- **The demo now happens today instead of in May.** Pinned to a date months in
+  the past, "people now" was permanently zero and the live view had nothing true
+  to show. The demo day slides forward each hour, and a handful of visitors are
+  deliberately left mid-visit so the room is not empty.
+  *`seedDemoSession(tenantId, now)`; stable for any given hour, which outlasts
+  any demo. **A trap worth recording:** the event ids had no timestamp in them,
+  so re-seeding for a new hour produced byte-identical ids, the log deduped
+  every one, and the timestamps silently did not move — the demo would have
+  looked shifted in the source and been completely unchanged on screen. There is
+  now a test that fails if the anchor leaves the id.*
+
+- **The live page cannot be brought to its knees by a busy room.** Recomputing
+  on every event would mean hundreds of recomputations a second with a camera
+  running — worst exactly when the room is fullest. Coalesced to one a second,
+  which is finer than anyone can read.
+
+- **77 dashboard tests (was 63).** **Verified by breaking it:** removing the exit
+  handling, or putting the seed's ids back the way they were, each fails its own
+  test.
+
+- **Not done, deliberately:** the live event feed still lists the browser
+  tracker's events rather than the server's spatial ones. It will look
+  inconsistent beside a wired KPI strip, and it is a known omission rather than
+  an oversight.
 
 ### Added — 2026-08-04 (afternoon) — `[neo4j-track]` the system can now see people choosing *not* to engage
 
