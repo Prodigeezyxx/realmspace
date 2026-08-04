@@ -17,7 +17,32 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-03 (night)
+## [Unreleased] — last updated 2026-08-04
+
+### Fixed — 2026-08-04 — `[neo4j-track]` the attention map is back on the report
+
+- **The heatmap panel should not have been removed.** It was taken off the
+  report during the "computed, not asserted" work because it draws from mocked
+  positions — but it is a feature that predates this phase, and removing one
+  nobody asked to remove is its own kind of defect. It is back, in its original
+  place and layout, and the component itself is untouched: same behaviour, same
+  empty state on a session with no recorded positions.
+  *`viz/Heatmap` restored to `/report`, unmodified. `/live` always kept its own.*
+
+- **The sparklines on the headline figures are back too, drawn from real data
+  this time.** They used to be hardcoded arrays. Visitors, average dwell and
+  leads captured now each plot their own hourly series from the session's log,
+  with quiet hours kept as zeros — skipping them would flatten a lull and make
+  a dead afternoon look like a steady one.
+  *`hourlyAvgDwell` and `hourlyLeads` in `lib/report/derive.ts`, tested. 61
+  dashboard tests (was 58).*
+
+- **Two things deliberately not restored**, because both would mean putting
+  invented numbers back on a client's report: the "+18% vs Yday" comparison
+  chips, which need a previous session nobody has recorded yet, and the sponsor
+  exposure panel's seconds-of-attention figures, which need gaze or
+  surface-level dwell that no producer emits. The exposure panel is still there,
+  reporting the touchpoint interactions that *are* measured.
 
 ### Fixed — 2026-08-03 (night) — `[neo4j-track]` the tracker now knows what counts as a visit
 

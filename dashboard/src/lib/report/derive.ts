@@ -170,6 +170,72 @@ export function buildSurfaceRows(events: RealmEvent[]): SurfaceRow[] {
   }));
 }
 
+/**
+ * Average dwell per hour, for the dwell sparkline.
+ *
+ * Hours with no dwell come back as 0 rather than being skipped, so the series
+ * stays aligned with `hourlyVisitors` — two sparklines on the same row implying
+ * the same x-axis had better share one.
+ */
+export function hourlyAvgDwell(events: RealmEvent[]): number[] {
+  const byHour = new Map<number, { sum: number; count: number }>();
+  for (const e of events) {
+    if (e.type !== "spatial.dwell") continue;
+    const p = e.payload as DwellPayload;
+    if (typeof p.durationSec !== "number") continue;
+    const hour = Math.floor(e.occurredAt / 3_600_000);
+    const t = byHour.get(hour) ?? { sum: 0, count: 0 };
+    t.sum += p.durationSec;
+    t.count++;
+    byHour.set(hour, t);
+  }
+
+  const out: number[] = [];
+  for (const hour of spanOf(byHour)) {
+    const t = byHour.get(hour);
+    out.push(t && t.count ? +(t.sum / t.count).toFixed(1) : 0);
+  }
+  return out;
+}
+
+/**
+ * Cumulative leads captured per hour — a capture curve, not a rate.
+ *
+ * Cumulative on purpose: per-hour counts of a rare event are mostly zeros and
+ * read as noise at sparkline size, where a curve reads as progress.
+ */
+export function hourlyLeads(events: RealmEvent[]): number[] {
+  const byHour = new Map<number, number>();
+  for (const e of events) {
+    if (e.type !== "consent.captured" && e.type !== "identity.resolved") continue;
+    const hour = Math.floor(e.occurredAt / 3_600_000);
+    byHour.set(hour, (byHour.get(hour) ?? 0) + 1);
+  }
+
+  const out: number[] = [];
+  let running = 0;
+  for (const hour of spanOf(byHour)) {
+    running += byHour.get(hour) ?? 0;
+    out.push(running);
+  }
+  return out;
+}
+
+/**
+ * Every hour from the first key to the last, including the empty ones.
+ *
+ * Skipping quiet hours would compress a lull into a straight line and make a
+ * dead afternoon look like a steady one — the sparkline's whole job is the
+ * shape.
+ */
+function spanOf(byHour: Map<number, unknown>): number[] {
+  if (!byHour.size) return [];
+  const hours = [...byHour.keys()].sort((a, b) => a - b);
+  const out: number[] = [];
+  for (let h = hours[0]; h <= hours[hours.length - 1]; h++) out.push(h);
+  return out;
+}
+
 /** Distinct visitors per hour of the day, for the traffic sparkline. */
 export function hourlyVisitors(events: RealmEvent[]): number[] {
   const byHour = new Map<number, Set<string>>();

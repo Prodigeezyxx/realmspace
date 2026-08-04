@@ -38,12 +38,15 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
 import { Sparkline } from "@/components/ui/Sparkline";
+import { Heatmap } from "@/components/viz/Heatmap";
 import {
   buildFunnel,
   buildMoments,
   buildRecommendations,
   buildSurfaceRows,
   buildZoneRows,
+  hourlyAvgDwell,
+  hourlyLeads,
   hourlyVisitors,
 } from "@/lib/report/derive";
 import { useSessionReport, type SessionReport } from "@/lib/report/useSessionReport";
@@ -142,6 +145,8 @@ function Report({ session, report }: { session: Session; report: SessionReport }
   const surfaces = useMemo(() => buildSurfaceRows(events), [events]);
   const moments = useMemo(() => buildMoments(events, zoneMeta), [events, zoneMeta]);
   const traffic = useMemo(() => hourlyVisitors(events), [events]);
+  const dwellSeries = useMemo(() => hourlyAvgDwell(events), [events]);
+  const leadSeries = useMemo(() => hourlyLeads(events), [events]);
   const recommendations = useMemo(
     () =>
       buildRecommendations(funnel, zoneRows, scorecard.engagement.engagementRate),
@@ -251,11 +256,13 @@ function Report({ session, report }: { session: Session; report: SessionReport }
           label="Avg dwell"
           value={formatDuration(scorecard.engagement.avgDwellSec)}
           accent="cyan"
+          spark={dwellSeries}
         />
         <BigNumber
           label="Leads captured"
           value={scorecard.pipeline.leadsCaptured.toLocaleString()}
           accent="amber"
+          spark={leadSeries}
           note={
             scorecard.pipeline.leadsCaptured === 0
               ? "No consent capture surface is reporting yet"
@@ -346,13 +353,27 @@ function Report({ session, report }: { session: Session; report: SessionReport }
         </Panel>
       )}
 
-      {/* ── Moments */}
-      {moments.length > 0 && (
-        <section>
-          <Panel
-            title="Notable moments"
-            subtitle="Each one is a maximum in the log, not a highlight reel"
-          >
+      {/* ── Attention map + moments.
+          The heatmap is the pre-existing `viz/Heatmap` component, unchanged:
+          it aggregates positions onto the booth floor plan and shows its own
+          empty state on a session with no recorded positions. Left exactly as
+          it was rather than reworked, because it predates this phase's work and
+          changing a feature nobody asked to change is its own kind of defect. */}
+      <section className="grid md:grid-cols-2 gap-5">
+        <Panel
+          title="Attention map"
+          subtitle="Where visitors spent the most aggregate time"
+          padded={false}
+        >
+          <div className="p-3">
+            <Heatmap height={300} />
+          </div>
+        </Panel>
+        <Panel
+          title="Notable moments"
+          subtitle="Each one is a maximum in the log, not a highlight reel"
+        >
+          {moments.length ? (
             <ul className="space-y-3 text-sm">
               {moments.map((m) => (
                 <li key={m.title} className="flex gap-4">
@@ -371,9 +392,14 @@ function Report({ session, report }: { session: Session; report: SessionReport }
                 </li>
               ))}
             </ul>
-          </Panel>
-        </section>
-      )}
+          ) : (
+            <p className="text-sm text-text-secondary leading-relaxed">
+              Nothing stood out — no dwell, surface use or traffic peak in this
+              session reached a level worth calling a moment.
+            </p>
+          )}
+        </Panel>
+      </section>
 
       {/* ── By zone */}
       {zoneRows.length > 0 && (

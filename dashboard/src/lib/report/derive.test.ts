@@ -16,6 +16,8 @@ import {
   buildRecommendations,
   buildSurfaceRows,
   buildZoneRows,
+  hourlyAvgDwell,
+  hourlyLeads,
   hourlyVisitors,
 } from "./derive";
 
@@ -154,6 +156,35 @@ describe("hourlyVisitors", () => {
       enter("P3", "z_entry", T0 + 2 * H),
     ];
     expect(hourlyVisitors(events)).toEqual([2, 0, 1]);
+  });
+});
+
+describe("hourly series for the sparklines", () => {
+  const H = 3_600_000;
+
+  it("averages dwell per hour and keeps quiet hours as zero", () => {
+    // Skipping the quiet hour would compress a lull into a straight line and
+    // make a dead afternoon look like a steady one.
+    const events = [
+      dwell("P1", "z_mirror", 100, T0),
+      dwell("P2", "z_mirror", 200, T0),
+      dwell("P3", "z_mirror", 60, T0 + 2 * H),
+    ];
+    expect(hourlyAvgDwell(events)).toEqual([150, 0, 60]);
+  });
+
+  it("accumulates leads so the curve reads as progress", () => {
+    const events = [
+      ev("consent.captured", { anonId: "P1" }, T0),
+      ev("consent.captured", { anonId: "P2" }, T0 + H),
+      ev("identity.resolved", { anonId: "P3" }, T0 + 2 * H),
+    ];
+    expect(hourlyLeads(events)).toEqual([1, 2, 3]);
+  });
+
+  it("returns nothing rather than a flat line when there is no data", () => {
+    expect(hourlyAvgDwell([])).toEqual([]);
+    expect(hourlyLeads([])).toEqual([]);
   });
 });
 
