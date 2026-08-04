@@ -132,6 +132,14 @@ detection → dashboard.
       **ROI ratio needs influenced revenue**, which nothing measures until Phase
       4 — it is an optional operator-supplied figure, labelled as the client's
       own on every surface, and blank rather than estimated when absent.
+- ✅ **The two missing signals.** Pass-by (Reach) is emitted by the tracker at
+      track close-out — one per person per zone, cancelled outright by entering.
+      Surface interactions (Engagement) have their whole path built: wizard
+      touchpoints become `Surface` nodes, `graph_writer` draws
+      `INTERACTED_WITH`, and `trigger_count` survives replay. **No producer was
+      invented** — real interactions need booth hardware, so the figure stays a
+      marked zero until something POSTs one. Also `session.ended`, without which
+      the visitors still in the room at close were never counted at all.
 - 🔲 Live ROI tile on the dashboard (day-2 optimisation)
 - 🔲 **Ask the Room** real: LLM → constrained Cypher (allow-list, validated) →
       graph → answer (replace regex mocks). *Needs AI provider key.*
@@ -243,7 +251,7 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 | Multi-booth / cross-event aggregation | multi-tenant benchmark — P6 |
 | Cost telemetry / unit economics | `cost.metered` meter — P3 |
 | Group visits | `Group` node (in `data-model.md`) — P1/P2 |
-| Negative signals (pass-by/skip) | `spatial.passby` event — P2 |
+| Negative signals (pass-by/skip) | ✅ `spatial.passby` — tracker emits at close-out for a zone approached within `tracker_passby_radius` and never entered |
 | Session hygiene (boundary flicker, track dropout, sub-second dwells) | ✅ confirm window + dropout sweep + minimum dwell in `consumers/tracker.py`, ported from the postgres-track's `spatial-deriver.ts` (CHI '26: 71% of raw sessions invalid without them) |
 
 ---

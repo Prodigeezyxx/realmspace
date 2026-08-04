@@ -89,14 +89,12 @@ export function RoiScorecard({ report }: { report: SessionReport }) {
                 : undefined
             }
           />
+          {/* No "missing" marker: pass-by is measured now, so a zero here is a
+              finding — nobody came close to a zone and declined it — rather
+              than an absent signal. Dimming it would say the opposite. */}
           <MiniRow
             label="Pass-by (skipped)"
             value={fmt(scorecard.reach.passBy)}
-            missing={
-              scorecard.reach.passBy === 0
-                ? "Pass-by detection is not built yet — this is not a measured zero."
-                : undefined
-            }
           />
           <MiniRow
             label="Peak in zones"

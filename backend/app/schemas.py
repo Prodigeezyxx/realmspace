@@ -205,6 +205,26 @@ class ZoneConfig(BaseModel):
         return value
 
 
+class TouchpointConfig(BaseModel):
+    """A booth surface an operator installed — data-model.md → `(:Surface {...})`.
+
+    Same free-string reasoning as `ZoneConfig.type`: the wizard's
+    `TouchpointType` has sixteen values and the graph contract's `SurfaceNode`
+    describes a different set, so an enum here would reject a touchpoint the
+    operator can legitimately configure. Nothing in the backend branches on it.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    type: str = Field(default="other", validation_alias=AliasChoices("type", "kind"))
+    #: Which zone it sits in, if any. Not validated against the zone list: an
+    #: operator may add the touchpoint before drawing the zone around it.
+    zone_id: str | None = None
+    active: bool = True
+
+
 class SessionConfigIn(BaseModel):
     """The wizard's output: one activation, configured for measurement."""
 
@@ -246,6 +266,24 @@ class SessionConfigIn(BaseModel):
     #: collecting dwell — see graph.repository.prune_zones.
     zones: list[ZoneConfig] | None = None
 
+    #: Same replace-or-leave-alone rule as `zones`. Omitted keeps the existing
+    #: touchpoints; a list replaces the set and prunes what is no longer in it.
+    touchpoints: list[TouchpointConfig] | None = None
+
+    @field_validator("touchpoints")
+    @classmethod
+    def touchpoint_ids_are_unique(
+        cls, value: list[TouchpointConfig] | None
+    ) -> list[TouchpointConfig] | None:
+        """As with zones, MERGE would collapse a duplicate and lose one."""
+        if value is None:
+            return None
+        seen = [t.id for t in value]
+        duplicates = sorted({t for t in seen if seen.count(t) > 1})
+        if duplicates:
+            raise ValueError(f"duplicate touchpoint ids: {', '.join(duplicates)}")
+        return value
+
     @field_validator("zones")
     @classmethod
     def zone_ids_are_unique(
@@ -266,10 +304,17 @@ class SessionConfigIn(BaseModel):
         return value
 
 
+class TouchpointOut(TouchpointConfig):
+    """A touchpoint as stored, with how many interactions it has recorded."""
+
+    trigger_count: int = 0
+
+
 class SessionConfigOut(SessionConfigIn):
-    """What comes back. Zones are always a list here — never None."""
+    """What comes back. Both lists are always present here — never None."""
 
     zones: list[ZoneConfig] = []
+    touchpoints: list[TouchpointOut] = []
 
 
 class ZoneDwell(BaseModel):

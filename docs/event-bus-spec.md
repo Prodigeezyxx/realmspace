@@ -169,7 +169,18 @@ cites CHI '26 — 71% of raw sessions are invalid without them):
 |---|---|---|
 | **Confirm window** | `tracker_zone_confirm_seconds` (0.6s) | Someone on a zone edge crossing it at frame rate. Each wobble is otherwise a complete enter/exit/dwell triple, inflating footfall and halving average dwell, with nothing in the data to show for it. |
 | **Minimum dwell** | `tracker_min_dwell_seconds` (1.0s) | Clipping a corner counting as time spent. The exit still fires; only the dwell is dropped. |
-| **Dropout sweep** | `tracker_dropout_seconds` (20s) | A track vanishing inside a zone emitting *nothing at all* — the visit silently discarded, which under-reports precisely the long stays at the far end of a booth. |
+| **Dropout sweep** | `tracker_dropout_seconds` (20s) | A track vanishing inside a zone emitting *nothing at all* — the visit silently discarded, which under-reports precisely the long stays at the far end of a booth. Also the only moment a pass-by can be judged. |
+| **Pass-by radius** | `tracker_passby_radius` (0.08) | Without a radius, every visitor is a pass-by for every zone they didn't visit and the signal means nothing. |
+
+**The sweep does not skip tracks with no confirmed zone.** It used to, and that
+excluded precisely the pass-by case — a visitor who never enters a zone is the
+signal, not an absence of one.
+
+**A limit worth knowing.** All of this runs on *event time*, so a session that
+simply stops — no `session.ended`, no further events of any kind — leaves its
+last tracks open. `session.ended` is the fix; a wall-clock timer would close
+them but would also make a replay produce different events from the original
+run, which is a worse trade.
 
 Timestamps use the **real crossing**, never the moment of confirmation, so the
 window is not charged to the visitor. All of it runs on event time rather than
@@ -178,6 +189,30 @@ wall clock, which is what keeps a replay byte-identical.
 **Consequence for producers:** a zone must be seen twice, at least the confirm
 window apart, to register at all. Real perception at ~20fps satisfies this in 12
 frames; sparse synthetic input does not, and will produce silence.
+
+**`spatial.passby`** — producer: tracker:
+`{ "anon_id", "adjacent_zone_id", "closest_dist", "at", "reason" }`
+
+The Reach layer's negative signal (`roi-framework.md` §2): came within
+`tracker_passby_radius` of a zone and never entered it. `closest_dist` is the
+nearest normalized approach over the whole session.
+
+**Only knowable at close-out.** Until a track ends, somebody loitering outside a
+zone might still walk in, so this is emitted when the track is finalised —
+either by dropout or by `session.ended` — never while they are still in frame.
+One per person per zone for the session, not per approach: someone pacing
+outside a stand is one person who declined it, not twelve. Entering the zone at
+any point cancels it outright; a visitor cannot be both the engagement and the
+skip.
+
+**`session.ended`** — producer: an operator (the dashboard's End session button):
+`{ "sessionId", "endedBy" }`
+
+The doors have shut. The tracker finalises every track still open in that
+session — closing dwells and judging pass-bys — because no further detections
+are coming and the dropout sweep needs a later event to run on. Without it the
+tail of every activation is silently lost, and the visitors still in the room at
+the end are exactly the engaged ones.
 
 **`session.zones_updated`** — producer: `POST /v1/sessions` (an operator):
 `{ "zone_ids": ["z_entry", …], "zone_count": 3, "by": "u_op" }`

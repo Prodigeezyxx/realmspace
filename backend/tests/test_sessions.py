@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import repository
 from app.auth.models import ApiKey, AuthUser
 from app.auth.tokens import generate_api_key, issue_token
+from app.consumers.graph_writer import GraphWriterConsumer
 from app.consumers.tracker import TrackerConsumer
 from app.db import get_session
 from app.graph import repository as graph_repo
@@ -299,6 +300,130 @@ async def test_operator_supplied_figures_round_trip_and_default_to_absent(
     body = (await operator.get(f"/v1/sessions/{S}")).json()
     assert body["revenueInfluenced"] == 50400
     assert body["qualifiedLeads"] == 318
+
+
+async def test_touchpoints_become_surfaces_an_interaction_can_land_on(
+    operator: AsyncClient, db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """Config → interaction → graph edge, the Engagement layer's other half.
+
+    The graph writer refuses an interaction for a surface nobody configured, so
+    without the wizard publishing its touchpoints every reading a real kiosk
+    sent would be dropped on arrival — the same shape of hole that zones had
+    before `POST /v1/sessions` existed.
+    """
+    await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            [zone("z_a", "Mirror Room", LEFT_POLY)],
+            touchpoints=[
+                {"id": "sf_mirror", "label": "AR Mirror", "type": "ar_mirror", "zoneId": "z_a"}
+            ],
+        ),
+    )
+
+    body = (await operator.get(f"/v1/sessions/{S}")).json()
+    assert [t["id"] for t in body["touchpoints"]] == ["sf_mirror"]
+    assert body["touchpoints"][0]["triggerCount"] == 0
+
+    # A touchpoint reports somebody using it.
+    await repository.append_event(
+        db_session,
+        EventIn(
+            event_id=uuid.uuid4(),
+            tenant_id=T,
+            session_id=S,
+            type="surface.interaction",
+            payload={"anon_id": "P-001", "surface_id": "sf_mirror", "kind": "ar"},
+            occurred_at=BASE,
+        ),
+    )
+    await db_session.commit()
+    await GraphWriterConsumer().run_once()
+
+    after = (await operator.get(f"/v1/sessions/{S}")).json()
+    assert after["touchpoints"][0]["triggerCount"] == 1
+
+
+async def test_replaying_an_interaction_does_not_inflate_the_count(
+    operator: AsyncClient, db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """A sponsor's usage figure must survive the pipeline being run twice.
+
+    The graph is a separate store from the log, so a crash between a graph write
+    and the cursor advance guarantees redelivery. If the counter moved on every
+    pass, every restart would quietly hand the sponsor a better number.
+    """
+    await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            [zone("z_a", "A", LEFT_POLY)],
+            touchpoints=[{"id": "sf_quiz", "label": "Scent Quiz", "type": "quiz"}],
+        ),
+    )
+    await repository.append_event(
+        db_session,
+        EventIn(
+            event_id=uuid.uuid4(),
+            tenant_id=T,
+            session_id=S,
+            type="surface.interaction",
+            payload={"anon_id": "P-001", "surface_id": "sf_quiz", "kind": "game"},
+            occurred_at=BASE,
+        ),
+    )
+    await db_session.commit()
+
+    writer = GraphWriterConsumer()
+    await writer.run_once()
+    await repository.reset_cursor(db_session, consumer=writer.name, tenant_id=T)
+    await db_session.commit()
+    await writer.run_once()
+
+    body = (await operator.get(f"/v1/sessions/{S}")).json()
+    assert body["touchpoints"][0]["triggerCount"] == 1
+
+
+async def test_a_removed_touchpoint_stops_appearing(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            [zone("z_a", "A", LEFT_POLY)],
+            touchpoints=[
+                {"id": "sf_a", "label": "A", "type": "screen"},
+                {"id": "sf_b", "label": "B", "type": "rfid"},
+            ],
+        ),
+    )
+    await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            [zone("z_a", "A", LEFT_POLY)],
+            touchpoints=[{"id": "sf_a", "label": "A", "type": "screen"}],
+        ),
+    )
+
+    body = (await operator.get(f"/v1/sessions/{S}")).json()
+    assert [t["id"] for t in body["touchpoints"]] == ["sf_a"]
+
+
+async def test_duplicate_touchpoint_ids_are_refused(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    r = await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            [zone("z_a", "A", LEFT_POLY)],
+            touchpoints=[
+                {"id": "sf_a", "label": "A", "type": "screen"},
+                {"id": "sf_a", "label": "B", "type": "rfid"},
+            ],
+        ),
+    )
+    assert r.status_code == 422
+    assert "duplicate touchpoint ids" in r.text
 
 
 async def test_defaults_match_the_scorecard_the_dashboard_already_computes(

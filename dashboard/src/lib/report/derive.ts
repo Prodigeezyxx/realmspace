@@ -40,6 +40,8 @@ export interface ZoneRow {
 
 export interface SurfaceRow {
   surfaceId: string;
+  /** The operator's name for it, when the session config carries one. */
+  label: string;
   interactions: number;
   /** % of the most-used surface's interactions. */
   share: number;
@@ -152,7 +154,10 @@ export function buildZoneRows(events: RealmEvent[], zones: ZoneMeta[]): ZoneRow[
  * heading would be the sort of quiet substitution the report exists to avoid,
  * so the page labels this for what it is.
  */
-export function buildSurfaceRows(events: RealmEvent[]): SurfaceRow[] {
+export function buildSurfaceRows(
+  events: RealmEvent[],
+  touchpoints: { id: string; label: string }[] = []
+): SurfaceRow[] {
   const counts = new Map<string, number>();
   for (const e of events) {
     if (e.type !== "surface.interaction") continue;
@@ -165,6 +170,10 @@ export function buildSurfaceRows(events: RealmEvent[]): SurfaceRow[] {
   const top = rows[0]?.[1] ?? 0;
   return rows.map(([surfaceId, interactions]) => ({
     surfaceId,
+    // Falls back to the id when the session config has no touchpoint by that
+    // name — which means something is reporting against a surface nobody
+    // configured, and showing the raw id is the honest way to surface that.
+    label: touchpoints.find((t) => t.id === surfaceId)?.label ?? surfaceId,
     interactions,
     share: top ? +((100 * interactions) / top).toFixed(1) : 0,
   }));

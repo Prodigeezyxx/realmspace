@@ -83,7 +83,7 @@ from app import repository
 from app.config import get_settings
 from app.consumers.base import Consumer
 from app.consumers.ids import derive_event_id
-from app.consumers.zones import centroid, normalize, zone_for_point
+from app.consumers.zones import centroid, dist_to_polygon, normalize, zone_for_point
 from app import db
 from app.graph import repository as graph_repo
 from app.graph.driver import get_driver
@@ -96,14 +96,19 @@ DETECTION = "perception.detection"
 ZONE_ENTER = "spatial.zone_enter"
 ZONE_EXIT = "spatial.zone_exit"
 DWELL = "spatial.dwell"
+#: roi-framework.md §2, Reach: came close to a zone and never went in.
+PASSBY = "spatial.passby"
 #: Emitted by POST /v1/sessions when an operator redraws zones. See handle().
 ZONES_UPDATED = "session.zones_updated"
+#: The operator closed the activation. See handle().
+SESSION_ENDED = "session.ended"
 
-#: Why a visit ended. Carried on zone_exit and dwell so a consumer can weigh
-#: them differently — a dwell that ended in a dropout is a lower bound on the
-#: real one, and the report should be able to say so.
+#: Why a visit ended. Carried on zone_exit, dwell and passby so a consumer can
+#: weigh them differently — a dwell that ended in a dropout is a lower bound on
+#: the real one, and the report should be able to say so.
 REASON_MOVE = "move"
 REASON_DROPOUT = "dropout"
+REASON_SESSION_END = "session_end"
 
 
 @dataclass
@@ -125,11 +130,16 @@ class TrackState:
     candidate_since: dt.datetime | None = None
     #: Last detection of this person, for dropout.
     last_seen: dt.datetime | None = field(default=None)
+    #: Closest this person ever came to each zone, for pass-by.
+    min_dist_by_zone: dict[str, float] = field(default_factory=dict)
+    #: Zones they actually entered — excluded from pass-by, since going in is
+    #: the opposite of the signal pass-by exists to capture.
+    entered_zones: set[str] = field(default_factory=set)
 
 
 class TrackerConsumer(Consumer):
     name = "tracker"
-    handles = (DETECTION, ZONES_UPDATED)
+    handles = (DETECTION, ZONES_UPDATED, SESSION_ENDED)
 
     def __init__(self) -> None:
         super().__init__()
@@ -219,6 +229,15 @@ class TrackerConsumer(Consumer):
             self.forget_zones(event.tenant_id, event.session_id)
             return
 
+        if event.type == SESSION_ENDED:
+            # The doors have shut. Everyone still being tracked gets closed out
+            # now, rather than waiting for a dropout timeout that will never
+            # arrive because no further detections are coming.
+            emitted = self._flush_session(event)
+            if emitted:
+                await self._append(event.tenant_id, emitted)
+            return
+
         payload = event.payload
         # Two spellings in the wild: `anon_id` (data-model.md's name for the
         # Person key, and what the postgres-track's producer sends as `anonId`)
@@ -270,6 +289,19 @@ class TrackerConsumer(Consumer):
             self._prune_where()
         state.last_seen = now
 
+        # Closest approach to each zone, for pass-by. Recorded on every frame
+        # because the nearest miss is the whole signal — sampling only on zone
+        # changes would miss somebody who walked the length of a stand, paused
+        # at arm's length from it, and moved on without ever crossing a boundary.
+        for zone in zones:
+            zone_id = zone["id"]
+            if zone_id in state.entered_zones:
+                continue
+            distance = dist_to_polygon(nx, ny, zone.get("polygon") or [])
+            previous = state.min_dist_by_zone.get(zone_id)
+            if previous is None or distance < previous:
+                state.min_dist_by_zone[zone_id] = distance
+
         if now_zone == state.confirmed:
             # Back where we believed they were: whatever change was pending was
             # flicker, and pretending otherwise is exactly the bug.
@@ -295,15 +327,20 @@ class TrackerConsumer(Consumer):
             )
 
         if emitted:
-            async with db.SessionLocal() as session:
-                # A fresh session carries no tenant scope, and under RLS an
-                # unscoped INSERT is rejected by the WITH CHECK policy. The
-                # tenant is the source event's — the tracker only ever emits
-                # about the tenant it is reading.
-                await db.scope_to_tenant(session, event.tenant_id)
-                for out in emitted:
-                    await repository.append_event(session, out)
-                await session.commit()
+            await self._append(event.tenant_id, emitted)
+
+    async def _append(self, tenant_id: str, events: list[EventIn]) -> None:
+        """Write the tracker's own events back onto the bus.
+
+        A fresh session carries no tenant scope, and under RLS an unscoped
+        INSERT is rejected by the WITH CHECK policy. The tenant is the source
+        event's — the tracker only ever emits about the tenant it is reading.
+        """
+        async with db.SessionLocal() as session:
+            await db.scope_to_tenant(session, tenant_id)
+            for out in events:
+                await repository.append_event(session, out)
+            await session.commit()
 
     def _close_visit(
         self,
@@ -396,6 +433,12 @@ class TrackerConsumer(Consumer):
             )
             state.confirmed = now_zone
             state.entered_at = crossed_at
+            # Going in disqualifies the zone from pass-by, permanently. Someone
+            # who circles a stand twice and enters on the second pass engaged
+            # with it; reporting them as a skip as well would count one person
+            # as both the success and the failure.
+            state.entered_zones.add(now_zone)
+            state.min_dist_by_zone.pop(now_zone, None)
         else:
             state.confirmed = None
             state.entered_at = None
@@ -404,17 +447,87 @@ class TrackerConsumer(Consumer):
         state.candidate_since = None
         return emitted
 
+    def _finalize(
+        self, source: EventLog, anon_id: str, state: TrackState, reason: str
+    ) -> list[EventIn]:
+        """Close a track out for good: end any open visit, then judge pass-bys.
+
+        Order matters. The visit is closed first so that a zone entered right at
+        the end is in `entered_zones` before pass-by is evaluated — otherwise
+        somebody who finally walked in would be reported as having skipped the
+        very zone they are standing in.
+        """
+        emitted: list[EventIn] = []
+
+        if state.confirmed is not None and state.entered_at is not None and state.last_seen:
+            emitted += self._close_visit(
+                source,
+                anon_id=anon_id,
+                zone_id=state.confirmed,
+                entered_at=state.entered_at,
+                # Closed at the last sighting, not at the moment we noticed. The
+                # person left some time between those two, and the earlier of
+                # them is the one we can actually defend.
+                left_at=state.last_seen,
+                reason=reason,
+            )
+            state.entered_zones.add(state.confirmed)
+            state.min_dist_by_zone.pop(state.confirmed, None)
+
+        radius = get_settings().tracker_passby_radius
+        at = _iso(state.last_seen) if state.last_seen else _iso(source.occurred_at)
+
+        # Sorted so a replay emits them in a stable order. The ids are derived
+        # and would dedupe regardless, but a log that reorders itself between
+        # runs is miserable to diff when something does go wrong.
+        for zone_id in sorted(state.min_dist_by_zone):
+            if zone_id in state.entered_zones:
+                continue
+            distance = state.min_dist_by_zone[zone_id]
+            if distance > radius:
+                continue
+            emitted.append(
+                self._event(
+                    source,
+                    type=PASSBY,
+                    # One pass-by per person per zone for the whole session —
+                    # not per approach. Somebody pacing outside a stand is one
+                    # person who declined it, not twelve.
+                    parts=(PASSBY, anon_id, zone_id),
+                    payload={
+                        "anon_id": anon_id,
+                        "adjacent_zone_id": zone_id,
+                        "closest_dist": round(distance, 3),
+                        "at": at,
+                        "reason": reason,
+                    },
+                )
+            )
+
+        state.confirmed = None
+        state.entered_at = None
+        state.candidate = None
+        state.candidate_since = None
+        state.min_dist_by_zone = {}
+        return emitted
+
     def _sweep_dropouts(self, source: EventLog, now: dt.datetime) -> list[EventIn]:
-        """Close the visits of anyone who stopped being detected inside a zone.
+        """Finalise anyone in this session who has stopped being detected.
 
-        Without this they emit nothing at all — no exit, no dwell — so every
-        visit that ended by walking out of frame is discarded, and the longest
-        stays are the likeliest to end that way. The result is an activation
-        that quietly under-reports exactly the visitors it should be proudest of.
+        Two things depend on this, not one. A visit that ended by the visitor
+        walking out of frame emits nothing without it — and the longest stays are
+        the likeliest to end that way, so the activation under-reports exactly
+        the engagement it most wants to prove. And a **pass-by is only knowable
+        at close-out**: until a track ends, someone lingering outside a zone
+        might still walk in.
 
-        Scoped to the same tenant and session as the triggering event: a busy
-        session must not scan every tenant the process has ever seen, and the
-        timestamps only make sense within one session's clock anyway.
+        That second one is why this no longer skips tracks with no confirmed
+        zone. A pass-by subject never confirms one — that is what makes them a
+        pass-by — so the old guard excluded precisely the case it now exists for.
+
+        Scoped to the triggering event's tenant and session: a busy session must
+        not scan every tenant the process has seen, and the timestamps only mean
+        anything within one session's clock.
         """
         timeout = get_settings().tracker_dropout_seconds
         emitted: list[EventIn] = []
@@ -422,27 +535,33 @@ class TrackerConsumer(Consumer):
         for key, state in self._where.items():
             if key[0] != source.tenant_id or key[1] != source.session_id:
                 continue
-            if state.confirmed is None or state.entered_at is None:
-                continue
             if state.last_seen is None or (now - state.last_seen).total_seconds() < timeout:
                 continue
+            # Nothing open and nothing near: already finalised, or never had
+            # anything to say. Skipping keeps the sweep from re-walking every
+            # track that has already been closed.
+            if state.confirmed is None and not state.min_dist_by_zone:
+                continue
 
-            emitted += self._close_visit(
-                source,
-                anon_id=key[2],
-                zone_id=state.confirmed,
-                entered_at=state.entered_at,
-                # Closed at the last sighting, not at the moment we noticed.
-                # The person left some time between those two, and the earlier
-                # of them is the one we can actually defend.
-                left_at=state.last_seen,
-                reason=REASON_DROPOUT,
-            )
-            state.confirmed = None
-            state.entered_at = None
-            state.candidate = None
-            state.candidate_since = None
+            emitted += self._finalize(source, key[2], state, REASON_DROPOUT)
 
+        return emitted
+
+    def _flush_session(self, source: EventLog) -> list[EventIn]:
+        """Close out every track in a session, because the doors have shut.
+
+        Without this the last visitors of an activation are never finalised: no
+        closing dwell, no pass-by. On a short session that is a large share of
+        the audience, and nothing in the report would show it as missing — the
+        numbers would simply be smaller than the day was.
+        """
+        emitted: list[EventIn] = []
+        for key, state in self._where.items():
+            if key[0] != source.tenant_id or key[1] != source.session_id:
+                continue
+            if state.confirmed is None and not state.min_dist_by_zone:
+                continue
+            emitted += self._finalize(source, key[2], state, REASON_SESSION_END)
         return emitted
 
     def _event(

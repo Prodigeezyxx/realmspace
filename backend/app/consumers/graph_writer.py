@@ -8,6 +8,7 @@ Reads both families and writes through app/graph/repository.py:
   spatial.zone_enter    → (Person)-[:ENTERED]->(Zone)
   spatial.zone_exit     → (Person)-[:LEFT]->(Zone)
   spatial.dwell         → (Person)-[:DWELLED_IN {duration,…}]->(Zone)
+  surface.interaction   → (Person)-[:INTERACTED_WITH {duration, kind}]->(Surface)
 
 ## Why this is safe to run twice
 
@@ -42,11 +43,12 @@ DETECTION = "perception.detection"
 ZONE_ENTER = "spatial.zone_enter"
 ZONE_EXIT = "spatial.zone_exit"
 DWELL = "spatial.dwell"
+SURFACE = "surface.interaction"
 
 
 class GraphWriterConsumer(Consumer):
     name = "graph_writer"
-    handles = (DETECTION, ZONE_ENTER, ZONE_EXIT, DWELL)
+    handles = (DETECTION, ZONE_ENTER, ZONE_EXIT, DWELL, SURFACE)
 
     async def handle(self, event: EventLog) -> None:
         settings = get_settings()
@@ -59,6 +61,8 @@ class GraphWriterConsumer(Consumer):
                 await self._on_zone_exit(gs, event)
             elif event.type == DWELL:
                 await self._on_dwell(gs, event)
+            elif event.type == SURFACE:
+                await self._on_surface_interaction(gs, event)
 
     async def _on_detection(self, gs, event: EventLog) -> None:
         anon_id = event.payload.get("anon_id") or event.payload.get("person_id")
@@ -114,6 +118,36 @@ class GraphWriterConsumer(Consumer):
             duration=p["duration"],
             started_at=p["started_at"],
             ended_at=p["ended_at"],
+        )
+
+    async def _on_surface_interaction(self, gs, event: EventLog) -> None:
+        """(Person)-[:INTERACTED_WITH]->(Surface), the Engagement layer's other half.
+
+        `surface_id` must already exist as a node — the session wizard writes the
+        touchpoints at configuration time, exactly as it does zones. A reading
+        for a surface nobody configured is dropped rather than conjured into
+        existence: the alternative is a report listing touchpoints the operator
+        never installed, which is worse than a missing one because nobody would
+        think to question it.
+        """
+        p = event.payload
+        surface_id = p.get("surface_id")
+        anon_id = p.get("anon_id") or p.get("person_id")
+        if not surface_id or not anon_id:
+            raise ValueError(
+                f"surface.interaction seq={event.seq} missing surface_id or anon_id"
+            )
+
+        await self._ensure_person(gs, event, anon_id)
+        await graph_repo.link_interacted_with(
+            gs,
+            tenant_id=event.tenant_id,
+            session_id=event.session_id,
+            anon_id=anon_id,
+            surface_id=surface_id,
+            at=p.get("at") or event.occurred_at.isoformat(),
+            kind=p.get("kind"),
+            duration=p.get("duration"),
         )
 
     async def _ensure_person(self, gs, event: EventLog, anon_id: str) -> None:

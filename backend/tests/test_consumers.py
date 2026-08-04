@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import repository
 from app.consumers.graph_writer import GraphWriterConsumer
 from app.consumers.ids import derive_event_id
+from app.consumers import zones as zones_geom
 from app.consumers.tracker import TrackerConsumer
 from app.graph import repository as graph_repo
 from app.schemas import EventIn
@@ -40,6 +41,9 @@ RIGHT_POLY = [[0.5, 0.0], [1.0, 0.0], [1.0, 1.0], [0.5, 1.0]]
 FRAME_W, FRAME_H = 1000, 1000
 LEFT_PX = [200, 400, 300, 600]    # centroid (250, 500) → 0.25 → left zone
 RIGHT_PX = [700, 400, 800, 600]   # centroid (750, 500) → 0.75 → right zone
+# centroid (450, 500) → 0.45: inside the left zone, 0.05 clear of the right one,
+# which is inside the 0.08 pass-by radius.
+NEAR_PX = [400, 400, 500, 600]
 
 
 @pytest.fixture(autouse=True)
@@ -124,6 +128,22 @@ async def stay(
         if t >= end:
             break
         t = min(t + dt.timedelta(seconds=step), end)
+
+
+async def session_ended(db_session: AsyncSession, *, at: dt.datetime) -> None:
+    """The operator closing the activation, as the dashboard now emits it."""
+    await repository.append_event(
+        db_session,
+        EventIn(
+            event_id=uuid.uuid4(),
+            tenant_id=T,
+            session_id=S,
+            type="session.ended",
+            payload={"endedBy": "u_test"},
+            occurred_at=at,
+        ),
+    )
+    await db_session.commit()
 
 
 async def types_in_log(db_session: AsyncSession, tenant_id: str = T) -> list[str]:
@@ -351,6 +371,216 @@ async def test_a_person_still_being_seen_is_never_dropped_out(
     kinds = await types_in_log(db_session)
     assert kinds.count("spatial.zone_exit") == 0
     assert kinds.count("spatial.dwell") == 0
+
+
+# ── pass-by (roi-framework.md §2, Reach) ──────────────────────────────────────
+#
+# The negative signal: came close, chose not to engage. It is the only metric in
+# the catalogue that can make an activation look *worse*, which is exactly why a
+# client believes the rest of them.
+
+
+def test_distance_to_a_segment_is_clamped_to_its_ends() -> None:
+    """Past the end of an edge, the distance is to the corner — not to the
+    imaginary continuation of the line.
+
+    Without the clamp, somebody standing well beyond the corner of a stand
+    measures as though the wall carried on forever, and reads as adjacent to a
+    zone they are nowhere near.
+    """
+    # Segment along y=0 from x=0 to x=1. A point past the right end at (2, 0)
+    # is 1.0 from the corner, not 0.0 from the extended line.
+    assert zones_geom.dist_to_segment(2.0, 0.0, 0.0, 0.0, 1.0, 0.0) == pytest.approx(1.0)
+    # Directly above the middle: perpendicular distance.
+    assert zones_geom.dist_to_segment(0.5, 0.3, 0.0, 0.0, 1.0, 0.0) == pytest.approx(0.3)
+
+
+def test_distance_to_a_polygon_is_zero_inside_it() -> None:
+    """Inside is not "negative depth" — pass-by does not ask how far in."""
+    assert zones_geom.dist_to_polygon(0.25, 0.5, LEFT_POLY) == 0.0
+    # The right half starts at x=0.5, so x=0.45 is 0.05 clear of it.
+    assert zones_geom.dist_to_polygon(0.45, 0.5, RIGHT_POLY) == pytest.approx(0.05)
+
+
+async def test_coming_close_without_entering_emits_a_passby(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """The signal itself: near z_right the whole time, never in it."""
+    await seed_zones(graph_session)
+    # centroid x = 450/1000 = 0.45 → inside z_left, 0.05 from z_right, which is
+    # inside the 0.08 pass-by radius.
+    await stay(db_session, bbox=NEAR_PX, at=BASE, seconds=30)
+    # Somebody else keeps the session's clock moving so the sweep can run.
+    await stay(
+        db_session,
+        bbox=LEFT_PX,
+        at=BASE + dt.timedelta(seconds=90),
+        seconds=5,
+        anon_id="P-002",
+    )
+
+    await TrackerConsumer().run_once()
+
+    rows = await repository.read_events(
+        db_session, tenant_id=T, since_seq=0, limit=200, type="spatial.passby"
+    )
+    assert len(rows) == 1
+    assert rows[0].payload["anon_id"] == "P-001"
+    assert rows[0].payload["adjacent_zone_id"] == "z_right"
+    assert rows[0].payload["closest_dist"] == pytest.approx(0.05, abs=0.001)
+
+
+async def test_someone_who_never_enters_any_zone_is_still_finalised(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """The case the dropout sweep used to exclude by construction.
+
+    The sweep once skipped any track with no confirmed zone — but a pass-by
+    subject never confirms one, because not going in is the entire signal. So
+    the guard excluded precisely the people it now exists to report. Here the
+    only zone is the right half and the visitor loiters outside it, in no zone
+    at all: under the old rule they produced nothing whatsoever.
+    """
+    await graph_repo.upsert_session(
+        graph_session, tenant_id=T, session_id=S, venue="Test Hall"
+    )
+    await graph_repo.upsert_zone(
+        graph_session, tenant_id=T, session_id=S,
+        zone_id="z_right", name="Lounge", type="lounge", polygon=RIGHT_POLY,
+    )
+
+    await stay(db_session, bbox=NEAR_PX, at=BASE, seconds=30)
+    await stay(
+        db_session,
+        bbox=LEFT_PX,
+        at=BASE + dt.timedelta(seconds=90),
+        seconds=5,
+        anon_id="P-002",
+    )
+
+    await TrackerConsumer().run_once()
+
+    rows = await repository.read_events(
+        db_session, tenant_id=T, since_seq=0, limit=200, type="spatial.passby"
+    )
+    assert [r.payload["anon_id"] for r in rows] == ["P-001"]
+    # Never in a zone, so nothing to exit and nothing to dwell in.
+    kinds = await types_in_log(db_session)
+    assert "spatial.zone_enter" not in kinds
+    assert "spatial.dwell" not in kinds
+
+
+async def test_entering_a_zone_is_never_also_a_passby(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """Going in is the opposite of skipping.
+
+    Someone who circles a stand and then walks in engaged with it. Counting them
+    as a pass-by as well would make one person both the success and the failure,
+    and every zone's skip rate would be inflated by its own visitors.
+    """
+    await seed_zones(graph_session)
+    await stay(db_session, bbox=NEAR_PX, at=BASE, seconds=20)
+    await stay(db_session, bbox=RIGHT_PX, at=BASE + dt.timedelta(seconds=20), seconds=20)
+    await stay(
+        db_session,
+        bbox=LEFT_PX,
+        at=BASE + dt.timedelta(seconds=90),
+        seconds=5,
+        anon_id="P-002",
+    )
+
+    await TrackerConsumer().run_once()
+
+    rows = await repository.read_events(
+        db_session, tenant_id=T, since_seq=0, limit=200, type="spatial.passby"
+    )
+    assert [r.payload["adjacent_zone_id"] for r in rows] == []
+
+
+async def test_staying_well_clear_of_a_zone_is_not_a_passby(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """0.25 away is not "passed by". Without a radius every visitor would be a
+    pass-by for every zone they didn't visit, and the signal would mean nothing."""
+    await seed_zones(graph_session)
+    await stay(db_session, bbox=LEFT_PX, at=BASE, seconds=30)
+    await stay(
+        db_session,
+        bbox=LEFT_PX,
+        at=BASE + dt.timedelta(seconds=90),
+        seconds=5,
+        anon_id="P-002",
+    )
+
+    await TrackerConsumer().run_once()
+
+    kinds = await types_in_log(db_session)
+    assert "spatial.passby" not in kinds
+
+
+async def test_a_second_approach_does_not_double_count(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """Somebody pacing outside a stand is one person who declined it, not twelve.
+
+    The derived id is keyed on (person, zone) for the whole session, so a second
+    close-out dedupes in the log rather than adding a second skip.
+    """
+    await seed_zones(graph_session)
+    await stay(db_session, bbox=NEAR_PX, at=BASE, seconds=20)
+    # Long enough away to be finalised, then back again.
+    await stay(db_session, bbox=NEAR_PX, at=BASE + dt.timedelta(seconds=120), seconds=20)
+    await stay(
+        db_session,
+        bbox=LEFT_PX,
+        at=BASE + dt.timedelta(seconds=240),
+        seconds=5,
+        anon_id="P-002",
+    )
+
+    await TrackerConsumer().run_once()
+
+    rows = await repository.read_events(
+        db_session, tenant_id=T, since_seq=0, limit=300, type="spatial.passby"
+    )
+    assert len(rows) == 1
+
+
+# ── session end ───────────────────────────────────────────────────────────────
+
+
+async def test_ending_a_session_closes_everyone_still_being_tracked(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """The tail of every activation.
+
+    Whoever is in the room when the doors shut is never closed out otherwise —
+    no final dwell, no pass-by — because the dropout sweep needs a later event
+    to run on and there are no more detections coming. On a short session that
+    is a large share of the audience, and the report would simply be smaller
+    than the day was, with nothing to show the gap.
+    """
+    await seed_zones(graph_session)
+    await stay(db_session, bbox=NEAR_PX, at=BASE, seconds=45)
+
+    before = await types_in_log(db_session)
+    assert "spatial.dwell" not in before, "still in the room — nothing closed yet"
+
+    await session_ended(db_session, at=BASE + dt.timedelta(seconds=50))
+    await TrackerConsumer().run_once()
+
+    rows = await repository.read_events(
+        db_session, tenant_id=T, since_seq=0, limit=200, type="spatial.dwell"
+    )
+    assert len(rows) == 1
+    assert rows[0].payload["reason"] == "session_end"
+    assert rows[0].payload["duration"] == pytest.approx(45.0)
+
+    passbys = await repository.read_events(
+        db_session, tenant_id=T, since_seq=0, limit=200, type="spatial.passby"
+    )
+    assert [r.payload["adjacent_zone_id"] for r in passbys] == ["z_right"]
 
 
 async def test_detection_without_frame_dimensions_is_dead_lettered(

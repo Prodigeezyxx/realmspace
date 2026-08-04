@@ -18,6 +18,7 @@ import { SignOutButton } from "@/components/auth/LoginForm";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Pill } from "@/components/ui/Pill";
 import { BusPill } from "@/components/chrome/BusPill";
+import { emit } from "@/lib/bus";
 import {
   getTypeMeta,
   STATUS_META,
@@ -315,6 +316,19 @@ export function StatusBar() {
               </button>
               <button
                 onClick={() => {
+                  // Tell the bus before the store, so the tracker can close
+                  // out everyone still being tracked. Without this the last
+                  // visitors of the activation are never finalised — no
+                  // closing dwell, no pass-by — because the dropout sweep
+                  // needs a later event to run on and no more detections are
+                  // coming. On a short session that is a large share of the
+                  // audience, and the report would simply be smaller than the
+                  // day was, with nothing to show the gap.
+                  emit(
+                    "session.ended",
+                    { sessionId: active.id, endedBy: "operator" },
+                    { sessionId: active.id }
+                  );
                   sessionActions.endSession(active.id);
                   setConfirmEnd(false);
                   router.push("/report");

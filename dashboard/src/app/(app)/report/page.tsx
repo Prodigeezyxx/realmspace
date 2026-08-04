@@ -142,7 +142,10 @@ function Report({ session, report }: { session: Session; report: SessionReport }
 
   const funnel = useMemo(() => buildFunnel(events, zoneMeta), [events, zoneMeta]);
   const zoneRows = useMemo(() => buildZoneRows(events, zoneMeta), [events, zoneMeta]);
-  const surfaces = useMemo(() => buildSurfaceRows(events), [events]);
+  const surfaces = useMemo(
+    () => buildSurfaceRows(events, config?.touchpoints ?? []),
+    [events, config]
+  );
   const moments = useMemo(() => buildMoments(events, zoneMeta), [events, zoneMeta]);
   const traffic = useMemo(() => hourlyVisitors(events), [events]);
   const dwellSeries = useMemo(() => hourlyAvgDwell(events), [events]);
@@ -452,7 +455,7 @@ function Report({ session, report }: { session: Session; report: SessionReport }
               {surfaces.map((s) => (
                 <li key={s.surfaceId}>
                   <div className="flex items-center justify-between">
-                    <span>{s.surfaceId}</span>
+                    <span>{s.label}</span>
                     <span className="tabular text-text-muted">
                       {s.interactions.toLocaleString()}
                     </span>

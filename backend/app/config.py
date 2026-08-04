@@ -122,6 +122,12 @@ class Settings(BaseSettings):
     # clock, so a replay reproduces it exactly.
     tracker_dropout_seconds: float = 20.0
 
+    # How close counts as "passed by": normalized distance to a zone's edge.
+    # roi-framework.md §2 wants the skip signal — people who came near and chose
+    # not to engage — and 0.08 of the frame matches the postgres-track's
+    # PASSBY_RADIUS, so a visitor is a pass-by on both tracks or on neither.
+    tracker_passby_radius: float = 0.08
+
     # ── auth (multi-tenant.md §3, Week 1 tasks 1.6/1.7) ───────────────────────
     # Tokens are issued and verified locally with this secret. Deliberately not
     # Firebase-verified on the hot path: event-bus-spec.md §1 requires the edge

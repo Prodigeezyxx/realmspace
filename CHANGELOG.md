@@ -17,7 +17,58 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-04
+## [Unreleased] — last updated 2026-08-04 (afternoon)
+
+### Added — 2026-08-04 (afternoon) — `[neo4j-track]` the system can now see people choosing *not* to engage
+
+- **The report can finally say who walked past.** Someone who came right up to a
+  stand, had a look, and moved on without going in was invisible: as far as the
+  system was concerned they were never there. That is the one number that can
+  make an activation look worse than the client hoped, which is exactly why it
+  makes the rest of the report believable.
+  *`spatial.passby` — the tracker records how close each person ever came to
+  each zone and, when their track ends, reports the ones they came within reach
+  of and never entered. `tracker_passby_radius`, 0.08 of the frame, matching the
+  other track so a visitor is a pass-by on both or on neither.*
+
+- **Going in cancels it.** Somebody who circles a stand twice and then walks in
+  engaged with it — counting them as a skip as well would make one person both
+  the success and the failure, and every zone's skip rate would be inflated by
+  its own visitors. And someone pacing outside is one person who declined, not
+  twelve.
+
+- **Whoever is still in the room when the doors shut is now counted.** Ending a
+  session in the dashboard tells the system, and everyone still being tracked
+  gets closed out — final visit lengths and pass-bys included. Before this the
+  tail of every activation simply vanished, and the people still there at the
+  end are the engaged ones, so the loss ran in the worst possible direction.
+  *`session.ended` now emitted by the End session button and handled by the
+  tracker. A known limit, documented rather than papered over: a session that
+  just stops, with no end signal and no further events, still leaves its last
+  tracks open — the alternative is a wall-clock timer that would make replays
+  differ from the original run.*
+
+- **Touchpoints are real to the system now.** The AR mirrors, scent stations and
+  RFID walls configured in the wizard are stored, and an interaction reported
+  against one is recorded against the person who used it, with a running count
+  per touchpoint. **Nothing is producing those readings yet** — that needs booth
+  hardware — so the figure stays a marked zero rather than a number, and the
+  report says which kind of zero it is.
+  *`(:Surface)` nodes written from wizard touchpoints;
+  `(Person)-[:INTERACTED_WITH]->(Surface)` in the graph writer. The count only
+  moves when the relationship is newly created, so re-running the pipeline
+  cannot quietly hand a sponsor a better number.*
+
+- **A bug the pass-by work exposed:** the sweep that closes out quiet tracks
+  skipped anyone who was not inside a zone — which is precisely a pass-by, since
+  not going in is the whole signal. It excluded the exact case it now exists for.
+
+- **112 backend tests (was 100), 63 dashboard (was 61).** **Verified by breaking
+  it:** disabling pass-by, the session flush, the sweep guard, the touchpoint
+  publish or the replay-safe counter each fails its own test. The captured
+  backend fixture was re-recorded through the full chain — two visitors, one who
+  used the mirror and one who hovered 0.033 away and declined it — and the hand
+  count matched the pipeline exactly.
 
 ### Fixed — 2026-08-04 — `[neo4j-track]` the attention map is back on the report
 

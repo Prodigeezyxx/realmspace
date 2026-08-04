@@ -160,6 +160,90 @@ async def upsert_zone(
     return dict(record["z"])
 
 
+async def upsert_surface(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str,
+    surface_id: str,
+    label: str,
+    type: str,
+    zone_id: str | None = None,
+    active: bool = True,
+) -> dict[str, Any]:
+    """Create or update a Surface (data-model.md → `(:Surface {...})`).
+
+    A booth touchpoint: an AR mirror, a scent station, an RFID wall. Like Zone
+    it comes from the session wizard rather than from perception, so everything
+    but the key is updatable.
+
+    `trigger_count` is deliberately **not** set here. It is a running total
+    maintained by `link_interacted_with` as interactions arrive, and writing it
+    from the config would reset an activation's tally every time an operator
+    renamed a touchpoint mid-session.
+    """
+    result = await session.run(
+        """
+        MERGE (s:Surface {tenant_id: $tenant_id, id: $surface_id})
+        ON CREATE SET s.trigger_count = 0
+        SET s.session_id = $session_id,
+            s.label      = $label,
+            s.type       = $type,
+            s.zone_id    = $zone_id,
+            s.active     = $active
+        RETURN s
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        surface_id=surface_id,
+        label=label,
+        type=type,
+        zone_id=zone_id,
+        active=active,
+    )
+    record = await result.single()
+    return dict(record["s"])
+
+
+async def link_interacted_with(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str,
+    anon_id: str,
+    surface_id: str,
+    at: str,
+    kind: str | None = None,
+    duration: float | None = None,
+) -> None:
+    """(Person)-[:INTERACTED_WITH {duration, kind}]->(Surface) — data-model.md.
+
+    Keyed on `at`, so one person can use the same touchpoint repeatedly and each
+    use is its own edge, while replaying the same event merges onto the one it
+    already wrote.
+
+    `trigger_count` is incremented inside the same MERGE, which is what keeps it
+    honest under replay: the counter only moves when the relationship is newly
+    created, so re-processing an event cannot inflate a sponsor's usage figure.
+    """
+    await session.run(
+        """
+        MATCH (p:Person  {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
+        MATCH (s:Surface {tenant_id: $tenant_id, id: $surface_id})
+        MERGE (p)-[r:INTERACTED_WITH {at: $at}]->(s)
+        ON CREATE SET s.trigger_count = coalesce(s.trigger_count, 0) + 1
+        SET r.kind = $kind, r.duration = $duration
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        anon_id=anon_id,
+        surface_id=surface_id,
+        at=at,
+        kind=kind,
+        duration=duration,
+    )
+
+
 async def upsert_session(
     session: AsyncSession,
     *,
@@ -405,6 +489,61 @@ async def zones_for_session(
             }
         )
     return zones
+
+
+async def surfaces_for_session(
+    session: AsyncSession, *, tenant_id: str, session_id: str
+) -> list[dict[str, Any]]:
+    """A session's touchpoints, with how many times each has been used."""
+    result = await session.run(
+        """
+        MATCH (s:Surface {tenant_id: $tenant_id, session_id: $session_id})
+        RETURN s.id            AS id,
+               s.label         AS label,
+               s.type          AS type,
+               s.zone_id       AS zone_id,
+               s.active        AS active,
+               s.trigger_count AS trigger_count
+        ORDER BY s.label, s.id
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+    )
+    return [
+        {
+            "id": r["id"],
+            "label": r["label"],
+            "type": r["type"],
+            "zone_id": r["zone_id"],
+            "active": r["active"] if r["active"] is not None else True,
+            "trigger_count": r["trigger_count"] or 0,
+        }
+        async for r in result
+    ]
+
+
+async def prune_surfaces(
+    session: AsyncSession, *, tenant_id: str, session_id: str, keep_ids: list[str]
+) -> int:
+    """Delete this session's surfaces not in `keep_ids`. Returns the count.
+
+    The counterpart to prune_zones, for the same reason: a touchpoint the
+    operator removed must stop appearing in the report rather than linger with
+    a stale trigger count nobody can account for.
+    """
+    result = await session.run(
+        """
+        MATCH (s:Surface {tenant_id: $tenant_id, session_id: $session_id})
+        WHERE NOT s.id IN $keep_ids
+        DETACH DELETE s
+        RETURN count(s) AS deleted
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        keep_ids=keep_ids,
+    )
+    record = await result.single()
+    return record["deleted"]
 
 
 async def session_config(

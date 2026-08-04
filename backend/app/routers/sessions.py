@@ -55,6 +55,7 @@ from app.schemas import (
     SessionConfigIn,
     SessionConfigOut,
     SessionGraphOut,
+    TouchpointOut,
     ZoneConfig,
     ZoneDwell,
 )
@@ -66,7 +67,9 @@ router = APIRouter(prefix="/v1/sessions", tags=["sessions"])
 ZONES_UPDATED = "session.zones_updated"
 
 
-def _config_out(props: dict, zones: list[dict]) -> SessionConfigOut:
+def _config_out(
+    props: dict, zones: list[dict], surfaces: list[dict]
+) -> SessionConfigOut:
     """A Session node's properties plus its zones, as the wire shape.
 
     Field-by-field rather than `SessionConfigOut(**props)`: the graph is
@@ -93,6 +96,7 @@ def _config_out(props: dict, zones: list[dict]) -> SessionConfigOut:
         revenue_influenced=props.get("revenue_influenced"),
         qualified_leads=props.get("qualified_leads"),
         zones=[ZoneConfig(**z) for z in zones],
+        touchpoints=[TouchpointOut(**s) for s in surfaces],
     )
 
 
@@ -163,11 +167,36 @@ async def put_session_config(
             keep_ids=[z.id for z in config.zones],
         )
 
+    if config.touchpoints is not None:
+        # Surfaces are written here for the same reason zones are: the graph
+        # writer refuses an interaction for a surface nobody configured, so
+        # without this every touchpoint reading would be dropped on arrival.
+        for touchpoint in config.touchpoints:
+            await graph_repo.upsert_surface(
+                graph,
+                tenant_id=principal.tenant_id,
+                session_id=config.session_id,
+                surface_id=touchpoint.id,
+                label=touchpoint.label,
+                type=touchpoint.type,
+                zone_id=touchpoint.zone_id,
+                active=touchpoint.active,
+            )
+        await graph_repo.prune_surfaces(
+            graph,
+            tenant_id=principal.tenant_id,
+            session_id=config.session_id,
+            keep_ids=[t.id for t in config.touchpoints],
+        )
+
     zones = await graph_repo.zones_for_session(
         graph,
         tenant_id=principal.tenant_id,
         session_id=config.session_id,
         include_undrawn=True,
+    )
+    surfaces = await graph_repo.surfaces_for_session(
+        graph, tenant_id=principal.tenant_id, session_id=config.session_id
     )
 
     await repository.append_event(
@@ -189,7 +218,7 @@ async def put_session_config(
         ),
     )
 
-    return _config_out(props, zones)
+    return _config_out(props, zones, surfaces)
 
 
 @router.get(
@@ -223,7 +252,10 @@ async def get_session_config(
         session_id=session_id,
         include_undrawn=True,
     )
-    return _config_out(props, zones)
+    surfaces = await graph_repo.surfaces_for_session(
+        graph, tenant_id=principal.tenant_id, session_id=session_id
+    )
+    return _config_out(props, zones, surfaces)
 
 
 @router.get(

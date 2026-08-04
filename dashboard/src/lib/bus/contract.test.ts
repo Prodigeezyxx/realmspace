@@ -3,8 +3,9 @@
  *
  * `__fixtures__/backend-report-session.json` is not handwritten. It is a
  * verbatim capture of `GET /events` from a running FastAPI backend after the
- * real chain — `POST /v1/sessions` to configure the room, then detections
- * posted at camera density, then the tracker's own `spatial.*` output.
+ * real chain — `POST /v1/sessions` to configure the room and its touchpoints,
+ * detections posted at camera density, a surface interaction, and finally the
+ * operator ending the session.
  *
  * That is the point of it. Every other test in this directory checks the
  * translation against what we *believe* the backend sends. This one checks it
@@ -23,6 +24,7 @@
 import { describe, expect, it } from "vitest";
 
 import { computeScorecard } from "@/lib/roi/scorecard";
+import { buildSurfaceRows } from "@/lib/report/derive";
 import type { RealmEvent } from "@/lib/contracts";
 import fixture from "./__fixtures__/backend-report-session.json";
 import { eventFromWire, type WireEvent } from "./wire";
@@ -39,18 +41,20 @@ const mirrored: RealmEvent[] = (fixture as WireEvent[]).map((wire, i) => ({
 const ZONES = [
   { id: "z_entry", name: "Entry", kind: "entry" as const, weight: 1 },
   { id: "z_mirror", name: "Mirror Room", kind: "experience" as const, weight: 3 },
-  { id: "z_out", name: "Outside", kind: "other" as const, weight: 1 },
 ];
 
 describe("a real session, end to end", () => {
-  it("captured the whole chain, config through spatial events", () => {
+  it("captured every stage of the chain", () => {
     const types = new Set(fixture.map((e) => e.type));
     expect([...types].sort()).toEqual([
       "perception.detection",
+      "session.ended",
       "session.zones_updated",
       "spatial.dwell",
+      "spatial.passby",
       "spatial.zone_enter",
       "spatial.zone_exit",
+      "surface.interaction",
     ]);
   });
 
@@ -63,12 +67,21 @@ describe("a real session, end to end", () => {
       "duration",
       "ended_at",
       "exceeded_threshold",
-      // From the session-hygiene work: "move" or "dropout". A dropout duration
-      // is a lower bound on the real stay, and a reader that cannot tell will
-      // average truncated visits in with complete ones.
+      // From the session-hygiene work: "move", "dropout" or "session_end". A
+      // dropout duration is a lower bound on the real stay, and a reader that
+      // cannot tell will average truncated visits in with complete ones.
       "reason",
       "started_at",
       "zone_id",
+    ]);
+
+    const passby = fixture.find((e) => e.type === "spatial.passby")!;
+    expect(Object.keys(passby.payload as object).sort()).toEqual([
+      "adjacent_zone_id",
+      "anon_id",
+      "at",
+      "closest_dist",
+      "reason",
     ]);
 
     const detection = fixture.find((e) => e.type === "perception.detection")!;
@@ -76,36 +89,44 @@ describe("a real session, end to end", () => {
     expect(detection.payload).toHaveProperty("frame_width");
   });
 
-  it("shows the hygiene rules running in the shipped path", () => {
-    // Two of the eight stays ended by the track going quiet rather than by the
-    // person moving on. Before the dropout sweep those produced no dwell at
-    // all — the visit was simply discarded.
-    const reasons = fixture
+  it("closed the last visitor out because the operator ended the session", () => {
+    // Nobody's detections stop and then resume, so without `session.ended` this
+    // dwell would not exist at all — the visitor was still in the mirror room
+    // when the doors shut.
+    const closing = fixture
       .filter((e) => e.type === "spatial.dwell")
       .map((e) => (e.payload as { reason?: string }).reason);
+    expect(closing).toContain("session_end");
+  });
 
-    expect(reasons.filter((r) => r === "dropout")).toHaveLength(2);
-    expect(reasons.filter((r) => r === "move")).toHaveLength(6);
+  it("recorded the visitor who came close and declined", () => {
+    // P2 hovered 0.033 of the frame from the mirror room and never went in.
+    // This is the Reach layer's negative signal, and the only metric in the
+    // catalogue that can make an activation look worse.
+    const passby = fixture.find((e) => e.type === "spatial.passby")!;
+    const p = passby.payload as Record<string, unknown>;
+    expect(p.anon_id).toBe("P2");
+    expect(p.adjacent_zone_id).toBe("z_mirror");
+    expect(p.closest_dist).toBeCloseTo(0.033, 3);
   });
 
   it("matches a hand count of the raw log", () => {
     /*
-     * Three people through a three-zone room:
+     * Two people through a two-zone room:
      *
-     *   P1  entry 90s → mirror 120s → out 15s, back in: entry 30s → out 10s
-     *   P2  entry 30s → out 10s
-     *   P3  straight to mirror 180s, never through the entry
+     *   P1  entry 60s → mirror 120s, used the AR Mirror, still there at the end
+     *   P2  entry 40s → hovered beside the mirror room and never entered it
      *
-     * By hand, from the eight dwell events in the fixture:
-     *   unique visitors  3        (P1, P2, P3)
-     *   footfall         3        entry crossings — P1 twice, P2 once. Not 2
-     *                             (distinct people) and not 8 (all zone
-     *                             entries); the old code had it wrong both ways.
-     *   avg dwell        60.6s    (90+120+15+30+10+30+10+180) / 8 = 60.625
-     *   weighted attn    1085     entry 150×1 + mirror 300×3 + out 35×1
-     *   engaged          2 of 3   P1 and P3 clear 60s; P2's 30s does not
-     *   CPEV             4500     9000 / 2 engaged
-     *   ROI ratio        null     no revenue was supplied
+     * By hand, from the three dwell events and one pass-by in the fixture:
+     *   unique visitors  2
+     *   footfall         2      entry crossings, one each
+     *   pass-by          1      P2 declined the mirror room
+     *   avg dwell        73.3s  (60 + 40 + 120) / 3 = 73.333
+     *   weighted attn    460    entry 100×1 + mirror 120×3
+     *   engaged          1 of 2 P1 clears the 60s threshold; P2's 40s does not
+     *   surfaces         1      the AR Mirror interaction
+     *   CPEV             9000   9000 / 1 engaged
+     *   ROI ratio        null   no revenue was supplied
      */
     const card = computeScorecard(mirrored, {
       engagedThresholdSec: 60,
@@ -113,14 +134,24 @@ describe("a real session, end to end", () => {
       zones: ZONES,
     });
 
-    expect(card.reach.uniqueVisitors).toBe(3);
-    expect(card.reach.entries).toBe(3);
-    expect(card.engagement.avgDwellSec).toBe(60.6);
-    expect(card.engagement.dwellWeightedAttention).toBe(1085);
-    expect(card.engagement.engagementRate).toBe(0.667);
-    expect(card.pipeline.costPerEngagedVisit).toBe(4500);
+    expect(card.reach.uniqueVisitors).toBe(2);
+    expect(card.reach.entries).toBe(2);
+    expect(card.reach.passBy).toBe(1);
+    expect(card.engagement.avgDwellSec).toBe(73.3);
+    expect(card.engagement.dwellWeightedAttention).toBe(460);
+    expect(card.engagement.engagementRate).toBe(0.5);
+    expect(card.engagement.surfaceInteractions).toBe(1);
+    expect(card.pipeline.costPerEngagedVisit).toBe(9000);
     expect(card.pipeline.roiRatio).toBeNull();
     expect(card.benchmarkVerdict).toBe("unknown");
+  });
+
+  it("labels the touchpoint with the operator's name for it", () => {
+    const [row] = buildSurfaceRows(mirrored, [
+      { id: "sf_mirror", label: "AR Mirror" },
+    ]);
+    expect(row.label).toBe("AR Mirror");
+    expect(row.interactions).toBe(1);
   });
 
   it("produces no NaN anywhere in the scorecard", () => {

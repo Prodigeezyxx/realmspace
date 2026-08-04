@@ -126,7 +126,7 @@ export interface DetectionPayload {
  * on the real one, not a measurement of it. Anything averaging or ranking
  * dwell should be able to say which it is looking at.
  */
-export type ZoneExitReason = "move" | "dropout";
+export type ZoneExitReason = "move" | "dropout" | "session_end";
 
 export interface ZoneMovePayload {
   anonId: string;
@@ -169,7 +169,17 @@ export interface GroupPayload {
 }
 export interface PassbyPayload {
   anonId: string;
+  /** The zone they came close to and did not enter. */
   adjacentZoneId?: string;
+  /** Closest normalized distance to that zone's edge, over the whole session. */
+  closestDist?: number;
+  at?: string;
+  /**
+   * How the track ended when this was judged. Pass-by can only be decided at
+   * close-out — until then, someone loitering outside a zone might still walk
+   * in.
+   */
+  reason?: ZoneExitReason | "session_end";
 }
 export interface SurfaceInteractionPayload {
   anonId: string;

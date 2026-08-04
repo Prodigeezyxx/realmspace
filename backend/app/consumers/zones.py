@@ -12,6 +12,7 @@ Keep the two in sync. If one changes, change both.
 
 from __future__ import annotations
 
+import math
 from typing import Any, Sequence
 
 Point = Sequence[float]
@@ -65,6 +66,60 @@ def centroid(bbox: Sequence[float]) -> tuple[float, float]:
     """
     x1, y1, x2, y2 = bbox[0], bbox[1], bbox[2], bbox[3]
     return (x1 + x2) / 2.0, (y1 + y2) / 2.0
+
+
+def dist_to_segment(
+    px: float, py: float, x1: float, y1: float, x2: float, y2: float
+) -> float:
+    """Shortest distance from a point to a line *segment*, not to its infinite line.
+
+    The clamp on `t` is what makes it a segment: without it, a point beyond the
+    end of an edge measures to an imaginary continuation of that edge, and a
+    person standing well past the corner of a zone would read as adjacent to it.
+    """
+    dx = x2 - x1
+    dy = y2 - y1
+    len_sq = dx * dx + dy * dy
+    if len_sq == 0:  # degenerate edge — the two ends are the same point
+        t = 0.0
+    else:
+        t = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / len_sq))
+    ex = x1 + t * dx - px
+    ey = y1 + t * dy - py
+    return math.hypot(ex, ey)
+
+
+def dist_to_polygon(x: float, y: float, polygon: Polygon) -> float:
+    """Distance from a normalized point to a polygon. Zero if inside it.
+
+    Used for pass-by: somebody who came within a short distance of a zone and
+    never went in. Inside counts as zero rather than as a negative depth,
+    because "how far in were they" is not a question pass-by asks — they either
+    entered, in which case they are not a pass-by at all, or they did not.
+
+    Line-for-line the same as `distToPolygon` in the postgres-track's
+    `spatial-deriver.ts`, for the reason this whole module exists: if the two
+    disagree about who counted as passing by, the same visitor is a negative
+    signal on one track and nothing at all on the other.
+    """
+    if point_in_polygon(x, y, polygon):
+        return 0.0
+
+    n = len(polygon)
+    if n < 2:
+        return math.inf
+
+    smallest = math.inf
+    j = n - 1
+    for i in range(n):
+        smallest = min(
+            smallest,
+            dist_to_segment(
+                x, y, polygon[j][0], polygon[j][1], polygon[i][0], polygon[i][1]
+            ),
+        )
+        j = i
+    return smallest
 
 
 def zone_for_point(nx: float, ny: float, zones: Sequence[dict[str, Any]]) -> str | None:

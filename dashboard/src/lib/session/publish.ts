@@ -67,6 +67,15 @@ export interface RemoteSessionConfig {
     polygon: [number, number][] | null;
     capacity: number | null;
   }[];
+  touchpoints: {
+    id: string;
+    label: string;
+    type: string;
+    zoneId: string | null;
+    active: boolean;
+    /** Interactions recorded against it so far, maintained by the graph. */
+    triggerCount: number;
+  }[];
 }
 
 /**
@@ -175,6 +184,17 @@ export function sessionToWire(session: Session) {
     revenueInfluenced: m.revenueInfluenced ?? null,
     qualifiedLeads: m.qualifiedLeads ?? null,
     zones: session.zones.map(zoneToWire),
+    // Touchpoints become Surface nodes. Without them the graph writer drops
+    // every interaction a real kiosk sends, because it refuses to invent a
+    // surface nobody configured — the same hole zones had before the session
+    // API existed.
+    touchpoints: session.touchpoints.map((t) => ({
+      id: t.id,
+      label: t.name,
+      type: t.type,
+      zoneId: t.zoneId ?? null,
+      active: true,
+    })),
   };
 }
 

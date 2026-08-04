@@ -134,9 +134,13 @@ describe("buildSurfaceRows", () => {
       ev("surface.interaction", { anonId: "P2", surfaceId: "mirror" }),
       ev("surface.interaction", { anonId: "P3", surfaceId: "quiz" }),
     ];
-    expect(buildSurfaceRows(events)).toEqual([
-      { surfaceId: "mirror", interactions: 2, share: 100 },
-      { surfaceId: "quiz", interactions: 1, share: 50 },
+    expect(
+      buildSurfaceRows(events, [{ id: "mirror", label: "AR Mirror" }])
+    ).toEqual([
+      // The configured one gets the operator's name; the unconfigured one keeps
+      // its raw id, which is how a reading from a surface nobody set up shows.
+      { surfaceId: "mirror", label: "AR Mirror", interactions: 2, share: 100 },
+      { surfaceId: "quiz", label: "quiz", interactions: 1, share: 50 },
     ]);
   });
 
