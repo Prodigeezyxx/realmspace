@@ -139,6 +139,17 @@ class TrackState:
 
 class TrackerConsumer(Consumer):
     name = "tracker"
+
+    #: Not retryable in isolation. This consumer carries per-person state — which
+    #: zone somebody is believed to be in, when that stay began, how close they
+    #: have come to each zone — and every one of those is built from the events
+    #: *before* the parked one. Replaying a single detection against an empty
+    #: state does not reproduce the original attempt; it produces a confident
+    #: wrong answer, which is worse than the failure it was meant to fix.
+    #:
+    #: The correct repair is a cursor rewind so the stream is reprocessed in
+    #: order, which is an operator action rather than a button.
+    retryable = False
     handles = (DETECTION, ZONES_UPDATED, SESSION_ENDED)
 
     def __init__(self) -> None:

@@ -180,7 +180,41 @@ async def record_dead_letter(
     The cursor advances past it afterwards. A consumer that retried forever
     would wedge the whole pipeline behind one bad event; spec §5 says it
     surfaces in the HITL review screen for a human instead (roadmap P3).
+
+    ## One row per unresolved failure, not one per attempt
+
+    This used to insert unconditionally, which meant the same event parking
+    twice — after a cursor rewind, a replay, or a restart — appeared twice in
+    the queue. A review screen showing one failure three times is a screen an
+    operator learns to ignore, and the whole point of the queue is that somebody
+    looks at it.
+
+    So an existing *unresolved* row for the same (tenant, consumer, event) is
+    updated: attempts accumulate and the error is refreshed to the most recent
+    traceback, which is the one worth reading.
+
+    A **resolved** row is deliberately left alone. If a human fixed something and
+    the same event fails again afterwards, that is new information and deserves
+    its own entry — silently reopening the old one would erase the fact that it
+    had been dealt with once.
     """
+    existing = (
+        await session.execute(
+            select(DeadLetter).where(
+                DeadLetter.tenant_id == tenant_id,
+                DeadLetter.consumer == consumer,
+                DeadLetter.event_seq == event_seq,
+                DeadLetter.resolved_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+    if existing is not None:
+        existing.attempts += attempts
+        existing.error = error[:2000]
+        await session.flush()
+        return existing
+
     row = DeadLetter(
         consumer=consumer,
         tenant_id=tenant_id,
@@ -191,6 +225,37 @@ async def record_dead_letter(
     session.add(row)
     await session.flush()
     return row
+
+
+async def get_dead_letter(session: AsyncSession, *, id: int) -> DeadLetter | None:
+    """One parked failure by id.
+
+    No `tenant_id` argument, unusually — and that is safe here rather than an
+    oversight. `dead_letter` is under forced row-level security, so a row
+    belonging to another tenant is invisible to this transaction whatever id is
+    asked for. Adding a filter would be belt-and-braces on a table where the
+    braces are enforced by the database; there is a test that proves it.
+    """
+    return (
+        await session.execute(select(DeadLetter).where(DeadLetter.id == id))
+    ).scalar_one_or_none()
+
+
+async def get_event_by_seq(
+    session: AsyncSession, *, tenant_id: str, seq: int
+) -> EventLog | None:
+    """The event a dead letter refers to, so a human can see what failed.
+
+    A review queue listing `seq=418 — KeyError` tells an operator nothing they
+    can act on. The type and payload are what make it diagnosable.
+    """
+    return (
+        await session.execute(
+            select(EventLog).where(
+                EventLog.tenant_id == tenant_id, EventLog.seq == seq
+            )
+        )
+    ).scalar_one_or_none()
 
 
 async def list_dead_letters(

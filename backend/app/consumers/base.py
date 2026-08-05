@@ -39,6 +39,28 @@ from app.models import EventLog
 log = logging.getLogger(__name__)
 
 
+def retry_delay(attempt: int) -> float:
+    """How long to wait before attempt `attempt + 1`. Doubles, then stops.
+
+    Exponential because the failures worth retrying are transient — a database
+    blip, a graph write racing a restart — and they clear on their own. Retrying
+    at a fixed interval is the worst thing to do to something already struggling.
+
+    Capped because the tracker sits on the real-time path with a <500ms budget
+    from detection to dashboard (roadmap Phase 1 acceptance). A batch held behind
+    one failure that keeps doubling would blow that quietly, and it would do it
+    when the room is busiest — which is exactly when the failure is most likely.
+
+    A pure function of the attempt number, so the growth can be tested without
+    waiting for it.
+    """
+    settings = get_settings()
+    return min(
+        settings.consumer_retry_delay_seconds * (2 ** (attempt - 1)),
+        settings.consumer_retry_max_delay_seconds,
+    )
+
+
 class Consumer(ABC):
     """Base class for a bus consumer.
 
@@ -53,6 +75,20 @@ class Consumer(ABC):
     #: Event types this consumer handles. Others are skipped but still advance
     #: the cursor — a consumer must not stall on traffic that isn't its business.
     handles: tuple[str, ...] = ()
+
+    #: May a human retry one parked event through this consumer, on its own?
+    #:
+    #: Default **False**, because the safe answer for a consumer nobody has
+    #: thought about is "no". Only a handler that is a pure function of the
+    #: event can be re-run in isolation and produce what the original attempt
+    #: would have: anything holding derived state sees an empty version of it,
+    #: and anything whose output is time-sensitive is fixing nothing by firing
+    #: late. Each subclass that sets this True must say why on the class.
+    #:
+    #: What this is *not* is a claim about idempotency — every consumer is
+    #: already idempotent, which is what makes replay safe. This is narrower:
+    #: whether one event out of its sequence still means the same thing.
+    retryable: bool = False
 
     def __init__(self) -> None:
         #: Highest seq this instance has processed, per tenant. Used only to
@@ -183,7 +219,7 @@ class Consumer(ABC):
                     settings.consumer_max_attempts,
                 )
                 if attempt < settings.consumer_max_attempts:
-                    await asyncio.sleep(settings.consumer_retry_delay_seconds)
+                    await asyncio.sleep(retry_delay(attempt))
 
         await repository.record_dead_letter(
             session,

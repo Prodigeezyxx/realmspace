@@ -50,6 +50,14 @@ class BroadcastConsumer(Consumer):
     name = "broadcast"
     handles = ()  # everything
 
+    #: Not retryable, and for a different reason than the tracker's: this
+    #: consumer is stateless, but its output is a push to whoever is connected
+    #: *now*. Re-sending a stale event to today's sockets does not repair
+    #: yesterday's missed frame — it just puts something out of order on a live
+    #: screen. A missed broadcast is repaired by the client's `since_seq`
+    #: reconnect, which already exists, not by replaying it from a queue.
+    retryable = False
+
     async def handle(self, event: EventLog) -> None:
         """Push one event to whoever is watching that tenant's session.
 

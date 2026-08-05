@@ -48,6 +48,13 @@ SURFACE = "surface.interaction"
 
 class GraphWriterConsumer(Consumer):
     name = "graph_writer"
+
+    #: Safe for a human to retry one parked event on its own. Every handler here
+    #: is a pure function of the event — it reads nothing but the payload and
+    #: MERGEs on a stable key — so re-running one in isolation produces exactly
+    #: what the original attempt would have. That is what makes the HITL retry
+    #: button meaningful for this consumer and not for the others.
+    retryable = True
     handles = (DETECTION, ZONE_ENTER, ZONE_EXIT, DWELL, SURFACE)
 
     async def handle(self, event: EventLog) -> None:

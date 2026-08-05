@@ -71,7 +71,16 @@ class Settings(BaseSettings):
     # Attempts before an event is parked in dead_letter and skipped. Spec §5:
     # "after N tries it surfaces in the HITL review screen".
     consumer_max_attempts: int = 3
+    # The first wait. Each subsequent attempt doubles it — a transient failure
+    # (a database blip, a graph write racing a restart) usually clears within a
+    # moment, and hammering it at a fixed interval is the worst thing to do to
+    # something already struggling.
     consumer_retry_delay_seconds: float = 0.2
+    # ...but bounded, and the bound matters more than the growth. The tracker is
+    # on the real-time path with a <500ms budget from detection to dashboard;
+    # an unbounded doubling would hold a whole batch behind one slow failure
+    # while the room fills up.
+    consumer_retry_max_delay_seconds: float = 5.0
 
     # Start consumer loops with the API process. Off in tests, which drive
     # run_once() directly instead of racing a background task.

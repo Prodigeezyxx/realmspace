@@ -173,7 +173,14 @@ question in `< 5s`; twin replays a real recorded session.
 
 - 🔲 Persist agent rules (Postgres); rules-engine consumer on the bus
 - 🔲 Real actions: Slack / webhook / screen swap / **staff prompt** (< 3s SLA)
-- 🔲 HITL **dead-letter review** screen for failed actions
+- ✅ HITL **dead-letter review** screen — `/ops`, plus `GET /v1/dead-letters`
+      with retry and resolve. Retry is offered only for consumers that are pure
+      functions of the event (the graph writer); the tracker and broadcast
+      decline it *with the reason*, since replaying one event out of sequence
+      would give a confident wrong answer or push a stale frame to a live
+      screen. Repeat parks collapse onto one row instead of filling the queue.
+      **Retries now back off exponentially with a ceiling**, and the chaos test
+      the acceptance criterion names is in the suite.
 - 🔲 **Cost telemetry** meter (`cost.metered` → unit economics)
 
 **Acceptance:** "when 5 people dwell at entrance 30s → ping Slack" fires live in

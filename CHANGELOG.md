@@ -17,7 +17,66 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-04 (late)
+## [Unreleased] — last updated 2026-08-04 (overnight)
+
+### Added — 2026-08-04 (overnight) — `[neo4j-track]` you can now see what failed, and fix it
+
+First item from the POD Phase 2 table (2.7 and 2.10). Worth noting that table is
+mostly what `roadmap.md` calls **Phase 3** — the naming collides with the "Prove
+ROI" phase this branch has been building.
+
+- **Nobody could see a failed event.** When a consumer gave up on something, it
+  was set aside in a table that has existed since the first migration — and
+  there was no way to look at it without opening a database. A queue nobody can
+  read is not a safety net.
+  *New review screen at `/ops`, plus `GET /v1/dead-letters`, `POST …/retry` and
+  `POST …/resolve`.*
+
+- **Retry is offered only where it would actually be correct**, and where it is
+  not, the screen says why rather than hiding the button. The graph writer can
+  be retried: it depends on nothing but the event. The tracker cannot — it works
+  out where each person is from everything that came before, so replaying one
+  event on its own would produce a confident wrong answer, which is worse than
+  the original failure. The live feed cannot either, for a different reason: it
+  pushes to whoever is watching *now*, and re-sending an old event to a live
+  screen fixes nothing.
+
+- **A retry that fails again is recorded, not swallowed.** The entry stays open
+  with its attempt count raised and the newest error attached. Otherwise an
+  operator presses the same button over and over with nothing to show for it.
+
+- **Dismiss exists alongside retry**, because the tracker's failures cannot be
+  retried from this screen at all — and a queue that fills with entries nobody
+  can clear is a queue people stop opening.
+
+- **The same failure no longer appears three times.** An event can be set aside
+  more than once — after a replay, a restart, a rewound cursor — and each one
+  used to add another row. They now collapse onto one entry with the attempts
+  added up and the most recent error kept. **A failure that recurs *after* a
+  human signed it off still gets its own new entry**, because that is genuinely
+  new information.
+
+- **Retries now back off.** Each attempt waits twice as long as the last, up to
+  a ceiling. The ceiling matters more than the growth: the tracker sits on the
+  real-time path with a half-second budget, and an unbounded doubling would hold
+  a whole batch behind one slow failure — exactly when the room is busiest.
+
+- **The chaos test the acceptance criterion asks for.** Three events, a consumer
+  that fails on all of them: each is set aside, the cursor moves past it, and
+  the later events are still processed. That is the property the whole design
+  exists for — one bad event must not stop the activation being measured, with
+  nothing in the data to say when it stopped.
+
+- **126 backend tests (was 112).** **Verified end to end against a running
+  backend:** a deliberately malformed event failed three times, appeared in the
+  queue with its payload and `KeyError: 'anon_id'`, was retried (failed again,
+  recorded), then dismissed. **And verified by breaking it:** flattening the
+  backoff, restoring duplicate rows, or letting any consumer be retried each
+  fails its own test.
+
+- **The nav has not been touched.** `/ops` is reachable by URL; adding it to the
+  sidebar is a change to an existing surface, so the one-line diff is offered
+  rather than applied.
 
 ### Added — 2026-08-04 (late) — `[neo4j-track]` the twin replays a session that actually happened
 

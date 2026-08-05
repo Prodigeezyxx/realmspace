@@ -170,6 +170,9 @@ item in `data-model.md` → "Store decision".
 | `POST /v1/sessions` | token, **admin/operator** | Create or update a session's zones and measurement parameters. Omitting `zones` leaves them alone; sending a list replaces the set. |
 | `GET /v1/sessions/{session_id}` | token | The configuration back. 404 if the session was never configured. |
 | `GET /v1/sessions/{session_id}/graph` | token | Unique people + dwell per zone. No 404 — an unconfigured session is a legitimate all-zeroes answer. |
+| `GET /v1/dead-letters` | token | The HITL review queue: events no consumer could process, with the event that failed and whether it can be retried. |
+| `POST /v1/dead-letters/{id}/retry` | token, **admin/operator** | Re-run the event through its consumer. 409 if that consumer is not safe to retry in isolation. A retry that fails again returns 200 with `resolved: false` and the new error — that is a result, not an error. |
+| `POST /v1/dead-letters/{id}/resolve` | token, **admin/operator** | Dismiss without retrying. Needed because the tracker's failures cannot be retried from here at all, and a queue nobody can clear stops being read. |
 | `GET /health` | none | Liveness for **both** stores plus the consumers. |
 
 **Configure a session before running perception against it.** The tracker reads
