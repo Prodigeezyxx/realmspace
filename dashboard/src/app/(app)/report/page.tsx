@@ -142,9 +142,29 @@ function Report({ session, report }: { session: Session; report: SessionReport }
 
   const funnel = useMemo(() => buildFunnel(events, zoneMeta), [events, zoneMeta]);
   const zoneRows = useMemo(() => buildZoneRows(events, zoneMeta), [events, zoneMeta]);
+  /**
+   * Touchpoint names, from the backend if it has them and from this session
+   * otherwise.
+   *
+   * The fallback is a bug fix, not demo scaffolding: this read `config?.touchpoints`
+   * alone, so a session configured *locally* — which is every session before it
+   * is published, and the demo permanently — had its touchpoints ignored and the
+   * report listed raw ids. `useSessionReport.zonesFor` already resolves zones
+   * this way; surfaces were simply missed.
+   *
+   * The wizard calls the field `name` and the backend calls it `label`; mapped
+   * here rather than at the row builder, which should not have to know there are
+   * two spellings.
+   */
+  const touchpoints = useMemo(
+    () =>
+      config?.touchpoints ??
+      session.touchpoints.map((t) => ({ id: t.id, label: t.name })),
+    [config, session.touchpoints]
+  );
   const surfaces = useMemo(
-    () => buildSurfaceRows(events, config?.touchpoints ?? []),
-    [events, config]
+    () => buildSurfaceRows(events, touchpoints),
+    [events, touchpoints]
   );
   const moments = useMemo(() => buildMoments(events, zoneMeta), [events, zoneMeta]);
   const traffic = useMemo(() => hourlyVisitors(events), [events]);

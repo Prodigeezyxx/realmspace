@@ -270,6 +270,37 @@ function generateSeries(
 // The session store picks this up as `isDemo: true` and always keeps it in
 // the list. It's the default active session on first load.
 
+/**
+ * The demo activation's measurement parameters, per zone.
+ *
+ * These are *configuration*, not data — the same two fields the session wizard
+ * asks a real operator for. Without them the demo looked worse than the product
+ * is: the funnel had no order to report against, so it rendered a "needs a
+ * funnel order" notice, and every zone weighed 1.0, so dwell-weighted attention
+ * equalled plain dwell and the signature metric of `roi-framework.md` §2 said
+ * nothing at all.
+ *
+ * `funnelOrder` follows the path the seeded visitors actually walk, so the
+ * funnel narrows the way the data narrows. It is deliberately not arranged to
+ * flatter the numbers — a funnel sorted by traffic would show no drop-off ever.
+ *
+ * `weight` says what the activation is *for*. A minute in the Mirror Room, the
+ * hero surface the whole pavilion is built around, is worth more than a minute
+ * in the entrance somebody walks through on their way in.
+ */
+const DEMO_ZONE_MEASUREMENT: Record<string, { weight: number; funnelOrder?: number }> = {
+  zone_entry: { weight: 1, funnelOrder: 0 },
+  zone_experience: { weight: 3, funnelOrder: 1 },
+  zone_product: { weight: 2, funnelOrder: 2 },
+  zone_lounge: { weight: 1.5, funnelOrder: 3 },
+  // No `funnelOrder` for the exit, on purpose. The seeded visitors never walk
+  // through it, so giving it a funnel position would put a permanent 0% step on
+  // the end of the report — which reads as a broken funnel rather than as an
+  // honest one. A zone that is not part of the measured journey should not
+  // claim a place in it.
+  zone_exit: { weight: 1 },
+};
+
 export const DEMO_SESSION: Session = {
   id: session.id,
   isDemo: true,
@@ -305,6 +336,7 @@ export const DEMO_SESSION: Session = {
     color: z.color,
     polygon: z.polygon,
     capacity: 25,
+    ...DEMO_ZONE_MEASUREMENT[z.id],
   })),
   touchpoints: surfaces.map((s) => ({
     id: s.id,
@@ -328,6 +360,30 @@ export const DEMO_SESSION: Session = {
     targetDwellSec: 240,
     targetCaptures: 700,
     notes: "Demo seed — Maison Vivienne Pavilion No. 7 activation.",
+  },
+  /**
+   * How this activation is scored — the wizard's "How this gets scored" step,
+   * filled in as a real operator would fill it.
+   *
+   * Without these the demo report had nothing to divide by: cost per engaged
+   * visit and the ROI ratio both rendered `—`, which made the product look
+   * incapable when in fact the session was simply unconfigured.
+   *
+   * `revenueInfluenced` is **the client's own figure**, not something realmspace
+   * measured — attributed revenue needs the CRM work. The report already prints
+   * that provenance next to it, which is the whole reason it is safe to show.
+   *
+   * `qualifiedLeads` is deliberately absent. `computeScorecard` falls back to the
+   * *measured* consent captures when it is unset, and the seeded day contains
+   * about thirty of those. A supplied number would overwrite real data with a
+   * guess — the opposite of the point.
+   */
+  measurement: {
+    engagedThresholdSec: 60,
+    activationCost: 12000,
+    currency: "GBP",
+    attributionModel: "influenced",
+    revenueInfluenced: 60000,
   },
   privacy: {
     mode: "default",

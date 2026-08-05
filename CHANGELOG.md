@@ -17,7 +17,55 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-04 (overnight)
+## [Unreleased] — last updated 2026-08-05
+
+### Fixed — 2026-08-05 — `[neo4j-track]` the demo session now shows what the product can actually do
+
+Prompted by comparing a live demo against the other track's. Theirs looked
+better — and the reason was not that theirs is more capable. Ours was computing
+honestly from the seeded day and then had nothing to divide by.
+
+- **The demo was a session nobody had configured.** No funnel order, so the
+  report showed "needs a funnel order" where the journey should be. Every zone
+  weighted the same, so dwell-weighted attention — the metric the whole ROI
+  framework is built around — was just plain dwell wearing a different name. No
+  activation cost, so cost per engaged visit was blank. No revenue, so the ROI
+  ratio was blank. All of that read as a product that cannot do those things.
+  *The demo now carries the same parameters the wizard asks a real operator for.
+  It reports **140 visitors, a funnel narrowing 134 → 82 → 38 → 12, weighted
+  attention 2.4× raw dwell, £152 per engaged visit and a 4.0:1 return rated
+  "strong"** — every one of them computed from the seeded events.*
+
+- **Nothing was invented to get there.** Weights, funnel order and cost are
+  configuration. Influenced revenue is the client's own figure, and the report
+  prints "supplied by the client, not measured by realmspace" beside it, which
+  is what makes it safe to show at all.
+
+- **Qualified leads deliberately left blank**, so cost per qualified lead divides
+  by the ~43 consent captures actually in the seeded day. Supplying a number
+  would have overwritten real data with a guess.
+
+- **Affinity still shows nothing**, and still says "Affinity needs a survey.
+  Nothing here is inferred from behaviour." In a demo that line is worth more
+  than three filled boxes.
+
+- **A real bug, not demo dressing.** The report only read touchpoint names from
+  the *backend* config, so any session configured locally — which is every
+  session before it is published — listed raw ids like `srf_mirror` instead of
+  "AR Mirror". Zones already fell back to the local session; surfaces were
+  missed.
+
+- **And a bug in the seed:** it emitted interactions against invented surface ids
+  that matched none of the demo's actual touchpoints, so nothing could ever have
+  linked an interaction to the thing that produced it.
+
+- **The exit zone has no funnel position on purpose.** No seeded visitor walks
+  through it, so a step there would sit at a permanent 0% and read as a broken
+  funnel rather than an honest one.
+
+- **93 dashboard tests (was 90).** **Verified by breaking it:** flattening the
+  zone weights, removing the funnel order, dropping the client revenue, or
+  restoring the mismatched surface ids each fails its own test.
 
 ### Added — 2026-08-04 (overnight) — `[neo4j-track]` you can now see what failed, and fix it
 

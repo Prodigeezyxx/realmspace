@@ -209,21 +209,24 @@ export function seedDemoSession(tenantId: string, now: number = Date.now()): num
       // A short walk to the next zone.
       t += duration * 1000 + Math.round((5 + rand() * 25) * 1000);
 
-      // Touchpoint interactions happen where the touchpoints are.
+      // Touchpoint interactions happen where the touchpoints are. The ids are
+      // the demo session's *real* surface ids (`surfaces` above), not invented
+      // ones — otherwise the report cannot match an interaction to the
+      // touchpoint that produced it and falls back to showing a raw id.
       if (step.zoneId === "zone_experience" && rand() < 0.55) {
         emit(
           "surface.interaction",
           t,
-          { anonId, surfaceId: "surface_mirror", kind: "ar" },
-          `surface_${anonId}_mirror`
+          { anonId, surfaceId: "srf_mirror", kind: "ar" },
+          `surface_${anonId}_srf_mirror`
         );
       }
       if (step.zoneId === "zone_product" && rand() < 0.34) {
         emit(
           "surface.interaction",
           t,
-          { anonId, surfaceId: "surface_quiz", kind: "game" },
-          `surface_${anonId}_quiz`
+          { anonId, surfaceId: "srf_game", kind: "game" },
+          `surface_${anonId}_srf_game`
         );
       }
     }

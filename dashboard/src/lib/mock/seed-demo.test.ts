@@ -13,8 +13,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { clearPartition, getCursor, headSeq, readAll } from "@/lib/bus";
 import { presentNow } from "@/lib/live/derive";
+import { buildFunnel, buildSurfaceRows } from "@/lib/report/derive";
+import { ZONE_TYPE_TO_KIND } from "@/lib/session/publish";
 import { computeScorecard } from "@/lib/roi/scorecard";
-import type { RealmEvent } from "@/lib/contracts";
+import type { DwellPayload, RealmEvent } from "@/lib/contracts";
 import { DEMO_SESSION } from "./session";
 import { DEMO_MARKER, demoAnchor, seedDemoSession } from "./seed-demo";
 
@@ -134,6 +136,96 @@ describe("the demo scores like a real session", () => {
     expect(card.pipeline.costPerEngagedVisit).not.toBeNull();
     // Revenue is not supplied, so this must not be.
     expect(card.pipeline.roiRatio).toBeNull();
+  });
+
+  it("computes a complete scorecard from its own configured parameters", () => {
+    /*
+     * The demo used to render blanks where the product's best numbers belong —
+     * no funnel, flat weighting, no cost per engaged visit, no ROI ratio — not
+     * because any of it was unbuildable but because the session carried no
+     * parameters to divide by. This asserts the configuration is present and
+     * doing work.
+     *
+     * Ranges rather than exact figures for anything derived from the seed: the
+     * day re-anchors hourly, so the engaged count drifts and cost-per-engaged
+     * drifts with it. The ROI ratio does *not* drift, because both its inputs
+     * are stated parameters — so that one is pinned exactly.
+     */
+    seedDemoSession(T, NOW);
+    const events = readAll(T, DEMO_SESSION.id) as RealmEvent[];
+    const m = DEMO_SESSION.measurement!;
+
+    const card = computeScorecard(events, {
+      zones: DEMO_SESSION.zones.map((z) => ({
+        id: z.id,
+        name: z.name,
+        kind: ZONE_TYPE_TO_KIND[z.type] ?? "other",
+        weight: z.weight ?? 1,
+      })),
+      engagedThresholdSec: m.engagedThresholdSec,
+      activationCost: m.activationCost,
+      revenueInfluenced: m.revenueInfluenced,
+    });
+
+    // (60000 − 12000) / 12000 — both operator-supplied, so exact and stable.
+    expect(card.pipeline.roiRatio).toBe(4);
+    expect(card.benchmarkVerdict).toBe("strong");
+    expect(card.pipeline.costPerEngagedVisit).not.toBeNull();
+
+    // The signature metric is only meaningful if the weights differ from 1. If
+    // somebody flattens them, weighted attention collapses onto raw dwell and
+    // this is what notices.
+    const rawDwell = events
+      .filter((e) => e.type === "spatial.dwell")
+      .reduce((sum, e) => sum + (e.payload as DwellPayload).durationSec, 0);
+    expect(card.engagement.dwellWeightedAttention).toBeGreaterThan(rawDwell * 1.5);
+
+    // Leads are *measured* consent captures, not a supplied figure —
+    // `qualifiedLeads` is deliberately left unset on the demo so this stays real.
+    expect(card.pipeline.leadsCaptured).toBeGreaterThan(0);
+    expect(m.qualifiedLeads).toBeUndefined();
+  });
+
+  it("narrows through a funnel that matches the path visitors walk", () => {
+    seedDemoSession(T, NOW);
+    const events = readAll(T, DEMO_SESSION.id) as RealmEvent[];
+    const funnel = buildFunnel(
+      events,
+      DEMO_SESSION.zones.map((z) => ({
+        id: z.id,
+        name: z.name,
+        funnelOrder: z.funnelOrder ?? null,
+      }))
+    );
+
+    expect(funnel.map((f) => f.zoneId)).toEqual([
+      "zone_entry",
+      "zone_experience",
+      "zone_product",
+      "zone_lounge",
+    ]);
+    // Strictly narrowing, which is what a real activation looks like and what
+    // makes the drop-off worth reporting.
+    const counts = funnel.map((f) => f.visitors);
+    expect(counts).toEqual([...counts].sort((a, b) => b - a));
+    // The exit carries no funnel position on purpose: nobody walks through it,
+    // so a step there would sit at a permanent 0% and read as a broken funnel.
+    expect(funnel.some((f) => f.zoneId === "zone_exit")).toBe(false);
+  });
+
+  it("names its touchpoints instead of showing raw ids", () => {
+    // The seed has to emit the demo's *real* surface ids or nothing can match an
+    // interaction back to the touchpoint that produced it.
+    seedDemoSession(T, NOW);
+    const events = readAll(T, DEMO_SESSION.id) as RealmEvent[];
+    const rows = buildSurfaceRows(
+      events,
+      DEMO_SESSION.touchpoints.map((t) => ({ id: t.id, label: t.name }))
+    );
+
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.map((r) => r.label)).toContain("AR Mirror");
+    for (const row of rows) expect(row.label).not.toBe(row.surfaceId);
   });
 
   it("does not fill the affinity layer, which nothing measures", () => {
