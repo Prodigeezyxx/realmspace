@@ -9,6 +9,7 @@ call app.repository directly.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import repository
@@ -65,6 +66,72 @@ async def post_event(
     if not created:
         response.status_code = status.HTTP_200_OK
     return EventOut.model_validate(row)
+
+
+#: A batch is capped. An uncapped one lets a single request hold a transaction
+#: open for as long as it likes, and the producers that want batching most — an
+#: RFID bridge, a camera catching up after an outage — are exactly the ones that
+#: would send ten thousand at once. They page instead.
+MAX_BATCH = 500
+
+
+class EventBatchIn(BaseModel):
+    events: list[EventIn] = Field(min_length=1, max_length=MAX_BATCH)
+
+
+@router.post(
+    "/batch",
+    response_model=list[EventOut],
+    status_code=status.HTTP_200_OK,
+    summary="Append many events in one request (idempotent on each event_id)",
+)
+@alias_router.post("/v1/events/batch", response_model=list[EventOut])
+async def post_events(
+    body: EventBatchIn,
+    principal: Principal = Depends(get_principal),
+    session: AsyncSession = Depends(get_session),
+) -> list[EventOut]:
+    """One round trip for many events, ported from the `postgres-track`.
+
+    The producers that need this are the ones a per-event POST punishes: an RFID
+    bridge reading a bank of antennas, or `perception/bus_client.py` flushing a
+    buffer after the wifi came back. At frame rate, a request each is most of the
+    work.
+
+    ## All or nothing, deliberately
+
+    One transaction. If any event in the batch is rejected, none of them land.
+    That is the opposite of the single-event endpoint's forgiveness, and it is
+    the right trade here: a producer that sent 500 and got back "409 of them
+    worked" has no reasonable next move, whereas one that got a clean rejection
+    can fix the batch and resend. Idempotency on `event_id` makes the resend
+    free.
+
+    **Every event's tenant must match the credential**, checked before anything
+    is written — the same rule as the single endpoint, and the reason it is
+    checked up front is so a mixed-tenant batch cannot half-apply.
+
+    Unlike the other track's version this is authenticated and runs under
+    row-level security, so a batch cannot write outside the caller's tenant even
+    if this code forgot to look.
+    """
+    wrong = [e for e in body.events if e.tenant_id != principal.tenant_id]
+    if wrong:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"credential is for tenant {principal.tenant_id!r}; "
+                f"{len(wrong)} of {len(body.events)} events claim another"
+            ),
+        )
+
+    # Returned in the order they were sent, so a producer can match results to
+    # what it posted without looking at ids.
+    out: list[EventOut] = []
+    for event in body.events:
+        row, _ = await repository.append_event(session, event)
+        out.append(EventOut.model_validate(row))
+    return out
 
 
 @router.get(

@@ -21,10 +21,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.config import get_settings
+from app.consumers import run as consumer_run
 from app.consumers.run import build_all
 from app.db import engine
 from app.graph import driver as graph_driver
-from app.routers import auth, dead_letters, events, live, sessions
+from app.routers import auth, consumers, dead_letters, events, live, sessions
 
 log = logging.getLogger(__name__)
 settings = get_settings()
@@ -50,6 +51,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
     if settings.consumers_enabled:
         for consumer in build_all():
+            # Registered as well as started, so POST /v1/consumers/{name}/drain
+            # reaches the instance that is actually running — the tracker's
+            # output depends on state it has built from the stream, and a fresh
+            # instance sharing its cursor would emit something else entirely.
+            consumer_run.register_running(consumer)
             _consumer_tasks.append(
                 asyncio.create_task(consumer.run_forever(), name=f"consumer:{consumer.name}")
             )
@@ -63,6 +69,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         # driver closes underneath it.
         await asyncio.gather(*_consumer_tasks, return_exceptions=True)
         _consumer_tasks.clear()
+        consumer_run.clear_running()
         await graph_driver.disconnect()
 
 
@@ -91,6 +98,7 @@ app.include_router(events.alias_router)
 app.include_router(live.router)
 app.include_router(sessions.router)
 app.include_router(dead_letters.router)
+app.include_router(consumers.router)
 
 
 @app.get("/health", tags=["meta"])

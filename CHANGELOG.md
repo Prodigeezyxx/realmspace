@@ -78,6 +78,21 @@ ROI" phase this branch has been building.
   sidebar is a change to an existing surface, so the one-line diff is offered
   rather than applied.
 
+- **Two things the other track had and we did not, now ported.** Producers can
+  send many events in one request instead of one request each — which is what an
+  RFID reader or a camera catching up after an outage actually needs. And a
+  consumer can be told to catch up *now* rather than on its next poll, which is
+  the natural thing to press after clearing something from the review queue.
+  *`POST /events/batch` (capped at 500, **all or nothing** so a mixed-tenant
+  batch cannot half-apply) and `POST /v1/consumers/{name}/drain`. Both differ
+  from the other track's on purpose: ours are authenticated and take the tenant
+  from the credential rather than a query parameter, and drain runs the **live**
+  consumer — draining a freshly built one would advance the real cursor while
+  emitting whatever an empty state implies, a quieter version of the bug the
+  retry rules above exist to prevent.*
+  *137 backend tests (was 126); breaking the all-or-nothing rule or the
+  live-instance lookup each fails its own test.*
+
 ### Added — 2026-08-04 (late) — `[neo4j-track]` the twin replays a session that actually happened
 
 - **A recorded session could never be replayed.** The 3D twin had a scrubber,

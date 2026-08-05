@@ -165,7 +165,9 @@ item in `data-model.md` → "Store decision".
 | `POST /v1/auth/token` | none | `{"email": …}` → a signed token |
 | `GET /v1/auth/resolve` | none | email → org + role (lookup only; grants nothing) |
 | `POST /events` | key or token | Append one event. 201 if created, 200 if the `event_id` was already in the log. |
+| `POST /events/batch` | key or token | Append up to 500 events in one request. **All or nothing** — if any event's tenant disagrees with the credential, none of them land, so a producer can fix the batch and resend rather than reconciling a partial write. |
 | `GET /events?since_seq=…` | token | Read your tenant's log forward from a cursor. Also accepts `session_id`, `type`, `limit`. **No tenant parameter.** |
+| `POST /v1/consumers/{name}/drain` | token, **admin/operator** | Make a consumer process its backlog for your tenant now, instead of on its next poll. Drains the *running* instance — 503 if consumers are not running in this process, because a fresh one would advance the real cursor while emitting what an empty state implies. |
 | `WS /v1/ws/{tenant}/{session}?token=…` | token | Live feed. `since_seq` for gapless reconnect. |
 | `POST /v1/sessions` | token, **admin/operator** | Create or update a session's zones and measurement parameters. Omitting `zones` leaves them alone; sending a list replaces the set. |
 | `GET /v1/sessions/{session_id}` | token | The configuration back. 404 if the session was never configured. |

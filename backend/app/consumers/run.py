@@ -34,6 +34,35 @@ CONSUMER_CLASSES: list[type[Consumer]] = [
 ]
 
 
+#: The consumer instances this process is actually running, by name.
+#:
+#: Registered by the FastAPI lifespan, so a route can reach the *live* instance
+#: rather than building a fresh one. That distinction is the whole reason this
+#: exists: the tracker's answers depend on state it has accumulated from the
+#: stream, so draining a brand-new instance would not advance the real consumer
+#: — it would run a different one that happens to share a cursor, and emit
+#: whatever an empty state implies.
+_running: dict[str, Consumer] = {}
+
+
+def register_running(consumer: Consumer) -> None:
+    _running[consumer.name] = consumer
+
+
+def clear_running() -> None:
+    _running.clear()
+
+
+def running(name: str) -> Consumer | None:
+    """The live instance, or None when consumers are not running here.
+
+    None is a real answer, not a failure: `consumers_enabled` is off under test,
+    and a deployment could run the API and the consumers as separate processes.
+    Callers say so rather than silently building a substitute.
+    """
+    return _running.get(name)
+
+
 def build_all() -> list[Consumer]:
     return [cls() for cls in CONSUMER_CLASSES]
 
