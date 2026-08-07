@@ -95,7 +95,14 @@ services:
       # which is neither a superuser nor an owner — so the row-level security
       # policies actually apply to it. POSTGRES_USER (`realmspace`) is a
       # superuser in this image and would bypass them entirely.
-      DATABASE_URL: postgresql+asyncpg://realmspace_app@postgres:5432/realmspace
+      #
+      # The password is not in migration 0003, which creates this role without
+      # one on purpose. Over a unix socket under trust auth none is needed; over
+      # this container network scram-sha-256 refuses a passwordless role, so
+      # entrypoint.sh sets it from APP_DB_PASSWORD after the migration runs.
+      # Local-stack default, same posture as the superuser password above.
+      DATABASE_URL: postgresql+asyncpg://realmspace_app:${APP_DB_PASSWORD:-realmspace_app}@postgres:5432/realmspace
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-realmspace_app}
       # Alembic needs CREATE/ALTER, and creates the app role itself.
       ADMIN_DATABASE_URL: postgresql+asyncpg://realmspace:realmspace@postgres:5432/realmspace
       # No TEST_DATABASE_URL: this stack creates only `realmspace`, and

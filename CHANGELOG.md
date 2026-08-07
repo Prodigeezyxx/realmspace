@@ -17,7 +17,42 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-05
+## [Unreleased] — last updated 2026-08-07
+
+### Fixed — 2026-08-07 — `[neo4j-track]` `docker compose up` boots again on a machine that has never run it
+
+Found by doing the thing the README promises: a one-command boot before a demo.
+The stack never became healthy. The app container sat at `==> waiting for
+postgres` indefinitely while Postgres itself was fine and reporting healthy.
+
+Two faults, both introduced by the row-level-security work, and both invisible
+because the wait loop discards the error it is retrying on.
+
+- **The boot waited for something only the next step could create.** The wait
+  connected as `realmspace_app` — the non-superuser role that makes RLS apply —
+  but that role is *created by migration 0003*, which runs after the wait. On
+  any database that predates the RLS migration, including an empty one, the
+  role does not exist yet, so the loop waited for its own next step forever.
+  *The wait now connects as the owner, via the existing `migration_url`, which
+  is the credential the image already has at boot.*
+
+- **A passwordless role cannot cross a container network.** Migration 0003
+  creates the role without a password on purpose, and says why: locally the app
+  reaches Postgres over a unix socket under trust auth, and a password in git is
+  not a password. Compose has no socket — it crosses to `postgres:5432`, where
+  the image's default `scram-sha-256` refuses a passwordless role.
+  *`entrypoint.sh` now sets the password from `APP_DB_PASSWORD` after the
+  migration that creates the role, through `set_config` + `format(%L)` because
+  `ALTER ROLE` takes no bind parameters. The migration is untouched: the
+  password belongs to the deployment, not to the schema.*
+
+The entrypoint also now connects once as the app role before serving. The
+failure this fixes reported a clean start and then 500'd on the first request,
+which is the wrong place to find out that a credential is wrong.
+
+Verified on genuinely empty volumes, in a separate compose project so the dev
+stack was not disturbed: all three Alembic migrations and the graph schema
+apply, `/health` returns both stores `ok` and all three consumers `running`.
 
 ### Fixed — 2026-08-05 — `[neo4j-track]` the demo session now shows what the product can actually do
 
