@@ -134,9 +134,8 @@ async def upsert_zone(
 
     result = await session.run(
         """
-        MERGE (z:Zone {tenant_id: $tenant_id, id: $zone_id})
-        SET z.session_id   = $session_id,
-            z.name         = $name,
+        MERGE (z:Zone {tenant_id: $tenant_id, session_id: $session_id, id: $zone_id})
+        SET z.name         = $name,
             z.type         = $type,
             z.polygon      = $polygon,
             z.color        = $color,
@@ -184,10 +183,9 @@ async def upsert_surface(
     """
     result = await session.run(
         """
-        MERGE (s:Surface {tenant_id: $tenant_id, id: $surface_id})
+        MERGE (s:Surface {tenant_id: $tenant_id, session_id: $session_id, id: $surface_id})
         ON CREATE SET s.trigger_count = 0
-        SET s.session_id = $session_id,
-            s.label      = $label,
+        SET s.label      = $label,
             s.type       = $type,
             s.zone_id    = $zone_id,
             s.active     = $active
@@ -229,7 +227,7 @@ async def link_interacted_with(
     await session.run(
         """
         MATCH (p:Person  {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
-        MATCH (s:Surface {tenant_id: $tenant_id, id: $surface_id})
+        MATCH (s:Surface {tenant_id: $tenant_id, session_id: $session_id, id: $surface_id})
         MERGE (p)-[r:INTERACTED_WITH {at: $at}]->(s)
         ON CREATE SET s.trigger_count = coalesce(s.trigger_count, 0) + 1
         SET r.kind = $kind, r.duration = $duration
@@ -352,7 +350,7 @@ async def link_entered(
     await session.run(
         """
         MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
-        MATCH (z:Zone   {tenant_id: $tenant_id, id: $zone_id})
+        MATCH (z:Zone   {tenant_id: $tenant_id, session_id: $session_id, id: $zone_id})
         MERGE (p)-[r:ENTERED {at: $at}]->(z)
         """,
         tenant_id=tenant_id,
@@ -381,7 +379,7 @@ async def link_left(
     await session.run(
         """
         MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
-        MATCH (z:Zone   {tenant_id: $tenant_id, id: $zone_id})
+        MATCH (z:Zone   {tenant_id: $tenant_id, session_id: $session_id, id: $zone_id})
         MERGE (p)-[r:LEFT {at: $at}]->(z)
         """,
         tenant_id=tenant_id,
@@ -412,7 +410,7 @@ async def link_dwelled_in(
     await session.run(
         """
         MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
-        MATCH (z:Zone   {tenant_id: $tenant_id, id: $zone_id})
+        MATCH (z:Zone   {tenant_id: $tenant_id, session_id: $session_id, id: $zone_id})
         MERGE (p)-[r:DWELLED_IN {started_at: $started_at}]->(z)
         SET r.duration = $duration, r.ended_at = $ended_at
         """,

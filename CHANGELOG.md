@@ -19,6 +19,41 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-07
 
+### Fixed — 2026-08-07 — `[neo4j-track]` a zone belongs to one session, and the graph now says so
+
+Found while checking a demo stack: a session reported its zones published and
+then had none. It had been robbed by the session published after it.
+
+- **Zone identity had no session in it.** The key was `(tenant_id, id)`, so a
+  zone id was tenant-global. Publish a second session that reuses a zone id —
+  `z_left`, `zone_entry`, anything out of a template or a fixture — and the
+  MERGE did not create a zone. It found the *first* session's node, overwrote
+  its `session_id`, and moved it. The first session's zones vanished from its
+  own report, and its `ENTERED` and `DWELLED_IN` edges went with the node into
+  an activation they had nothing to do with. Nothing logged, and the publish
+  response echoes zones read straight back from the graph, so it looked correct
+  at the moment it broke. *Zone is now keyed `(tenant_id, session_id, id)`, the
+  key `Person` has had since the start — data-model.md already says anon_id is
+  "session-scoped, never re-used across sessions", and zones are no different.*
+
+- **Surface had the same key and more to lose.** It carries `trigger_count`, so
+  two sessions sharing a surface id shared one counter: a sponsor's usage figure
+  for one activation quietly included taps from another. *Re-keyed the same way.*
+
+Graph migration `002` does the re-key; `001` is untouched because it has already
+run on databases that exist. Every zone and surface lookup is now scoped to the
+session as well — they all had the session id to hand and were simply not using
+it.
+
+Not reachable from the wizard today, which mints random zone ids, which is why
+it had gone unnoticed. It is reachable from anything with fixed ids: the
+perception defaults, shared fixtures, the demo session's `zone_entry` if it were
+ever published, and both tracks' test data.
+
+Verified by breaking it: three new tests — two sessions keeping their own zones,
+dwell staying with the session that recorded it, and trigger counts not pooling
+— all three fail against the old key. 140 backend tests, 93 dashboard.
+
 ### Fixed — 2026-08-07 — `[neo4j-track]` `docker compose up` boots again on a machine that has never run it
 
 Found by doing the thing the README promises: a one-command boot before a demo.

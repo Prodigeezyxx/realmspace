@@ -35,6 +35,11 @@ MIGRATIONS: dict[str, tuple[str, list[str], list[str]]] = {
         schema.statements(),
         schema.drop_statements(),
     ),
+    "002": (
+        "Zone and Surface are keyed per session, as Person already was",
+        schema.REKEY_002,
+        schema.REKEY_002_DOWN,
+    ),
 }
 
 

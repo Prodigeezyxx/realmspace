@@ -58,6 +58,8 @@ CONSTRAINTS: list[tuple[str, str]] = [
         "person_tenant_session_anon_unique",
         "FOR (p:Person) REQUIRE (p.tenant_id, p.session_id, p.anon_id) IS UNIQUE",
     ),
+    # Superseded by migration 002, which re-keys Zone on session_id. Left as it
+    # was because 001 has already run on databases that exist.
     (
         "zone_tenant_id_unique",
         "FOR (z:Zone) REQUIRE (z.tenant_id, z.id) IS UNIQUE",
@@ -66,6 +68,7 @@ CONSTRAINTS: list[tuple[str, str]] = [
         "object_tenant_id_unique",
         "FOR (o:Object) REQUIRE (o.tenant_id, o.id) IS UNIQUE",
     ),
+    # Superseded by migration 002, as Zone above.
     (
         "surface_tenant_id_unique",
         "FOR (s:Surface) REQUIRE (s.tenant_id, s.id) IS UNIQUE",
@@ -99,6 +102,51 @@ INDEXES: list[tuple[str, str]] = [
     ("surface_label_idx", "FOR (s:Surface) ON (s.tenant_id, s.label)"),
     ("object_label_idx", "FOR (o:Object) ON (o.tenant_id, o.label)"),
     ("event_type_idx", "FOR (e:Event) ON (e.tenant_id, e.type)"),
+]
+
+
+# ── Migration 002 — Zone and Surface are per session ────────────────────────
+#
+# 001 keyed both on (tenant_id, id), so a zone id was tenant-global. Zones are
+# not: the wizard draws them per activation, `prune_zones` deletes them per
+# activation, and `zones_for_session` reads them back per activation. Person
+# already had this right — data-model.md calls anon_id "session-scoped, never
+# re-used across sessions", and its key says so.
+#
+# What the old key did, found by publishing two sessions that both used a zone
+# called `z_left`: the second publish did not create a second zone. MERGE found
+# the first session's node, overwrote its session_id, and moved it — so session
+# one's zones vanished from its own report, and its ENTERED and DWELLED_IN edges
+# went with the node into a session they did not belong to. Silent both ways:
+# the publish response echoes the zones read straight back, so it looked fine.
+#
+# Surface is worse and gets the same fix. It carries `trigger_count`, so two
+# sessions sharing a surface id shared one counter, and a sponsor's usage figure
+# for one activation silently included taps from another.
+#
+# Nodes written before this migration keep whatever session_id they have. Any
+# that never got one are excluded from a composite constraint by Neo4j rather
+# than blocking it, which is the right failure direction for a schema change
+# that must not refuse to apply on a live graph.
+REKEY_002: list[str] = [
+    "DROP CONSTRAINT zone_tenant_id_unique IF EXISTS",
+    "DROP CONSTRAINT surface_tenant_id_unique IF EXISTS",
+    "CREATE CONSTRAINT zone_tenant_session_id_unique IF NOT EXISTS "
+    "FOR (z:Zone) REQUIRE (z.tenant_id, z.session_id, z.id) IS UNIQUE",
+    "CREATE CONSTRAINT surface_tenant_session_id_unique IF NOT EXISTS "
+    "FOR (s:Surface) REQUIRE (s.tenant_id, s.session_id, s.id) IS UNIQUE",
+]
+
+#: The downgrade puts 001's keys back. It can fail where 002 was doing its job —
+#: two sessions legitimately holding the same zone id cannot both exist under a
+#: tenant-global key — which is the honest outcome rather than one to paper over.
+REKEY_002_DOWN: list[str] = [
+    "DROP CONSTRAINT zone_tenant_session_id_unique IF EXISTS",
+    "DROP CONSTRAINT surface_tenant_session_id_unique IF EXISTS",
+    "CREATE CONSTRAINT zone_tenant_id_unique IF NOT EXISTS "
+    "FOR (z:Zone) REQUIRE (z.tenant_id, z.id) IS UNIQUE",
+    "CREATE CONSTRAINT surface_tenant_id_unique IF NOT EXISTS "
+    "FOR (s:Surface) REQUIRE (s.tenant_id, s.id) IS UNIQUE",
 ]
 
 

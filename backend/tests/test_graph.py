@@ -202,6 +202,138 @@ async def test_dwell_by_zone(graph_session: AsyncSession) -> None:
     assert rows[0]["visitors"] == 2
 
 
+async def test_a_zone_id_belongs_to_its_session(graph_session: AsyncSession) -> None:
+    """Two sessions using the same zone id are two zones, not one shared node.
+
+    The bug this pins: Zone was keyed (tenant_id, id), so publishing a second
+    session that reused a zone id — `z_left`, `zone_entry`, anything from a
+    template or a fixture — did not create a zone. MERGE found the first
+    session's node and moved it, and the first session's report went from two
+    zones to none with nothing logged. Surface had the same key and a
+    trigger_count to go with it.
+    """
+    for sess in (S, "s_other_session"):
+        await graph.upsert_zone(
+            graph_session,
+            tenant_id=T,
+            session_id=sess,
+            zone_id="z_shared_id",
+            name=f"Zone in {sess}",
+            type="engagement",
+            polygon=[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]],
+            weight=3.0,
+        )
+
+    first = await graph.zones_for_session(graph_session, tenant_id=T, session_id=S)
+    second = await graph.zones_for_session(
+        graph_session, tenant_id=T, session_id="s_other_session"
+    )
+    assert [z["id"] for z in first] == ["z_shared_id"]
+    assert [z["id"] for z in second] == ["z_shared_id"]
+    assert first[0]["name"] == f"Zone in {S}"
+    assert second[0]["name"] == "Zone in s_other_session"
+
+
+async def test_a_zone_edge_stays_in_its_own_session(
+    graph_session: AsyncSession,
+) -> None:
+    """Dwell recorded against a shared zone id must not follow the node away.
+
+    The old key made this the real damage: the second session's publish took the
+    node, so the first session's DWELLED_IN edges hung off a zone that now
+    claimed to belong to somebody else's activation.
+    """
+    for sess in (S, "s_other_session"):
+        await graph.upsert_zone(
+            graph_session,
+            tenant_id=T,
+            session_id=sess,
+            zone_id="z_lounge",
+            name="Lounge",
+            type="lounge",
+            # Drawn, because `zones_for_session` excludes undrawn zones by
+            # default and the assertion below reads through it.
+            polygon=[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0]],
+        )
+        await graph.upsert_person(
+            graph_session,
+            tenant_id=T,
+            session_id=sess,
+            anon_id="P-001",
+            first_seen="2026-07-30T10:00:00Z",
+            last_seen="2026-07-30T10:05:00Z",
+        )
+
+    await graph.link_dwelled_in(
+        graph_session,
+        tenant_id=T,
+        session_id=S,
+        anon_id="P-001",
+        zone_id="z_lounge",
+        duration=30.0,
+        started_at="2026-07-30T10:00:00Z",
+        ended_at="2026-07-30T10:00:30Z",
+    )
+
+    mine = await graph.dwell_by_zone(graph_session, tenant_id=T, session_id=S)
+    theirs = await graph.dwell_by_zone(
+        graph_session, tenant_id=T, session_id="s_other_session"
+    )
+    assert [(r["zone"], r["avg_dwell"]) for r in mine] == [("Lounge", 30.0)]
+    assert theirs == []
+
+    # The assertion that pins the bug. `dwell_by_zone` filters on the *person's*
+    # session, so it kept answering correctly even while the zone underneath had
+    # been taken — the dwell was real and the zone it pointed at was no longer
+    # this session's. Reading the zone back through the session is what catches
+    # that, and it is also what the report does.
+    assert [z["id"] for z in
+            await graph.zones_for_session(graph_session, tenant_id=T, session_id=S)
+            ] == ["z_lounge"]
+
+
+async def test_surface_trigger_count_is_not_shared_between_sessions(
+    graph_session: AsyncSession,
+) -> None:
+    """A sponsor's tally is per activation. Under the old key two sessions using
+    the same surface id incremented one counter, so one activation's report
+    included another's taps."""
+    for sess in (S, "s_other_session"):
+        await graph.upsert_surface(
+            graph_session,
+            tenant_id=T,
+            session_id=sess,
+            surface_id="srf_wall",
+            label="RFID Wall",
+            type="rfid",
+        )
+        await graph.upsert_person(
+            graph_session,
+            tenant_id=T,
+            session_id=sess,
+            anon_id="P-001",
+            first_seen="2026-07-30T10:00:00Z",
+            last_seen="2026-07-30T10:05:00Z",
+        )
+
+    await graph.link_interacted_with(
+        graph_session,
+        tenant_id=T,
+        session_id=S,
+        anon_id="P-001",
+        surface_id="srf_wall",
+        at="2026-07-30T10:01:00Z",
+        kind="tapped",
+    )
+
+    mine = await graph.surfaces_for_session(graph_session, tenant_id=T, session_id=S)
+    theirs = await graph.surfaces_for_session(
+        graph_session, tenant_id=T, session_id="s_other_session"
+    )
+    assert mine[0]["trigger_count"] == 1
+    assert theirs[0]["trigger_count"] == 0
+
+
 async def test_zone_polygon_round_trips(graph_session: AsyncSession) -> None:
     """Neo4j cannot store nested lists, so polygons are flattened on write.
     This pins that behaviour so the flatten/rebuild pair stays in sync."""
