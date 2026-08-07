@@ -16,8 +16,9 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Response, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.config import get_settings
@@ -83,6 +84,33 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Order matters, and it is the reverse of how it reads: `add_middleware` puts
+# each new layer *outside* the previous one, so the error catcher is registered
+# first precisely so CORS ends up wrapping it.
+#
+# An unhandled exception otherwise reaches Starlette's ServerErrorMiddleware,
+# which sits outside everything added here, and its 500 carries no
+# `access-control-allow-origin`. A browser then blocks the response and the
+# fetch rejects — from JavaScript that is indistinguishable from a server that
+# is not running, which is how the session wizard came to report "the bus is
+# unreachable" about a backend that was up and had already stored the session.
+#
+# An `@app.exception_handler(Exception)` does not fix it: Starlette routes the
+# catch-all handler to ServerErrorMiddleware too, so it still answers from
+# outside CORS. It has to be a middleware, and it has to be under CORS.
+@app.middleware("http")
+async def errors_the_browser_can_read(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception:  # noqa: BLE001 — the point is that nothing escapes
+        # The traceback belongs in the log, not in a response to a caller.
+        log.exception("unhandled error on %s %s", request.method, request.url.path)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "internal error — see the backend log"},
+        )
+
+
 # The Next.js dashboard talks to this from the browser. Wide open on the edge
 # box because it is on localhost behind no network; tighten before any deploy.
 app.add_middleware(
@@ -91,6 +119,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 app.include_router(auth.router)
 app.include_router(events.router)

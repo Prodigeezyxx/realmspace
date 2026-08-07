@@ -474,9 +474,20 @@ async def zones_for_session(
                 "id": record["id"],
                 "name": record["name"],
                 "type": record["type"],
-                "polygon": [
-                    [flat[i], flat[i + 1]] for i in range(0, len(flat) - 1, 2)
-                ],
+                # None, not [], for a zone nobody has drawn yet. An empty list
+                # is a polygon with no points, and `ZoneConfig` rejects that on
+                # sight — correctly, since it would contain nobody. So the
+                # config endpoint, whose entire reason for passing
+                # include_undrawn=True is to show the operator a half-created
+                # zone, could not serialize one: the write succeeded and then
+                # building the response raised, which the browser saw as a 500
+                # and reported as "the bus is unreachable". Absent geometry is
+                # null; [] would be a claim about a shape.
+                "polygon": (
+                    [[flat[i], flat[i + 1]] for i in range(0, len(flat) - 1, 2)]
+                    if flat
+                    else None
+                ),
                 "color": record["color"],
                 "capacity": record["capacity"],
                 # A zone written before weights existed has no weight property.

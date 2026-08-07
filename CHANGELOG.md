@@ -19,6 +19,40 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-07
 
+### Fixed — 2026-08-07 — `[neo4j-track]` "the bus is unreachable" was a backend that was up and had already saved the session
+
+Hit while launching a session from the wizard. The wizard said the backend had
+not accepted it and the cameras had no zones to measure against. The backend was
+running, had accepted the write, and had stored the zones.
+
+- **A zone saved before it was drawn could not be read back.** The config
+  endpoint asks for undrawn zones on purpose — an operator names a zone before
+  drawing it, and the wizard has to show the half-created one rather than
+  pretend it is gone. But an undrawn zone came back as `polygon: []`, and
+  `ZoneConfig` rejects a polygon with no points, rightly: a shape with no points
+  contains nobody. So the *response* raised after the write had landed. The two
+  features had contradicted each other since the endpoint was written.
+  *Absent geometry now reads back as `null`, which is what it is, and which the
+  dashboard's own type already expected. `[]` is a claim about a shape.*
+
+- **The 500 lost its CORS headers, which is why it read as "unreachable".**
+  Starlette's ServerErrorMiddleware sits outside every middleware the app adds,
+  CORS included, so its 500 arrives without `access-control-allow-origin`. The
+  browser blocks it and the fetch rejects — from JavaScript that is
+  indistinguishable from nothing listening on the port. *A middleware registered
+  before CORS (so CORS wraps it) now turns an unhandled exception into a plain
+  500 the browser can read. An `@app.exception_handler(Exception)` does not
+  work here: Starlette routes the catch-all to ServerErrorMiddleware too, and it
+  still answers from outside CORS.*
+
+Worth keeping in view: a zone with no polygon still measures nothing. The
+tracker skips it, correctly. Publishing now succeeds and the report will show
+that zone with no dwell against it, which is the honest outcome — but a zone
+meant to measure has to be drawn.
+
+Two new tests: a session with one drawn and one undrawn zone round-trips, and an
+unhandled error answers with CORS headers. 142 backend tests, 93 dashboard.
+
 ### Fixed — 2026-08-07 — `[neo4j-track]` a zone belongs to one session, and the graph now says so
 
 Found while checking a demo stack: a session reported its zones published and

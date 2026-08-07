@@ -539,6 +539,79 @@ async def test_duplicate_zone_ids_are_refused(
     assert "duplicate zone ids" in r.text
 
 
+async def test_a_zone_can_be_saved_before_it_is_drawn(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """The wizard lets an operator name a zone before drawing it, and this
+    endpoint passes `include_undrawn=True` precisely so it comes back.
+
+    It could not. An undrawn zone was read back with `polygon: []`, which
+    `ZoneConfig` rejects — rightly, a shape with no points contains nobody — so
+    the *response* raised after the write had already landed. The operator got a
+    500, and because an unhandled 500 carries no CORS headers the browser could
+    not read it either: the wizard reported "the bus is unreachable" about a
+    backend that was up and had just stored their session.
+    """
+    r = await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            [zone("z_drawn", "Drawn", LEFT_POLY), zone("z_later", "Not yet", None)]
+        ),
+    )
+    assert r.status_code == 200, r.text
+
+    got = await operator.get(f"/v1/sessions/{S}")
+    assert got.status_code == 200
+    zones = {z["id"]: z for z in got.json()["zones"]}
+    assert zones["z_later"]["polygon"] is None
+    assert zones["z_drawn"]["polygon"] == [list(p) for p in LEFT_POLY]
+
+
+async def test_an_unhandled_error_still_answers_with_cors_headers(
+    db_session: AsyncSession, graph_session: GraphSession, monkeypatch
+) -> None:
+    """A 500 the browser is allowed to read.
+
+    Starlette's ServerErrorMiddleware is outside CORSMiddleware, so an
+    exception that reaches it returns a 500 with no `access-control-allow-origin`
+    and every browser turns that into a network error — the client cannot tell
+    "your request was rejected" from "nothing is listening". The app registers a
+    handler so the response comes back through CORS instead.
+    """
+    from app.graph import repository as graph_repo
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("graph exploded")
+
+    monkeypatch.setattr(graph_repo, "upsert_session", boom)
+
+    # raise_app_exceptions=False so the transport returns the app's 500 response
+    # instead of re-raising the exception in the test — the browser's view of
+    # this request is the entire point, and a browser gets a response.
+    token = await _user(db_session, "u_op_boom", "operator", T)
+
+    async def override_get_session() -> AsyncIterator[AsyncSession]:
+        yield db_session
+        await db_session.commit()
+
+    app.dependency_overrides[get_session] = override_get_session
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {token}"},
+    ) as client:
+        r = await client.post(
+            "/v1/sessions",
+            json=config_body([zone("z_a", "A", LEFT_POLY)]),
+            headers={"Origin": "http://localhost:3000"},
+        )
+    app.dependency_overrides.clear()
+
+    assert r.status_code == 500
+    assert r.json()["detail"] == "internal error — see the backend log"
+    assert r.headers.get("access-control-allow-origin") == "http://localhost:3000"
+
+
 async def test_an_unconfigured_session_is_a_404_not_an_empty_config(
     operator: AsyncClient, graph_session: GraphSession
 ) -> None:
