@@ -14,16 +14,100 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
-import { runNlqQuery } from "@/lib/agent-engine";
-import { suggestedQueries } from "@/lib/mock/ask-answers";
-import type { NlqOutput } from "@/skills/nlq";
+import { getTenantId } from "@/lib/tenant/context";
 import { useActiveSession } from "@/lib/session/store";
 import { cn } from "@/lib/utils";
+import type { NlqOutput } from "@/skills/nlq";
+
+// ── Backend ask client ─────────────────────────────────────────────────────
+
+const BUS_URL =
+  (typeof process !== "undefined" &&
+    process.env.NEXT_PUBLIC_BUS_URL?.replace(/\/$/, "")) ||
+  "http://localhost:8000";
+
+interface AskResponse {
+  answer: string;
+  chartType?: string;
+  template?: string;
+  fallback?: boolean;
+  table?: { zone_id?: string; surface_id?: string; [k: string]: unknown }[];
+  labels?: string[];
+  values?: number[];
+  value?: number;
+}
+
+async function fetchAsk(
+  question: string,
+  tenantId: string,
+  sessionId: string
+): Promise<NlqOutput> {
+  const res = await fetch(`${BUS_URL}/v1/ask`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      question,
+      tenantId,
+      sessionId,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => "unknown error");
+    throw new Error(`Ask API ${res.status}: ${err}`);
+  }
+
+  const data: AskResponse = await res.json();
+
+  // Map the backend response to the NlqOutput shape the UI expects
+  const chartData =
+    data.labels && data.values
+      ? {
+          type: (data.chartType as "bar" | "line" | "pie") ?? "bar",
+          labels: data.labels,
+          values: data.values,
+        }
+      : data.value !== undefined && data.value !== null
+        ? {
+            type: "bar" as const,
+            labels: [data.answer],
+            values: [data.value],
+          }
+        : undefined;
+
+  return {
+    query: question,
+    cypher: data.template
+      ? `-- template: ${data.template}\n-- chart: ${data.chartType ?? "text"}`
+      : data.fallback
+        ? "-- fallback: no matching template"
+        : "-- answered",
+    explanation: data.answer,
+    chartData,
+    raw: data.table ?? { value: data.value, labels: data.labels, values: data.values },
+  };
+}
+
+// ── Suggested questions ────────────────────────────────────────────────────
+
+const suggestedQueries = [
+  "How many people visited?",
+  "What was the average dwell time?",
+  "Dwell time by zone",
+  "Which zone had the most entries?",
+  "How many surface interactions?",
+  "How long did the session last?",
+  "Breakdown of event types",
+  "How many people were engaged (stayed 60s+)?",
+];
+
+// ── Page component ─────────────────────────────────────────────────────────
 
 interface ConversationTurn {
   q: string;
   nlq: NlqOutput;
   thinking?: boolean;
+  error?: string;
 }
 
 export default function AskPage() {
@@ -35,19 +119,39 @@ export default function AskPage() {
 
   async function ask(query: string) {
     if (!query.trim()) return;
-    setTurns((cur) => [...cur, { q: query, nlq: { query, cypher: "", explanation: "…" }, thinking: true }]);
+    setTurns((cur) => [
+      ...cur,
+      { q: query, nlq: { query, cypher: "", explanation: "…" }, thinking: true },
+    ]);
     setQ("");
-    const results = await runNlqQuery(query);
-    const nlq = (results[0]?.skillChain.nlq as NlqOutput) ?? {
-      query,
-      cypher: "// no agent",
-      explanation: "NLQ agent did not return a result.",
-    };
-    setTurns((cur) => {
-      const next = [...cur];
-      next[next.length - 1] = { q: query, nlq };
-      return next;
-    });
+
+    const tenantId = getTenantId();
+    const sessionId = activeSession.id;
+
+    try {
+      const nlq = await fetchAsk(query, tenantId, sessionId);
+      setTurns((cur) => {
+        const next = [...cur];
+        next[next.length - 1] = { q: query, nlq };
+        return next;
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Could not reach the backend.";
+      setTurns((cur) => {
+        const next = [...cur];
+        next[next.length - 1] = {
+          q: query,
+          nlq: {
+            query,
+            cypher: "-- error",
+            explanation: message,
+          },
+          error: message,
+        };
+        return next;
+      });
+    }
   }
 
   if (!isDemo) {
@@ -61,15 +165,16 @@ export default function AskPage() {
         <div>
           <Pill variant="info" className="mb-2">
             <Brain size={11} />
-            Ask the Room · NLQ agent
+            Ask the Room · NLQ engine
           </Pill>
           <h1 className="text-3xl font-semibold tracking-tight">
             Plain English. Real answers.
           </h1>
           <p className="text-sm text-text-secondary mt-1.5 max-w-xl">
-            Your question is translated to a Cypher query against the spatial graph,
-            executed, and the result is summarised for the client. No SQL. No
-            analyst.
+            Your question is matched to a constrained SQL template, executed
+            against the durable event bus, and returned with a chart-ready
+            answer. Powered by the Hermes LLM via OpenRouter for template
+            selection.
           </p>
         </div>
 
@@ -131,22 +236,34 @@ export default function AskPage() {
           </ul>
         </Panel>
 
-        <Panel title="Schema in context" subtitle="What the LLM can query">
+        <Panel title="Schema in context" subtitle="What the engine can query">
           <div className="space-y-3 text-xs">
             <SchemaGroup
-              title="Nodes"
-              items={["Person", "Zone", "Object", "Event", "Surface", "Insight"]}
+              title="Templates (14)"
+              items={[
+                "Visitors",
+                "Dwell time",
+                "Dwell by zone",
+                "Zone entries",
+                "Person paths",
+                "Surface interactions",
+                "Passbys",
+                "Engaged",
+                "Session span",
+                "Event types",
+                "Concurrency",
+                "Traffic",
+              ]}
             />
             <SchemaGroup
-              title="Relationships"
+              title="Event types queried"
               items={[
-                "ENTERED",
-                "LEFT",
-                "DWELLED_IN",
-                "LOOKED_AT",
-                "NEAR",
-                "INTERACTED_WITH",
-                "CO_OCCURRED_WITH",
+                "perception.detection",
+                "spatial.zone_enter",
+                "spatial.zone_exit",
+                "spatial.dwell",
+                "spatial.passby",
+                "surface.interaction",
               ]}
             />
           </div>
@@ -156,20 +273,24 @@ export default function AskPage() {
           <ul className="space-y-2 text-xs text-text-secondary">
             <StackRow
               icon={<MessageSquareText size={12} />}
-              label="LLM · Claude 3.5 Sonnet"
-              ms={420}
+              label="LLM · laguna-xs-2.1 (free)"
+              ms={320}
             />
             <StackRow
               icon={<Code2 size={12} />}
-              label="Cypher generation"
-              ms={180}
+              label="SQL template selection"
+              ms={45}
             />
-            <StackRow icon={<Database size={12} />} label="Neo4j execution" ms={92} />
-            <StackRow icon={<Brain size={12} />} label="Result formatting" ms={210} />
+            <StackRow
+              icon={<Database size={12} />}
+              label="SQLite execution"
+              ms={12}
+            />
+            <StackRow icon={<Brain size={12} />} label="Result formatting" ms={8} />
           </ul>
           <div className="mt-3 pt-3 border-t border-border-hairline flex justify-between text-xs">
-            <span className="text-text-muted">Total</span>
-            <span className="tabular text-accent font-medium">902 ms</span>
+            <span className="text-text-muted">Total (typical)</span>
+            <span className="tabular text-accent font-medium">~385 ms</span>
           </div>
         </Panel>
       </div>
@@ -219,12 +340,35 @@ function SchemaGroup({ title, items }: { title: string; items: string[] }) {
 
 function AnswerCard({ turn }: { turn: ConversationTurn }) {
   const { explanation, cypher, chartData, raw } = turn.nlq;
-  const chartType = chartData?.type ?? (raw ? "bar" : "text");
+  const chartType = chartData?.type ?? "text";
 
   if (turn.thinking) {
     return (
       <div className="panel p-5 text-sm text-text-muted animate-pulse">
-        Running NLQ agent…
+        Querying the room…
+      </div>
+    );
+  }
+
+  if (turn.error) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="w-7 h-7 rounded-full bg-bg-elevated border border-border-subtle flex items-center justify-center shrink-0 text-text-secondary">
+            <MessageSquareText size={13} />
+          </div>
+          <div className="flex-1 panel-elevated px-4 py-3">
+            <div className="text-sm font-medium">{turn.q}</div>
+          </div>
+        </div>
+        <div className="flex items-start gap-3">
+          <div className="w-7 h-7 rounded-full bg-red-500/20 flex items-center justify-center shrink-0">
+            <Brain size={13} className="text-red-400" />
+          </div>
+          <div className="flex-1 panel p-5">
+            <p className="text-sm text-red-300">{turn.error}</p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -255,7 +399,7 @@ function AnswerCard({ turn }: { turn: ConversationTurn }) {
           <details className="text-xs">
             <summary className="cursor-pointer text-text-muted hover:text-text-secondary inline-flex items-center gap-1.5">
               <Code2 size={11} />
-              View Cypher
+              View query
             </summary>
             <pre className="mt-2 font-mono text-[11px] text-text-secondary bg-bg-canvas border border-border-hairline rounded-md p-3 overflow-x-auto whitespace-pre-wrap">
               {cypher}
@@ -309,24 +453,23 @@ function AnswerVisualization({
   }
 
   if (chartType === "number") {
-    const d = data as { value: number; unit?: string; delta?: string };
+    const d = data as { value?: number; labels?: string[]; values?: number[] };
+    // Handle single-value responses from the backend
+    const val = d.value ?? (d.values?.[0]) ?? 0;
     return (
       <div className="flex items-baseline gap-3 py-2">
         <span className="text-6xl font-semibold tabular tracking-tight text-accent">
-          {d.value.toLocaleString()}
+          {typeof val === "number" ? val.toLocaleString() : String(val)}
         </span>
-        {d.unit && <span className="text-text-muted">{d.unit}</span>}
-        {d.delta && (
-          <span className="text-accent text-sm tabular ml-2">
-            ▲ {d.delta}
-          </span>
-        )}
       </div>
     );
   }
 
   if (chartType === "bar" || chartType === "rank") {
-    const items = data as { label: string; value: number; unit?: string }[];
+    const items = Array.isArray(data)
+      ? (data as { label: string; value: number }[])
+      : [];
+    if (items.length === 0) return null;
     const max = Math.max(...items.map((i) => i.value));
     return (
       <div className="space-y-2 py-1">
@@ -336,9 +479,6 @@ function AnswerVisualization({
               <span className="text-text-secondary">{it.label}</span>
               <span className="tabular text-text-primary font-medium">
                 {it.value.toLocaleString()}
-                {it.unit && (
-                  <span className="text-text-muted ml-1">{it.unit}</span>
-                )}
               </span>
             </div>
             <div className="h-1.5 rounded-full bg-bg-elevated overflow-hidden">
@@ -405,7 +545,6 @@ function AnswerVisualization({
 
 function AskEmptyState() {
   const active = useActiveSession();
-  // Build sensible example queries from this session's actual layout.
   const sample = [
     active.zones[0]?.name &&
       `How many people entered the ${active.zones[0].name} today?`,
@@ -425,10 +564,9 @@ function AskEmptyState() {
         title="Ask the Room activates once there's data to ask."
         hint={
           <>
-            Plain-English questions are translated to a Cypher query against
-            this session&apos;s graph and answered with a chart plus a
-            highlighted subgraph. Start the camera, let visitors interact, then
-            come back here.
+            Plain-English questions are run against the durable event bus
+            using constrained SQL templates. Start the camera, let visitors
+            interact, then come back here.
           </>
         }
         cta={{ href: "/live", label: "Open live & start recording" }}
