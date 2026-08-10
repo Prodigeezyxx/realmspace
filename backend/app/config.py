@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     default_tenant_id: str = "t_floats"
 
+    # OpenRouter / AI provider for Ask the Room
+    openrouter_api_key: str = ""
+    openrouter_model: str = "poolside/laguna-xs-2.1:free"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

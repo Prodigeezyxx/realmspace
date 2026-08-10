@@ -10,10 +10,12 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import __version__, bus, db, graph_writer, scorecard
+from app import __version__, ask, bus, db, graph_writer, scorecard
 from app.config import get_settings
 from app.hub import hub
 from app.models import (
+    AskRequest,
+    AskResponse,
     AuthResolveResponse,
     EventBatch,
     GraphSnapshot,
@@ -188,6 +190,28 @@ def auth_resolve(email: str = Query(...)) -> AuthResolveResponse:
         displayName=row["display_name"],
         orgId=row["org_id"],
         role=role,  # type: ignore[arg-type]
+    )
+
+
+@app.post("/v1/ask", response_model=AskResponse)
+def ask_room(body: AskRequest) -> AskResponse:
+    """Ask the Room — NL query against the session's event data.
+
+    Uses constrained SQL templates (ADR-001: relational projection, not Cypher).
+    When OPENROUTER_API_KEY is configured, an LLM selects the best template;
+    otherwise a regex stub maps questions to templates.
+    """
+    result = ask.ask(body.question, body.tenantId, body.sessionId)
+    return AskResponse(
+        question=body.question,
+        answer=result.get("answer", ""),
+        chartType=result.get("chart_type"),
+        template=result.get("template"),
+        fallback=result.get("fallback", False),
+        table=result.get("table"),
+        labels=result.get("labels"),
+        values=result.get("values"),
+        value=result.get("value"),
     )
 
 

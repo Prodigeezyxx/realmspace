@@ -192,3 +192,21 @@ class SessionOutcome(BaseModel):
     peakConcurrencyAt: int | None
     longestDwell: LongestDwell | None
     source: OutcomeSource
+
+
+class AskRequest(BaseModel):
+    question: str
+    tenantId: str
+    sessionId: str
+
+
+class AskResponse(BaseModel):
+    question: str
+    answer: str
+    chartType: str | None = None
+    template: str | None = None
+    fallback: bool = False
+    table: list[dict[str, Any]] | None = None
+    labels: list[str] | None = None
+    values: list[float] | None = None
+    value: float | None = None

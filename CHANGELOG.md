@@ -6,7 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Each entry explains what changed **in plain words** first, then the technical detail.
 Sections are dated (with time, local timezone +0100) so you can see when things landed.
 
-## [Unreleased] — last updated 2026-08-02
+## [Unreleased] — last updated 2026-08-10
+
+### Added — 2026-08-10 — Phase 2: Ask the Room (NLQ → SQL, real)
+
+- **You can now ask the room questions in plain English and get real answers.**
+  The Ask the Room feature is no longer a regex-mocked demo — it runs real
+  queries against the durable event bus and returns live numbers, tables, and
+  chart-ready data. Fourteen constrained SQL templates cover every meaningful
+  query (unique visitors, average dwell, dwell by zone, zone entries, person
+  paths, person dwell time, surface interactions, passbys, engaged visitors,
+  session span, event type breakdown, peak concurrency, traffic over time),
+  with a graceful fallback message when a question falls outside the supported
+  set. When `OPENROUTER_API_KEY` is configured, an LLM selects and
+  parameterizes the right template from the natural-language question;
+  otherwise a regex stub maps common phrasings to templates at zero cost. The
+  new `POST /v1/ask` endpoint returns the answer, chart type suggestion, and
+  structured data (table rows, labels, values) — exactly the contract the
+  dashboard's Ask page expects.
+  *New `backend/app/ask.py` module: `QueryTemplate` dataclass with 14
+  templates (4 number, 4 bar, 1 line, 2 table, 1 pie, 2 fallback), per
+  ADR-001 relational projection over `graph_nodes`/`graph_edges` +
+  `event_log`; `_call_llm()` → OpenRouter OpenAI-compatible client with
+  temperature 0.1; `_stub_match()` regex fallback; `ask()` public entry
+  point. New `AskRequest`/`AskResponse` Pydantic models in
+  `backend/app/models.py`. Config extended with `openrouter_api_key` and
+  `openrouter_model` (`poolside/laguna-xs-2.1:free` default) in
+  `backend/app/config.py`. Verified against `ses_m6fl23rwh2a` (951 events,
+  24 people) and `s_score_b58a7c3b` (22 events, full spatial types) — 14/14
+  templates return correct, traceable answers.*
 
 ### Added — 2026-08-02 — Phase 2: the twin replays recorded sessions from the bus
 
