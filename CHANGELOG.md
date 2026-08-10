@@ -8,6 +8,33 @@ Sections are dated (with time, local timezone +0100) so you can see when things 
 
 ## [Unreleased] — last updated 2026-08-10
 
+### Added — 2026-08-10 — Phase 3: Rules Engine (Act layer)
+
+- **The booth can now act on what it sees — rules fire real-time actions from the
+  event stream.** Every bus event is evaluated against persisted, tenant-scoped
+  rules. A rule defines a trigger (event type + optional zone), a condition
+  (threshold count within a sliding window, "any" match, or "none"), and an
+  action (Slack, webhook, screen swap, staff prompt, or log). When the condition
+  is met, the action dispatcher fires with per-dispatch idempotency; failed
+  dispatches land in the dead-letter queue for HITL retry. Cooldowns prevent
+  spam. A dry-run test endpoint lets operators preview whether a rule would fire
+  against real session data before activating it. Full CRUD endpoints manage the
+  rules catalog. The evaluator runs in-process on the edge kit with sub-3s SLA
+  — when a `spatial.zone_enter` hits the bus, every matching rule is evaluated
+  and dispatched before the next event arrives.
+  *New `backend/app/rules.py`: 500+ lines — `RuleRecord` dataclass, `save_rule` /
+  `update_rule` / `delete_rule` / `load_rules` CRUD, in-memory sliding event
+  windows per rule per session, `evaluate_rules()` main entry point wired into
+  `_on_bus_event`, pluggable `DISPATCHERS` registry (slack/webhook/screen_swap/
+  staff_prompt/log), `action_log` + `dead_letter` tables for traceability,
+  `test_rule()` dry-run against real bus data. New `rules` + `action_log`
+  tables in `db.py`. New models: `RuleCondition`, `RuleAction`, `RuleDefinition`,
+  `RuleCreateRequest`, `RuleUpdateRequest`, `RuleTestRequest/Response`. Five
+  REST endpoints: `GET /v1/rules/{tenant}`, `POST /v1/rules`, `PUT /v1/rules/{id}`,
+  `DELETE /v1/rules/{id}`, `POST /v1/rules/test`. Verified 8/8: create/load,
+  first fire, re-fire (cooldown=0), wrong type ignored, wrong zone ignored,
+  disabled skipped, re-enabled fires, dry-run against `s_score_b58a7c3b`.*
+
 ### Added — 2026-08-10 — Phase 2: Ask the Room (NLQ → SQL, real)
 
 - **You can now ask the room questions in plain English and get real answers.**

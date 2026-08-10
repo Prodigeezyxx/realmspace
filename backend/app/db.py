@@ -82,6 +82,39 @@ CREATE TABLE IF NOT EXISTS auth_users (
   role         TEXT NOT NULL,
   created_at   TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS rules (
+  rule_id      TEXT PRIMARY KEY,
+  tenant_id    TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  trigger_type TEXT NOT NULL,
+  trigger_config TEXT NOT NULL,
+  condition_config TEXT NOT NULL,
+  action_type  TEXT NOT NULL,
+  action_config TEXT NOT NULL,
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  cooldown_sec INTEGER NOT NULL DEFAULT 60,
+  last_fired_at TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rules_tenant ON rules (tenant_id, enabled);
+
+CREATE TABLE IF NOT EXISTS action_log (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  rule_id      TEXT NOT NULL,
+  tenant_id    TEXT NOT NULL,
+  session_id   TEXT NOT NULL,
+  event_seq    INTEGER NOT NULL,
+  action_type  TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'pending',
+  payload      TEXT NOT NULL,
+  attempts     INTEGER NOT NULL DEFAULT 0,
+  last_error   TEXT,
+  created_at   TEXT NOT NULL,
+  completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_action_log_rule ON action_log (rule_id, created_at);
 """
 
 

@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import __version__, ask, bus, db, graph_writer, scorecard
+from app import __version__, ask, bus, db, graph_writer, rules, scorecard
 from app.config import get_settings
 from app.hub import hub
 from app.models import (
@@ -22,6 +22,12 @@ from app.models import (
     HealthResponse,
     RealmEvent,
     RealmEventInput,
+    RuleCreateRequest,
+    RuleDefinition,
+    RulesListResponse,
+    RuleTestRequest,
+    RuleTestResponse,
+    RuleUpdateRequest,
     SessionMeta,
     SessionOutcome,
 )
@@ -30,8 +36,16 @@ _loop: asyncio.AbstractEventLoop | None = None
 
 
 def _on_bus_event(event: RealmEvent) -> None:
-    """Sync bus subscriber → graph writer + schedule WS broadcast."""
+    """Sync bus subscriber → graph writer + rules engine + schedule WS broadcast."""
     graph_writer.on_bus_event(event)
+    rules.evaluate_rules(
+        event.type,
+        event.payload,
+        event.tenantId,
+        event.sessionId,
+        event.occurredAt,
+        event.seq,
+    )
     if _loop and _loop.is_running():
         asyncio.run_coroutine_threadsafe(hub.broadcast(event), _loop)
 
@@ -213,6 +227,101 @@ def ask_room(body: AskRequest) -> AskResponse:
         values=result.get("values"),
         value=result.get("value"),
     )
+
+
+# ── RULES ENGINE (Phase 3) ──────────────────────────────────────────────────
+# Persisted rules, CRUD, dry-run testing.
+
+
+@app.get("/v1/rules/{tenant_id}", response_model=RulesListResponse)
+def list_rules(tenant_id: str) -> RulesListResponse:
+    recs = rules.load_rules(tenant_id)
+    return RulesListResponse(rules=[
+        RuleDefinition(
+            ruleId=r.rule_id,
+            tenantId=r.tenant_id,
+            name=r.name,
+            triggerType=r.trigger_type,
+            triggerZoneId=r.trigger_config.get("zoneId") if r.trigger_config else None,
+            condition=r.condition_config,
+            action=r.action_config,
+            enabled=r.enabled,
+            cooldownSec=r.cooldown_sec,
+        )
+        for r in recs
+    ])
+
+
+@app.post("/v1/rules", response_model=RuleDefinition, status_code=201)
+def create_rule(body: RuleCreateRequest) -> RuleDefinition:
+    rule_id = f"r_{body.tenantId}_{body.triggerType}_{int(time.time())}"
+    trigger_config = {"zoneId": body.triggerZoneId} if body.triggerZoneId else {}
+    rules.save_rule(
+        rule_id=rule_id,
+        tenant_id=body.tenantId,
+        name=body.name,
+        trigger_type=body.triggerType,
+        trigger_config=trigger_config,
+        condition_config=body.condition.model_dump(),
+        action_type=body.action.type,
+        action_config=body.action.model_dump(),
+        cooldown_sec=body.cooldownSec,
+    )
+    return RuleDefinition(
+        ruleId=rule_id,
+        tenantId=body.tenantId,
+        name=body.name,
+        triggerType=body.triggerType,
+        triggerZoneId=body.triggerZoneId,
+        condition=body.condition,
+        action=body.action,
+        enabled=True,
+        cooldownSec=body.cooldownSec,
+    )
+
+
+@app.put("/v1/rules/{rule_id}", response_model=dict)
+def update_rule_endpoint(rule_id: str, body: RuleUpdateRequest) -> dict:
+    updates = {}
+    if body.name is not None:
+        updates["name"] = body.name
+    if body.condition is not None:
+        updates["condition_config"] = body.condition.model_dump()
+    if body.action is not None:
+        updates["action_type"] = body.action.type
+        updates["action_config"] = body.action.model_dump()
+    if body.enabled is not None:
+        updates["enabled"] = 1 if body.enabled else 0
+    if body.cooldownSec is not None:
+        updates["cooldown_sec"] = body.cooldownSec
+
+    ok = rules.update_rule(rule_id, updates)
+    if not ok:
+        raise HTTPException(status_code=404, detail="rule not found")
+    return {"ok": True, "ruleId": rule_id}
+
+
+@app.delete("/v1/rules/{rule_id}", response_model=dict)
+def delete_rule_endpoint(rule_id: str) -> dict:
+    ok = rules.delete_rule(rule_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="rule not found")
+    return {"ok": True, "ruleId": rule_id}
+
+
+@app.post("/v1/rules/test", response_model=RuleTestResponse)
+def test_rule_endpoint(body: RuleTestRequest) -> RuleTestResponse:
+    result = rules.test_rule(
+        tenant_id=body.tenantId,
+        session_id=body.sessionId,
+        trigger_type=body.rule.triggerType,
+        trigger_zone_id=body.rule.triggerZoneId,
+        condition=body.rule.condition.model_dump(),
+    )
+    return RuleTestResponse(**result)
+
+
+import time  # noqa: E402 — needed for create_rule timestamp
 
 
 @app.websocket("/v1/ws/{tenant_id}/{session_id}")

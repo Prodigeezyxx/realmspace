@@ -210,3 +210,67 @@ class AskResponse(BaseModel):
     labels: list[str] | None = None
     values: list[float] | None = None
     value: float | None = None
+
+
+# ── Rules Engine (Phase 3) ──────────────────────────────────────────────────
+
+class RuleCondition(BaseModel):
+    type: Literal["threshold", "any", "none"]
+    count: int | None = None
+    windowSec: int = 30
+    zoneId: str | None = None
+    minDwellSec: float | None = None
+
+
+class RuleAction(BaseModel):
+    type: Literal["slack", "webhook", "screen_swap", "staff_prompt", "log"]
+    channel: str | None = None
+    url: str | None = None
+    message: str = ""
+    screenId: str | None = None
+
+
+class RuleDefinition(BaseModel):
+    ruleId: str
+    tenantId: str
+    name: str
+    triggerType: str  # e.g. "spatial.zone_enter", "spatial.dwell"
+    triggerZoneId: str | None = None
+    condition: RuleCondition
+    action: RuleAction
+    enabled: bool = True
+    cooldownSec: int = 60
+
+
+class RuleCreateRequest(BaseModel):
+    tenantId: str
+    name: str
+    triggerType: str
+    triggerZoneId: str | None = None
+    condition: RuleCondition
+    action: RuleAction
+    cooldownSec: int = 60
+
+
+class RuleUpdateRequest(BaseModel):
+    name: str | None = None
+    condition: RuleCondition | None = None
+    action: RuleAction | None = None
+    enabled: bool | None = None
+    cooldownSec: int | None = None
+
+
+class RulesListResponse(BaseModel):
+    rules: list[RuleDefinition]
+
+
+class RuleTestRequest(BaseModel):
+    rule: RuleCreateRequest
+    tenantId: str
+    sessionId: str
+
+
+class RuleTestResponse(BaseModel):
+    wouldFire: bool
+    matchingEvents: int
+    reason: str
