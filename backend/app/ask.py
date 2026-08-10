@@ -399,7 +399,7 @@ def _call_llm(question: str) -> dict[str, Any]:
 
     client = OpenAI(
         api_key=settings.openrouter_api_key,
-        base_url="https://openrouter.ai/api/v1",
+        base_url=settings.openrouter_base_url,
     )
 
     try:
