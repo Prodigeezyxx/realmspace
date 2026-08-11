@@ -337,3 +337,40 @@ class CrmConnectionConfig(BaseModel):
     crmType: str
     apiConfig: dict
     fieldMapping: dict = Field(default_factory=dict)
+
+
+# ── Intelligence (Phase 5): Insights, SDR drafts ────────────────────────────
+
+class InsightGenerateRequest(BaseModel):
+    tenantId: str
+    sessionId: str
+    maxInsights: int = 3
+
+
+class InsightResponse(BaseModel):
+    insightId: str
+    tenantId: str
+    sessionId: str
+    kind: str
+    insight: str
+    supportingEvents: list[int] = Field(default_factory=list)
+    generatedAt: str
+
+
+class SdrDraftRequest(BaseModel):
+    tenantId: str
+    sessionId: str
+    anonId: str
+
+
+class SdrDraftResponse(BaseModel):
+    draftId: str
+    tenantId: str
+    sessionId: str
+    anonId: str
+    contactEmail: str | None = None
+    contactName: str | None = None
+    subject: str
+    body: str
+    pathContext: dict
+    generatedAt: str

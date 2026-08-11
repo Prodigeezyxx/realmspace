@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import __version__, ask, attribute, bus, db, graph_writer, rules, scorecard
+from app import __version__, ask, attribute, bus, db, graph_writer, intelligence, rules, scorecard
 from app.config import get_settings
 from app.hub import hub
 from app.models import (
@@ -25,6 +25,8 @@ from app.models import (
     GraphSnapshot,
     HealthResponse,
     IdentityResolveRequest,
+    InsightGenerateRequest,
+    InsightResponse,
     IntentScoreRequest,
     LeadHandoffRequest,
     RealmEvent,
@@ -35,6 +37,8 @@ from app.models import (
     RuleTestRequest,
     RuleTestResponse,
     RuleUpdateRequest,
+    SdrDraftRequest,
+    SdrDraftResponse,
     SessionMeta,
     SessionOutcome,
 )
@@ -444,6 +448,32 @@ def get_crm_connections(tenant_id: str) -> list[dict]:
         }
         for r in rows
     ]
+
+
+# ── INTELLIGENCE (Phase 5): Insights, SDR drafts ────────────────────────────
+
+
+@app.post("/v1/insights/generate")
+def generate_insights(body: InsightGenerateRequest) -> list[dict]:
+    return intelligence.generate_insights(body.tenantId, body.sessionId, body.maxInsights)
+
+
+@app.get("/v1/insights/{tenant_id}")
+def list_insights(tenant_id: str, sessionId: str | None = None, limit: int = 20) -> list[dict]:
+    return intelligence.list_insights(tenant_id, sessionId, limit)
+
+
+@app.post("/v1/sdr/draft")
+def generate_sdr_draft(body: SdrDraftRequest) -> dict:
+    result = intelligence.generate_follow_up(body.anonId, body.tenantId, body.sessionId)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.get("/v1/sdr/draft/{tenant_id}")
+def list_sdr_drafts(tenant_id: str, sessionId: str | None = None) -> list[dict]:
+    return intelligence.list_drafts(tenant_id, sessionId)
 
 
 @app.websocket("/v1/ws/{tenant_id}/{session_id}")

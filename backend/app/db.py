@@ -192,6 +192,31 @@ CREATE TABLE IF NOT EXISTS crm_connections (
   updated_at   TEXT NOT NULL,
   PRIMARY KEY (tenant_id, crm_type)
 );
+
+-- Phase 5: Intelligence — insights + SDR drafts
+CREATE TABLE IF NOT EXISTS insights (
+  insight_id   TEXT PRIMARY KEY,
+  tenant_id    TEXT NOT NULL,
+  session_id   TEXT NOT NULL,
+  kind         TEXT NOT NULL DEFAULT 'info',
+  insight_text TEXT NOT NULL,
+  supporting_event_seqs TEXT NOT NULL DEFAULT '[]',
+  generated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_insights_session ON insights (tenant_id, session_id, generated_at DESC);
+
+CREATE TABLE IF NOT EXISTS sdr_drafts (
+  draft_id     TEXT PRIMARY KEY,
+  tenant_id    TEXT NOT NULL,
+  session_id   TEXT NOT NULL,
+  anon_id      TEXT NOT NULL,
+  contact_email TEXT,
+  contact_name TEXT,
+  path_context TEXT NOT NULL DEFAULT '{}',
+  draft_text   TEXT NOT NULL,
+  generated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sdr_session ON sdr_drafts (tenant_id, session_id);
 """
 
 
