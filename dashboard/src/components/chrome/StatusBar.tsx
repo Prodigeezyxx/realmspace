@@ -77,7 +77,7 @@ export function StatusBar() {
 
   return (
     <>
-      <header className="h-16 flex items-center justify-between px-5 sticky top-0 z-30 bg-bg-base/85 backdrop-blur-xl border-b border-border-hairline">
+      <header className="h-16 flex items-center justify-between px-4 sticky top-0 z-30 surface border-b border-outline-variant">
         {/* Left — logo + session switcher */}
         <div className="flex items-center gap-3 min-w-0">
           <Link

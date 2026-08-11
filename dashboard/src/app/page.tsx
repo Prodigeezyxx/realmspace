@@ -149,19 +149,19 @@ export default function LandingPage() {
       {/* ── Capabilities — three pillars */}
       <section
         id="capabilities"
-        className="border-y border-border-hairline bg-bg-canvas/50"
+        className="border-y border-outline-variant surface-container-low"
       >
         <div className="max-w-[1400px] mx-auto px-5 py-24">
           <div className="grid md:grid-cols-2 gap-12 items-end mb-14">
             <div>
-              <h2 className="display-sm text-5xl md:text-6xl">
+              <h2 className="display-medium">
                 Three surfaces.
-                <span className="text-text-faint">
-                  One platform.
+                <span className="text-on-surface-variant">
+                  {" "}One platform.
                 </span>
               </h2>
             </div>
-            <p className="text-text-secondary text-lg leading-relaxed max-w-xl">
+            <p className="body-large text-on-surface-variant max-w-xl">
               During the activation, the system captures zone entries, dwell
               times, and movement as structured events. Those events feed a live
               operator view, a 3D replay, and a client report — all from the
@@ -452,8 +452,8 @@ function Pillar({
 }) {
   return (
     <div
-      className={`panel p-7 flex flex-col gap-4 group hover:border-border-subtle transition-all ${
-        accent ? "ring-1 ring-accent/40 shadow-[var(--glow-green)]" : ""
+      className={`m3-card p-7 flex flex-col gap-4 group ${
+        accent ? "ring-1 ring-primary/40" : ""
       }`}
     >
       <div className="flex items-center gap-3">
@@ -530,8 +530,8 @@ function PriceTier({
 }) {
   return (
     <div
-      className={`panel p-8 flex flex-col gap-6 relative ${
-        featured ? "ring-1 ring-accent/40 shadow-[var(--glow-green)]" : ""
+      className={`m3-card-elevated p-8 flex flex-col gap-6 relative ${
+        featured ? "ring-1 ring-primary/40" : ""
       }`}
     >
       {featured && (

@@ -26,40 +26,41 @@ const items = [
 export function NavRail() {
   const pathname = usePathname();
   return (
-    <nav className="hidden md:flex flex-col items-center w-20 py-4 px-3 shrink-0">
-      <div
-        className="bg-bg-raised border border-border-subtle rounded-full flex flex-col items-center gap-1 p-1.5 shadow-[var(--shadow-sm)]"
-      >
+    <nav className="hidden md:flex flex-col w-20 shrink-0 surface-container border-r border-outline-variant">
+      {/* Navigation items — M3 nav rail style: icon above label, no pill container */}
+      <div className="flex flex-col items-center gap-2 py-4 flex-1">
         {items.map(({ href, label, icon: Icon }) => {
-          const active = pathname.startsWith(href);
+          const active = pathname === href || (href !== "/" && pathname.startsWith(href));
           return (
             <Link
               key={href}
               href={href}
               className={cn(
-                "group relative flex flex-col items-center justify-center w-12 h-12 rounded-full transition-colors",
+                "flex flex-col items-center justify-center gap-1 w-16 h-14 rounded-2xl transition-all duration-200",
                 active
-                  ? "bg-accent text-text-inverse shadow-[var(--glow-green)]"
-                  : "text-text-muted hover:text-text-primary hover:bg-bg-elevated"
+                  ? "bg-secondary-container text-on-secondary-container"
+                  : "text-on-surface-variant hover:bg-surface-container-high"
               )}
               title={label}
             >
-              <Icon size={18} strokeWidth={2} />
-              <span className="text-[8px] uppercase tracking-[0.16em] mt-0.5 font-semibold">
-                {label}
-              </span>
+              <Icon size={20} strokeWidth={active ? 2.5 : 1.8} />
+              <span className="label-small">{label}</span>
             </Link>
           );
         })}
       </div>
-      <div className="flex-1" />
-      <Link
-        href="/"
-        className="w-12 h-12 rounded-full flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors"
-        title="Settings"
-      >
-        <Settings size={18} strokeWidth={2} />
-      </Link>
+
+      {/* Bottom action */}
+      <div className="flex flex-col items-center pb-4">
+        <Link
+          href="/"
+          className="flex flex-col items-center justify-center gap-1 w-16 h-14 rounded-2xl text-on-surface-variant hover:bg-surface-container-high transition-colors"
+          title="Home"
+        >
+          <Settings size={20} strokeWidth={1.8} />
+          <span className="label-small">Home</span>
+        </Link>
+      </div>
     </nav>
   );
 }
