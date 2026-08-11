@@ -86,7 +86,7 @@ export default function LandingPage() {
         <div className="grid lg:grid-cols-12 gap-12 lg:gap-16 items-start">
           {/* LHS — display headline */}
           <div className="lg:col-span-7">
-            <h1 className="display text-[80px] md:text-[112px] leading-[0.92] tracking-[-0.04em] font-bold">
+            <h1 className="display-large tracking-[-0.04em]">
               <span className="block">
                 <span className="ghost-text" data-text="Watch the">
                   Watch the

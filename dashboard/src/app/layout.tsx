@@ -39,7 +39,7 @@ export default function RootLayout({
       lang="en"
       className={`${jakarta.variable} ${jetBrainsMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-bg-base text-text-primary">
+      <body className="min-h-full surface body-medium">
         <RootProviders>{children}</RootProviders>
       </body>
     </html>

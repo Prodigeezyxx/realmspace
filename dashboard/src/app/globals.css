@@ -1,67 +1,184 @@
 @import "tailwindcss";
 
-/* ──────────────────────────────────────────────────────────────────
-   RealmSpace — Intellias-inspired design system
-   Black canvas · dark-grey panels · one vivid mint-green accent ·
-   pill-shaped chrome · heavy rounding · big display typography
-   ────────────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   RealmSpace — Material Design 3 Design System
+   M3 color roles · type scale · 8dp spacing · corner radii · elevation
+   Dark theme · mint-green primary · M3 Expressive
+   ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ── M3 Color Roles (Dark Theme) ────────────────────────────────────────── */
 :root {
-  /* Surfaces — true black with rich dark-grey panels */
-  --bg-base: #000000;
-  --bg-canvas: #050505;
-  --bg-panel: #131313;
-  --bg-elevated: #181818;
-  --bg-raised: #1f1f1f;        /* pill containers, raised surfaces */
-  --bg-input: #1a1a1a;
-  --bg-inverse: #ffffff;        /* used for buttons on dark, etc. */
-  --bg-viewport: #0a0a0a;       /* video viewport background */
+  /* Primary — mint-green brand accent */
+  --md-sys-color-primary: #42faa1;
+  --md-sys-color-on-primary: #003822;
+  --md-sys-color-primary-container: #005236;
+  --md-sys-color-on-primary-container: #7affba;
+  --md-sys-color-primary-fixed: #7affba;
+  --md-sys-color-on-primary-fixed: #002114;
 
-  /* Borders — very low contrast hairlines */
-  --border-hairline: #1c1c1c;
-  --border-subtle: #262626;
-  --border-strong: #383838;
-  --border-bright: #5a5a5a;
+  /* Secondary — muted teal */
+  --md-sys-color-secondary: #8cd8bd;
+  --md-sys-color-on-secondary: #00382a;
+  --md-sys-color-secondary-container: #1a4d3c;
+  --md-sys-color-on-secondary-container: #a8f4d8;
 
-  /* Text — clean white hierarchy */
-  --text-primary: #ffffff;
-  --text-secondary: #a8a8ad;
-  --text-muted: #6e6e74;
-  --text-faint: #4a4a4f;
-  --text-inverse: #0a0a0a;     /* black text on green / white buttons */
+  /* Tertiary — blue-violet for insights */
+  --md-sys-color-tertiary: #b66bff;
+  --md-sys-color-on-tertiary: #290055;
+  --md-sys-color-tertiary-container: #3f007a;
+  --md-sys-color-on-tertiary-container: #dbb0ff;
 
-  /* Accents — the ONE green is the brand. Everything else is supporting */
-  --accent: #42faa1;                 /* mint-green — primary brand accent */
-  --accent-bright: #5efcab;          /* hover */
-  --accent-soft: rgba(66, 250, 161, 0.12);   /* tints */
+  /* Error — red for alerts/recording */
+  --md-sys-color-error: #ff6b6b;
+  --md-sys-color-on-error: #690005;
+  --md-sys-color-error-container: #93000a;
+  --md-sys-color-on-error-container: #ffb4ab;
 
-  /* Functional / semantic accents — used sparingly */
-  --accent-red: #ff4d4d;             /* alert / recording */
-  --accent-amber: #ffc83d;           /* warn */
-  --accent-blue: #4a9eff;            /* info / chart series */
-  --accent-cyan: #00d4ff;            /* live data / chart series */
-  --accent-violet: #b66bff;          /* insights / chart series */
+  /* Surface — dark canvas, tone-based elevation */
+  --md-sys-color-surface: #0a0a0d;
+  --md-sys-color-on-surface: #e2e2e6;
+  --md-sys-color-surface-variant: #2a2a30;
+  --md-sys-color-on-surface-variant: #c4c4ca;
+  --md-sys-color-surface-container-lowest: #050508;
+  --md-sys-color-surface-container-low: #0f0f14;
+  --md-sys-color-surface-container: #14141a;
+  --md-sys-color-surface-container-high: #1e1e26;
+  --md-sys-color-surface-container-highest: #292930;
+  --md-sys-color-surface-dim: #0a0a0d;
+  --md-sys-color-surface-bright: #303038;
+  --md-sys-color-inverse-surface: #e2e2e6;
+  --md-sys-color-on-inverse-surface: #1a1a20;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
-  --shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
-  --shadow-lg: 0 12px 40px -16px rgba(0, 0, 0, 0.8);
+  /* Outline */
+  --md-sys-color-outline: #57575f;
+  --md-sys-color-outline-variant: #3a3a42;
+
+  /* ── Backward-compatible aliases (existing code keeps working) ── */
+  --bg-base: var(--md-sys-color-surface);
+  --bg-canvas: var(--md-sys-color-surface-container-lowest);
+  --bg-panel: var(--md-sys-color-surface-container);
+  --bg-elevated: var(--md-sys-color-surface-container-high);
+  --bg-raised: var(--md-sys-color-surface-container-highest);
+  --bg-input: var(--md-sys-color-surface-variant);
+  --bg-inverse: var(--md-sys-color-inverse-surface);
+  --bg-viewport: #000000;
+
+  --border-hairline: var(--md-sys-color-outline-variant);
+  --border-subtle: var(--md-sys-color-outline);
+  --border-strong: #6e6e78;
+  --border-bright: #9999a4;
+
+  --text-primary: var(--md-sys-color-on-surface);
+  --text-secondary: #c4c4ca;
+  --text-muted: #8e8e96;
+  --text-faint: #5e5e66;
+  --text-inverse: var(--md-sys-color-on-inverse-surface);
+
+  --accent: var(--md-sys-color-primary);
+  --accent-bright: #5efcab;
+  --accent-soft: rgba(66, 250, 161, 0.12);
+
+  --accent-red: var(--md-sys-color-error);
+  --accent-amber: #ffc83d;
+  --accent-blue: #4a9eff;
+  --accent-cyan: #00d4ff;
+  --accent-violet: var(--md-sys-color-tertiary);
+
+  /* ── M3 Elevation — tone-based, no shadows by default ── */
+  --md-sys-elevation-0: none;
+  --md-sys-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.15);
+  --md-sys-elevation-2: 0 2px 6px rgba(0, 0, 0, 0.3), 0 1px 8px rgba(0, 0, 0, 0.15);
+  --md-sys-elevation-3: 0 4px 8px rgba(0, 0, 0, 0.3), 0 2px 12px rgba(0, 0, 0, 0.2);
+  --md-sys-elevation-4: 0 6px 12px rgba(0, 0, 0, 0.35), 0 4px 16px rgba(0, 0, 0, 0.25);
+  --md-sys-elevation-5: 0 8px 16px rgba(0, 0, 0, 0.4), 0 6px 24px rgba(0, 0, 0, 0.3);
+
+  --shadow-sm: var(--md-sys-elevation-1);
+  --shadow: var(--md-sys-elevation-2);
+  --shadow-lg: var(--md-sys-elevation-4);
   --glow-green: 0 0 32px -8px rgba(66, 250, 161, 0.45);
 
-  /* Type */
-  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system,
-    "Segoe UI", Roboto, sans-serif;
-  --font-mono: var(--font-mono-jb), ui-monospace, "JetBrains Mono",
-    SFMono-Regular, Menlo, monospace;
+  /* ── M3 Type Scale (30 styles: 15 baseline + 15 emphasized) ── */
+  /* Display */
+  --md-sys-typescale-display-large: 700 3.5625rem/4rem "Plus Jakarta Sans", sans-serif;
+  --md-sys-typescale-display-medium: 700 2.8125rem/3.25rem "Plus Jakarta Sans", sans-serif;
+  --md-sys-typescale-display-small: 700 2.25rem/2.75rem "Plus Jakarta Sans", sans-serif;
+  /* Headline */
+  --md-sys-typescale-headline-large: 600 2rem/2.5rem "Plus Jakarta Sans", sans-serif;
+  --md-sys-typescale-headline-medium: 600 1.75rem/2.25rem "Plus Jakarta Sans", sans-serif;
+  --md-sys-typescale-headline-small: 600 1.5rem/2rem "Plus Jakarta Sans", sans-serif;
+  /* Title */
+  --md-sys-typescale-title-large: 600 1.375rem/1.75rem "Plus Jakarta Sans", sans-serif;
+  --md-sys-typescale-title-medium: 500 1rem/1.5rem "Plus Jakarta Sans", sans-serif;
+  --md-sys-typescale-title-small: 500 0.875rem/1.25rem "Plus Jakarta Sans", sans-serif;
+  /* Body */
+  --md-sys-typescale-body-large: 400 1rem/1.5rem "Plus Jakarta Sans", sans-serif;
+  --md-sys-typescale-body-medium: 400 0.875rem/1.25rem "Plus Jakarta Sans", sans-serif;
+  --md-sys-typescale-body-small: 400 0.75rem/1rem "Plus Jakarta Sans", sans-serif;
+  /* Label */
+  --md-sys-typescale-label-large: 500 0.875rem/1.25rem "Plus Jakarta Sans", sans-serif;
+  --md-sys-typescale-label-medium: 500 0.75rem/1rem "Plus Jakarta Sans", sans-serif;
+  --md-sys-typescale-label-small: 500 0.6875rem/1rem "Plus Jakarta Sans", sans-serif;
+
+  /* ── M3 Spacing (8dp baseline) ── */
+  --md-sys-spacing-0: 0;
+  --md-sys-spacing-50: 4px;
+  --md-sys-spacing-100: 8px;
+  --md-sys-spacing-150: 12px;
+  --md-sys-spacing-200: 16px;
+  --md-sys-spacing-250: 20px;
+  --md-sys-spacing-300: 24px;
+  --md-sys-spacing-350: 28px;
+  --md-sys-spacing-400: 32px;
+  --md-sys-spacing-500: 40px;
+  --md-sys-spacing-600: 48px;
+  --md-sys-spacing-700: 56px;
+  --md-sys-spacing-800: 64px;
+  --md-sys-spacing-900: 72px;
+
+  /* ── M3 Corner Radius ── */
+  --md-sys-shape-corner-none: 0px;
+  --md-sys-shape-corner-extra-small: 4px;
+  --md-sys-shape-corner-small: 8px;
+  --md-sys-shape-corner-medium: 12px;
+  --md-sys-shape-corner-large: 16px;
+  --md-sys-shape-corner-extra-large: 28px;
+  --md-sys-shape-corner-full: 9999px;
+
+  /* Backward-compatible radius aliases */
+  --radius-sm: var(--md-sys-shape-corner-extra-small);   /* 4px */
+  --radius: var(--md-sys-shape-corner-small);             /* 8px */
+  --radius-lg: var(--md-sys-shape-corner-large);          /* 16px */
+  --radius-xl: var(--md-sys-shape-corner-extra-large);    /* 28px */
+  --radius-pill: var(--md-sys-shape-corner-full);
+
+  /* ── M3 Motion — spring physics ── */
+  /* Expressive scheme (default) */
+  --md-sys-motion-spring-fast-spatial: cubic-bezier(0.2, 0.8, 0.2, 1.15);
+  --md-sys-motion-spring-default-spatial: cubic-bezier(0.2, 0.7, 0.1, 1.1);
+  --md-sys-motion-spring-slow-spatial: cubic-bezier(0.15, 0.6, 0.1, 1.05);
+  --md-sys-motion-spring-fast-effects: cubic-bezier(0.2, 0, 0, 1);
+  --md-sys-motion-spring-default-effects: cubic-bezier(0.3, 0, 0, 1);
+  --md-sys-motion-spring-slow-effects: cubic-bezier(0.4, 0, 0, 1);
+
+  /* Duration tokens */
+  --md-sys-motion-duration-short: 200ms;
+  --md-sys-motion-duration-medium: 400ms;
+  --md-sys-motion-duration-long: 600ms;
+
+  /* ── Fonts ── */
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-mono-jb), ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace;
 
   --background: var(--bg-base);
   --foreground: var(--text-primary);
 }
 
+/* ── Tailwind v4 @theme block — expose M3 tokens as utility classes ─────── */
 @theme inline {
   --color-background: var(--bg-base);
   --color-foreground: var(--text-primary);
 
+  /* Surfaces */
   --color-bg-base: var(--bg-base);
   --color-bg-canvas: var(--bg-canvas);
   --color-bg-panel: var(--bg-panel);
@@ -71,17 +188,20 @@
   --color-bg-inverse: var(--bg-inverse);
   --color-bg-viewport: var(--bg-viewport);
 
+  /* Borders */
   --color-border-hairline: var(--border-hairline);
   --color-border-subtle: var(--border-subtle);
   --color-border-strong: var(--border-strong);
   --color-border-bright: var(--border-bright);
 
+  /* Text */
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
   --color-text-faint: var(--text-faint);
   --color-text-inverse: var(--text-inverse);
 
+  /* Accent */
   --color-accent: var(--accent);
   --color-accent-bright: var(--accent-bright);
   --color-accent-red: var(--accent-red);
@@ -90,33 +210,83 @@
   --color-accent-cyan: var(--accent-cyan);
   --color-accent-violet: var(--accent-violet);
 
+  /* M3 surface container colors */
+  --color-surface: var(--md-sys-color-surface);
+  --color-surface-lowest: var(--md-sys-color-surface-container-lowest);
+  --color-surface-low: var(--md-sys-color-surface-container-low);
+  --color-surface-container: var(--md-sys-color-surface-container);
+  --color-surface-high: var(--md-sys-color-surface-container-high);
+  --color-surface-highest: var(--md-sys-color-surface-container-highest);
+  --color-surface-dim: var(--md-sys-color-surface-dim);
+  --color-surface-bright: var(--md-sys-color-surface-bright);
+
+  /* M3 primary colors */
+  --color-primary: var(--md-sys-color-primary);
+  --color-on-primary: var(--md-sys-color-on-primary);
+  --color-primary-container: var(--md-sys-color-primary-container);
+  --color-on-primary-container: var(--md-sys-color-on-primary-container);
+
+  /* M3 error colors */
+  --color-error: var(--md-sys-color-error);
+  --color-error-container: var(--md-sys-color-error-container);
+  --color-on-error-container: var(--md-sys-color-on-error-container);
+
+  /* M3 tertiary */
+  --color-tertiary: var(--md-sys-color-tertiary);
+
+  /* M3 outline */
+  --color-outline: var(--md-sys-color-outline);
+  --color-outline-variant: var(--md-sys-color-outline-variant);
+
+  /* Fonts */
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
 
-  --radius-sm: 0.625rem;        /* 10px */
-  --radius: 1rem;               /* 16px */
-  --radius-lg: 1.5rem;          /* 24px */
-  --radius-xl: 2rem;            /* 32px */
-  --radius-pill: 9999px;
+  /* Radius */
+  --radius-xs: var(--md-sys-shape-corner-extra-small);
+  --radius-sm: var(--md-sys-shape-corner-small);
+  --radius-md: var(--md-sys-shape-corner-medium);
+  --radius-lg: var(--md-sys-shape-corner-large);
+  --radius-xl: var(--md-sys-shape-corner-extra-large);
+  --radius-pill: var(--md-sys-shape-corner-full);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BASE ELEMENTS
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 html,
 body {
-  background: var(--bg-base);
-  color: var(--text-primary);
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
   font-family: var(--font-sans);
   font-feature-settings: "ss01", "ss02", "cv11";
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-/* ── Tabular numbers */
+/* ── M3 Typography utility classes ── */
+.display-large { font: var(--md-sys-typescale-display-large); letter-spacing: -0.022em; }
+.display-medium { font: var(--md-sys-typescale-display-medium); letter-spacing: -0.018em; }
+.display-small { font: var(--md-sys-typescale-display-small); letter-spacing: -0.015em; }
+.headline-large { font: var(--md-sys-typescale-headline-large); }
+.headline-medium { font: var(--md-sys-typescale-headline-medium); }
+.headline-small { font: var(--md-sys-typescale-headline-small); }
+.title-large { font: var(--md-sys-typescale-title-large); }
+.title-medium { font: var(--md-sys-typescale-title-medium); }
+.title-small { font: var(--md-sys-typescale-title-small); }
+.body-large { font: var(--md-sys-typescale-body-large); }
+.body-medium { font: var(--md-sys-typescale-body-medium); }
+.body-small { font: var(--md-sys-typescale-body-small); }
+.label-large { font: var(--md-sys-typescale-label-large); }
+.label-medium { font: var(--md-sys-typescale-label-medium); }
+.label-small { font: var(--md-sys-typescale-label-small); }
+
+/* ── Backward compatible aliases ── */
 .tabular {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1, "lnum" 1;
 }
-
-/* ── Tight display tracking for big headings, like Intellias */
 .display {
   font-feature-settings: "ss01", "cv11";
   letter-spacing: -0.022em;
@@ -128,195 +298,238 @@ body {
   line-height: 1.02;
   font-weight: 600;
 }
-
-/* ── Eyebrow / kicker labels */
 .eyebrow {
-  font-size: 11px;
-  letter-spacing: 0.18em;
+  font: var(--md-sys-typescale-label-small);
+  letter-spacing: 0.15em;
   text-transform: uppercase;
-  font-weight: 500;
   color: var(--text-secondary);
 }
 
-/* ── Canvas backdrop — pure black with the slightest green pulse on edges */
+/* ── M3 Surface containers (tone-based elevation, no shadows) ── */
+.surface { background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface); }
+.surface-container-lowest { background: var(--md-sys-color-surface-container-lowest); }
+.surface-container-low { background: var(--md-sys-color-surface-container-low); }
+.surface-container { background: var(--md-sys-color-surface-container); }
+.surface-container-high { background: var(--md-sys-color-surface-container-high); }
+.surface-container-highest { background: var(--md-sys-color-surface-container-highest); }
+
+/* ── Canvas vignette ── */
 .canvas-vignette {
   background:
-    radial-gradient(
-      80% 60% at 90% 110%,
-      rgba(66, 250, 161, 0.05),
-      transparent 60%
-    ),
-    radial-gradient(
-      60% 50% at 10% -10%,
-      rgba(66, 250, 161, 0.03),
-      transparent 60%
-    ),
+    radial-gradient(80% 60% at 90% 110%, rgba(66, 250, 161, 0.05), transparent 60%),
+    radial-gradient(60% 50% at 10% -10%, rgba(66, 250, 161, 0.03), transparent 60%),
     var(--bg-base);
 }
 
-/* ── Card — rich dark panel with heavy rounding */
+/* ── Panel (replaces old panel with M3 surface-container) ── */
 .panel {
-  background: var(--bg-panel);
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-lg);
+  background: var(--md-sys-color-surface-container);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-large);
+  padding: var(--md-sys-spacing-300);
+  transition: background var(--md-sys-motion-duration-short) var(--md-sys-motion-spring-fast-effects);
 }
 
 .panel-elevated {
-  background: linear-gradient(180deg, #1a1a1a 0%, #111111 100%);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  background: var(--md-sys-color-surface-container-high);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-large);
+  padding: var(--md-sys-spacing-300);
+  box-shadow: var(--md-sys-elevation-1);
+  transition: box-shadow var(--md-sys-motion-duration-short) var(--md-sys-motion-spring-fast-effects);
 }
 
-/* ── Pill container — the Intellias signature, for nav groups */
+.panel-elevated:hover {
+  box-shadow: var(--md-sys-elevation-2);
+}
+
+/* ── Pill group ── */
 .pill-group {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-pill);
-  padding: 6px;
+  background: var(--md-sys-color-surface-container-highest);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-full);
+  padding: var(--md-sys-spacing-50);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  box-shadow: var(--shadow-sm);
+  gap: var(--md-sys-spacing-50);
+  box-shadow: var(--md-sys-elevation-1);
 }
 
-/* ── Recording dot — red pulsing, the universal "REC" indicator */
+/* ── Buttons (M3 filled button style) ── */
+.m3-btn-filled {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  border: none;
+  border-radius: var(--md-sys-shape-corner-full);
+  padding: var(--md-sys-spacing-50) var(--md-sys-spacing-300);
+  font: var(--md-sys-typescale-label-large);
+  cursor: pointer;
+  transition: all var(--md-sys-motion-duration-short) var(--md-sys-motion-spring-fast-spatial);
+  box-shadow: var(--md-sys-elevation-1);
+}
+.m3-btn-filled:hover {
+  box-shadow: var(--md-sys-elevation-2);
+  filter: brightness(1.1);
+}
+.m3-btn-filled:active {
+  box-shadow: var(--md-sys-elevation-0);
+}
+
+.m3-btn-tonal {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  border: none;
+  border-radius: var(--md-sys-shape-corner-full);
+  padding: var(--md-sys-spacing-50) var(--md-sys-spacing-300);
+  font: var(--md-sys-typescale-label-large);
+  cursor: pointer;
+  transition: all var(--md-sys-motion-duration-short) var(--md-sys-motion-spring-fast-spatial);
+}
+.m3-btn-tonal:hover {
+  filter: brightness(1.15);
+}
+
+.m3-btn-outlined {
+  background: transparent;
+  color: var(--md-sys-color-primary);
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-full);
+  padding: var(--md-sys-spacing-50) var(--md-sys-spacing-300);
+  font: var(--md-sys-typescale-label-large);
+  cursor: pointer;
+  transition: all var(--md-sys-motion-duration-short) var(--md-sys-motion-spring-fast-spatial);
+}
+.m3-btn-outlined:hover {
+  background: var(--md-sys-color-primary-container);
+  border-color: var(--md-sys-color-primary);
+}
+
+/* ── M3 card ── */
+.m3-card {
+  background: var(--md-sys-color-surface-container);
+  border-radius: var(--md-sys-shape-corner-medium);
+  overflow: hidden;
+  transition: box-shadow var(--md-sys-motion-duration-short) var(--md-sys-motion-spring-fast-effects);
+}
+.m3-card-elevated {
+  background: var(--md-sys-color-surface-container-low);
+  border-radius: var(--md-sys-shape-corner-medium);
+  box-shadow: var(--md-sys-elevation-1);
+  transition: box-shadow var(--md-sys-motion-duration-short) var(--md-sys-motion-spring-fast-effects);
+}
+.m3-card-elevated:hover {
+  box-shadow: var(--md-sys-elevation-2);
+}
+
+/* ── Recording dot ── */
 @keyframes pulse-red {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(255, 77, 77, 0.55);
-  }
-  50% {
-    box-shadow: 0 0 0 6px rgba(255, 77, 77, 0);
-  }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 77, 77, 0.55); }
+  50% { box-shadow: 0 0 0 6px rgba(255, 77, 77, 0); }
 }
 .live-dot {
   display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--accent-red);
+  width: 7px; height: 7px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-error);
   animation: pulse-red 1.6s ease-in-out infinite;
 }
 
 @keyframes pulse-green {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(66, 250, 161, 0.5);
-  }
-  50% {
-    box-shadow: 0 0 0 6px rgba(66, 250, 161, 0);
-  }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(66, 250, 161, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(66, 250, 161, 0); }
 }
 .alert-dot {
   display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--accent);
+  width: 7px; height: 7px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-primary);
   animation: pulse-green 1.6s ease-in-out infinite;
 }
 
-/* ── Scrollbars: minimal dark */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
+/* ── Scrollbars ── */
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb {
-  background: #2a2a2a;
-  border-radius: 999px;
+  background: var(--md-sys-color-surface-container-highest);
+  border-radius: var(--md-sys-shape-corner-full);
 }
-::-webkit-scrollbar-thumb:hover {
-  background: #3a3a3a;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+::-webkit-scrollbar-thumb:hover { background: var(--md-sys-color-outline-variant); }
+::-webkit-scrollbar-track { background: transparent; }
 
-/* ── Map grid — used in the booth visualisation */
+/* ── Map grid ── */
 .map-grid {
   background-image:
-    radial-gradient(
-      circle at 1px 1px,
-      rgba(255, 255, 255, 0.04) 1px,
-      transparent 0
-    );
+    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.04) 1px, transparent 0);
   background-size: 24px 24px;
 }
 
-/* ── Focus rings — green per the brand */
+/* ── Focus rings ── */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--md-sys-color-primary);
   outline-offset: 2px;
-  border-radius: 6px;
+  border-radius: var(--md-sys-shape-corner-extra-small);
 }
 
-/* ── Selection — green tint */
+/* ── Selection ── */
 ::selection {
   background: rgba(66, 250, 161, 0.28);
-  color: var(--text-primary);
+  color: var(--md-sys-color-on-surface);
 }
 
-/* ── Range slider */
+/* ── Range slider ── */
 input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  background: transparent;
-  height: 24px;
+  -webkit-appearance: none; appearance: none;
+  background: transparent; height: 24px;
 }
 input[type="range"]::-webkit-slider-runnable-track {
   height: 4px;
-  background: var(--border-subtle);
-  border-radius: 999px;
+  background: var(--md-sys-color-surface-container-highest);
+  border-radius: var(--md-sys-shape-corner-full);
 }
 input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  margin-top: -6px;
-  border-radius: 999px;
-  background: var(--accent);
-  border: 2px solid var(--bg-base);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; margin-top: -6px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-primary);
+  border: 2px solid var(--md-sys-color-surface);
+  box-shadow: var(--md-sys-elevation-2);
   cursor: pointer;
 }
 
-/* ── Scanline for the live video viewport */
+/* ── Scanline ── */
 @keyframes scan {
-  0% {
-    transform: translateY(-100%);
-  }
-  100% {
-    transform: translateY(100%);
-  }
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
 }
 .scanline::before {
   content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    rgba(66, 250, 161, 0.06) 50%,
-    transparent 100%
-  );
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent 0%, rgba(66, 250, 161, 0.06) 50%, transparent 100%);
   animation: scan 6s linear infinite;
   pointer-events: none;
 }
 
-/* ── Ghost / echo text effect for hero (the "Let's talk" trick) */
+/* ── Ghost text ── */
 .ghost-text {
-  position: relative;
-  display: inline-block;
+  position: relative; display: inline-block;
 }
 .ghost-text::before {
   content: attr(data-text);
   position: absolute;
-  top: -0.12em;
-  left: -0.012em;
-  color: var(--bg-elevated);
-  z-index: -1;
-  pointer-events: none;
-  user-select: none;
+  top: -0.12em; left: -0.012em;
+  color: var(--md-sys-color-surface-container-high);
+  z-index: -1; pointer-events: none; user-select: none;
+}
+
+/* ── M3 motion: spring-based transitions ── */
+.m3-spring-fast {
+  transition: all var(--md-sys-motion-duration-short) var(--md-sys-motion-spring-fast-spatial);
+}
+.m3-spring-default {
+  transition: all var(--md-sys-motion-duration-medium) var(--md-sys-motion-spring-default-spatial);
+}
+.m3-spring-slow {
+  transition: all var(--md-sys-motion-duration-long) var(--md-sys-motion-spring-slow-spatial);
+}
+.m3-fade-fast {
+  transition: opacity var(--md-sys-motion-duration-short) var(--md-sys-motion-spring-fast-effects);
 }
