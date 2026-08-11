@@ -52,6 +52,18 @@ EVENT_NAMESPACES = (
     "insight.",
     "cost.",
     "session.",
+    # Pre-registered for Phase 3, for the same reason rfid. was: a namespace this
+    # validator has never heard of is a 422, and the producer's author gets no
+    # hint that the taxonomy is the thing refusing them. Registering the
+    # namespace ahead of the producer costs a line here and saves that.
+    #: intent.scored — the intent-scoring consumer (P4 lead capture).
+    "intent.",
+    #: drift.detected — CV drift telemetry (roadmap.md, Phase 6).
+    "drift.",
+    #: calibration.updated — the calibration UI (roadmap.md, Phase 6).
+    "calibration.",
+    #: crm.retract — the re-anonymiser on withdrawal (consent-and-identity.md §5).
+    "crm.",
 )
 
 

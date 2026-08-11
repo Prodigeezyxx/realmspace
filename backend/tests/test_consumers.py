@@ -837,7 +837,15 @@ def test_event_type_must_be_in_a_known_namespace() -> None:
     """
     import pydantic
 
-    for bad in ("spatal.zone_enter", "detection", "evil.injected"):
+    for bad in (
+        "spatal.zone_enter",
+        "detection",
+        "evil.injected",
+        # A near-miss on one of the Phase 3 namespaces. Registering four new
+        # prefixes widens what the bus accepts, and this is what says it did not
+        # widen to everything.
+        "calibraton.updated",
+    ):
         with pytest.raises(pydantic.ValidationError, match="unknown event namespace"):
             EventIn(
                 event_id=uuid.uuid4(), tenant_id=T, session_id=S,
@@ -854,6 +862,35 @@ def test_rfid_read_is_accepted() -> None:
         payload={"reader_id": "r1", "tag_id": "tag-abc"}, occurred_at=BASE,
     )
     assert e.type == "rfid.read"
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        "rfid.read",
+        "spatial.tagged",
+        "intent.scored",
+        "drift.detected",
+        "calibration.updated",
+        "crm.retract",
+    ],
+)
+def test_phase_3_pre_registered_types_are_accepted(event_type: str) -> None:
+    """The six types Phase 3 pre-registers (event-bus-spec.md §3) must post
+    cleanly before any of their producers exist.
+
+    Four of these — intent., drift., calibration., crm. — were a 422 until their
+    namespaces were added, and a namespace rejection is the worst kind to hit
+    first: the error is about the taxonomy, but it arrives at the author of a
+    producer who has no reason to suspect the taxonomy. Registering ahead of the
+    producer is the whole point of an additive-only contract, and this is what
+    keeps the registration from being quietly dropped in a later edit.
+    """
+    e = EventIn(
+        event_id=uuid.uuid4(), tenant_id=T, session_id=S, type=event_type,
+        payload={}, occurred_at=BASE,
+    )
+    assert e.type == event_type
 
 
 def test_new_types_in_a_known_namespace_are_accepted() -> None:

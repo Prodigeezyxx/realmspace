@@ -171,6 +171,13 @@ question in `< 5s`; twin replays a real recorded session.
 
 *Goal: turn signals into real-time action (the "Next-Step" surface), anonymous.*
 
+- ✅ **Event contract additions (additive, before anything else this phase):**
+      `rfid.read`, `spatial.tagged`, `intent.scored`, `drift.detected`,
+      `calibration.updated`, `crm.retract` — namespaces accepted by the bus,
+      payloads pinned in `event-bus-spec.md` §3, mirrored in the browser's
+      `RealmEventType` with `crm.retract` classified as PII. Pre-registered so no
+      later phase pays a schema-migration tax, and so a producer written in P4 or
+      P6 does not meet a 422 that says nothing about why. *(2026-08-11)*
 - 🔲 Persist agent rules (Postgres); rules-engine consumer on the bus
 - 🔲 Real actions: Slack / webhook / screen swap / **staff prompt** (< 3s SLA)
 - ✅ HITL **dead-letter review** screen — `/ops`, plus `GET /v1/dead-letters`

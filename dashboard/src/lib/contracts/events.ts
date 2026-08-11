@@ -24,6 +24,8 @@ export type RealmEventType =
   | "spatial.gaze"
   | "spatial.group"
   | "spatial.passby"
+  /** a badge correlated to a tracked person — a guess with a confidence, still anonymous */
+  | "spatial.tagged"
   // booth surfaces
   | "surface.interaction"
   // badge / RFID readers (docs/event-bus-spec.md §3)
@@ -35,10 +37,18 @@ export type RealmEventType =
   // rules + intelligence
   | "rule.fired"
   | "insight.generated"
+  /** provisional — the scoring model is not pinned yet (event-bus-spec.md §3) */
+  | "intent.scored"
   // attribution + outbound
   | "handoff.lead"
+  /** tell the CRM to undo a push after consent withdrawal — carries PII */
+  | "crm.retract"
   // ops
   | "cost.metered"
+  /** the perception model's numbers moved against their baseline */
+  | "drift.detected"
+  /** an operator recalibrated a camera, its zone/reader map, or its privacy mask */
+  | "calibration.updated"
   | "session.started"
   | "session.ended"
   /** an operator changed a session's zones or measurement parameters */
@@ -57,7 +67,18 @@ export const ANONYMOUS_EVENT_TYPES: readonly RealmEventType[] = [
   "rule.fired",
   "insight.generated",
   "rfid.read",
+  /**
+   * A badge id and a track id, and no `Contact`. Anonymous for the same reason
+   * `rfid.read` is: linking either to a person happens in the identity consumer,
+   * behind the consent gate (docs/consent-and-identity.md).
+   */
+  "spatial.tagged",
+  /** Derived from anonymous spatial signals; scores a track, not a person. */
+  "intent.scored",
   "cost.metered",
+  /** About a camera, not a visitor. */
+  "drift.detected",
+  "calibration.updated",
   "session.started",
   "session.ended",
   "session.zones_updated",
@@ -69,6 +90,13 @@ export const PII_EVENT_TYPES: readonly RealmEventType[] = [
   "consent.withdrawn",
   "identity.resolved",
   "handoff.lead",
+  /**
+   * Carries `contactId`. It exists *because* consent was withdrawn, which makes
+   * it tempting to file as an ops event — but the identifier is still in the
+   * payload, so every PII rule applies to it: never on the anonymised cloud-sync
+   * path (event-bus-spec.md §6).
+   */
+  "crm.retract",
 ] as const;
 
 export function isPiiEventType(t: RealmEventType): boolean {
@@ -181,6 +209,24 @@ export interface PassbyPayload {
    */
   reason?: ZoneExitReason | "session_end";
 }
+export interface RfidReadPayload {
+  readerId: string;
+  /** The badge, not a person. Linking it to a Contact is consent-gated. */
+  tagId: string;
+  /** dBm. The fusion consumer's distance proxy. */
+  rssi?: number;
+  at?: string;
+}
+export interface TaggedPayload {
+  anonId: string;
+  tagId: string;
+  readerId?: string;
+  /** RFID fusion is a guess, so it ships with how good a guess it is. */
+  confidence: number;
+  /** How the correlation was made — tuning differs per venue geometry. */
+  method?: "rssi_proximity" | string;
+  at?: string;
+}
 export interface SurfaceInteractionPayload {
   anonId: string;
   surfaceId: string;
@@ -221,10 +267,52 @@ export interface LeadHandoffPayload {
   spatialIntent?: Record<string, unknown>;
   consentTier?: "T1" | "T2" | "T3";
 }
+/**
+ * **Provisional** — no doc pins the scoring model yet (event-bus-spec.md §3).
+ * Registered so P4's producer has a shape to write against; re-pinned when it
+ * lands.
+ */
+export interface IntentScoredPayload {
+  anonId: string;
+  /** 0..1 */
+  score: number;
+  /** Stored, not recomputed: thresholds are per-tenant and change over time. */
+  band: "cold" | "warm" | "hot";
+  /** The features the score came from, kept so a disputed score can be explained. */
+  signals?: Record<string, number>;
+  /** Without it, a rescored replay is indistinguishable from changed data. */
+  modelVersion?: string;
+}
+export interface CrmRetractPayload {
+  /** PII — see PII_EVENT_TYPES. */
+  contactId: string;
+  destination: string; // 'hubspot' | 'salesforce' | 'webhook' | ...
+  reason: "consent_withdrawn" | "erasure_request";
+  /** Mirrors handoff.lead, so a retried retraction cannot fire twice. */
+  dedupeKey: string;
+}
 export interface CostMeteredPayload {
   kind: "llm_tokens" | "enrichment_credit" | "storage" | "other";
   amount: number;
   unit: string;
+}
+export interface DriftDetectedPayload {
+  cameraId: string;
+  metric: "detection_rate" | "confidence_mean" | "track_length" | string;
+  /** Both sides of the comparison, so the event states its case rather than a verdict. */
+  observed: number;
+  baseline: number;
+  windowSeconds?: number;
+  severity: "warn" | "critical";
+}
+export interface CalibrationUpdatedPayload {
+  cameraId: string;
+  /** `privacy_mask` is the opt-out polygon of docs/privacy.md. */
+  kind: "homography" | "zone_map" | "reader_map" | "privacy_mask";
+  revision: number;
+  /** user id of the operator who recalibrated */
+  by?: string;
+  note?: string;
 }
 export interface SessionLifecyclePayload {
   name?: string;
@@ -238,14 +326,20 @@ export type RealmEventPayload =
   | GazePayload
   | GroupPayload
   | PassbyPayload
+  | RfidReadPayload
+  | TaggedPayload
   | SurfaceInteractionPayload
   | ConsentCapturedPayload
   | ConsentWithdrawnPayload
   | IdentityResolvedPayload
   | RuleFiredPayload
   | InsightGeneratedPayload
+  | IntentScoredPayload
   | LeadHandoffPayload
+  | CrmRetractPayload
   | CostMeteredPayload
+  | DriftDetectedPayload
+  | CalibrationUpdatedPayload
   | SessionLifecyclePayload
   | ZonesUpdatedPayload
   | Record<string, unknown>;

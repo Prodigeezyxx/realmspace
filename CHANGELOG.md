@@ -17,7 +17,57 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-07
+## [Unreleased] — last updated 2026-08-11
+
+### Added — 2026-08-11 — `[neo4j-track]` the bus now accepts the events Phase 3 and beyond will send, before anything sends them
+
+Six event types that no part of the system produces yet — a badge read, a badge
+matched to a tracked person, an intent score, a camera-drift alarm, a
+recalibration, and a CRM retraction — are now part of the contract. Nothing
+emits them today. That is the point: they are registered ahead of the code so
+the phase that finally writes a producer does not have to change the contract to
+ship it.
+
+Four of them would have been rejected outright until now. The bus checks an
+event's *namespace* against a known list, so `intent.scored`, `drift.detected`,
+`calibration.updated` and `crm.retract` were 422s — and a namespace rejection is
+the worst kind to meet first, because the error is about a taxonomy the author
+of a new producer has no reason to suspect. This is the same failure the
+`rfid.` namespace was added ahead of time to avoid, applied to the rest of the
+list.
+
+- **The four missing namespaces are registered** (`backend/app/schemas.py`),
+  each with a line saying which phase's producer will use it. The check stays a
+  prefix test rather than an allow-list of full type names, so the taxonomy
+  remains additive — a new `spatial.*` type still needs no code change.
+
+- **The payloads are pinned in `docs/event-bus-spec.md` §3**, with the reasoning
+  that will otherwise be lost by the time someone writes the producer:
+  `spatial.tagged` is a *correlation, not an identity* (a badge near a track, a
+  guess, hence a confidence and a method — the link to a person stays behind the
+  consent gate); `intent.scored` stores the band and the model version, because
+  thresholds are per-tenant and a replay through a newer scorer must be
+  distinguishable from changed data; `drift.detected` carries both the observed
+  value and the baseline so it states its comparison instead of asserting a
+  verdict; `calibration.updated` takes the same random-`event_id` exception as
+  `session.zones_updated`, since two recalibrations of one camera are two facts
+  and a derived id would silently discard the second. `intent.scored` is marked
+  **provisional** — nothing pins the scoring model yet.
+
+- **`crm.retract` is classified as PII** in the browser contract
+  (`dashboard/src/lib/contracts/events.ts`). It carries a `contact_id` and it
+  exists because consent was withdrawn, which makes it tempting to file as an
+  ops event; the identifier is in the payload either way, so `isPiiEventType`
+  now gates it and it stays off the anonymised cloud-sync path. The other four
+  are anonymous. `rfid.read`, in the type union since Week 1 but never given a
+  payload interface, has one now instead of falling into the untyped arm.
+
+Also corrected: the spec still carried a note asking for `rfid.read` to be
+mirrored into the browser union. It was mirrored some time ago.
+
+Eight new tests — each of the six types accepted by the validator, all six
+posting 201 over the real endpoint, and a misspelled namespace still refused
+with the taxonomy doc named in the error. 150 backend tests, 93 dashboard.
 
 ### Fixed — 2026-08-07 — `[neo4j-track]` "the bus is unreachable" was a backend that was up and had already saved the session
 

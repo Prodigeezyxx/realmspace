@@ -93,15 +93,28 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `spatial.passby` | tracker | anon_id, adjacent (negative signal) | ROI |
 | `surface.interaction` | booth surface | surface_id, anon_id, kind | graph, ROI |
 | `rfid.read` | RFID reader (MQTT/serial) | reader_id, tag_id, ts | identity, graph, ROI |
+| `spatial.tagged` | vision × RFID fusion | anon_id ↔ tag_id, confidence | identity, graph, ROI |
 | `consent.captured` | capture surface | tier, basis, copy_version | identity, CRM gate |
 | `consent.withdrawn` | anywhere | contact_id | re-anonymiser, CRM retract |
 | `identity.resolved` | identity consumer | anon_id ↔ contact | CRM, follow-up |
 | `rule.fired` | rules engine | rule_id, action | action consumers |
+| `intent.scored` | intent consumer | anon_id, score, band | rules, report, handoff |
 | `handoff.lead` | attribution | normalized LeadHandoff | CRM adapters |
+| `crm.retract` | re-anonymiser | contact_id, destination, reason | CRM adapters |
 | `insight.generated` | LLM/agents | text, refs | graph, dashboard |
 | `cost.metered` | consumers | tokens/credits/$ | cost telemetry |
+| `drift.detected` | perception telemetry | camera_id, metric, observed vs baseline | ops, calibration UI |
+| `calibration.updated` | calibration UI (operator) | camera_id, kind, revision | tracker (cache invalidation) |
 | `session.started` / `session.ended` | operator | session meta | report, sync |
 | `session.zones_updated` | `POST /v1/sessions` | zone_ids, zone_count, by | tracker (cache invalidation) |
+
+**Six of these have no producer yet** — `rfid.read`, `spatial.tagged`,
+`intent.scored`, `drift.detected`, `calibration.updated`, `crm.retract`. They are
+registered here, and their namespaces accepted by `backend/app/schemas.py`,
+*before* the phases that emit them (P3 rules/RFID, P4 capture, P6 calibration).
+Additive-only is only free if the additions land ahead of the code: a producer
+that meets a 422 from a namespace check has nothing in the error to tell its
+author that the taxonomy, not their request, is the thing refusing them.
 
 ### Payloads pinned so far
 
@@ -137,9 +150,41 @@ reader speaks MQTT or serial and a small bridge turns each read into an event.
 `tag_id` is the badge, not a person — linking it to a `Person` is the identity
 consumer's job and is consent-gated (`consent-and-identity.md`).
 
-> Mirror needed in `dashboard/src/lib/contracts/events.ts`: `rfid.read` is not
-> in the `RealmEventType` union yet, so the browser cannot type an event it may
-> now receive over the WebSocket.
+```json
+{
+  "reader_id": "rdr-entrance",
+  "tag_id":    "E280-1160-6000-0209",   // the badge, not a person
+  "rssi":      -54,                     // dBm; the fusion consumer's distance proxy
+  "at":        "2026-08-11T10:04:02Z"
+}
+```
+
+Mirrored in `dashboard/src/lib/contracts/events.ts` as `RfidReadPayload`.
+
+**`spatial.tagged`** — producer: the vision × RFID fusion consumer:
+
+```json
+{
+  "anon_id":    "P-012",
+  "tag_id":     "E280-1160-6000-0209",
+  "reader_id":  "rdr-entrance",
+  "confidence": 0.72,
+  "method":     "rssi_proximity",   // reader position + RSSI decay + track proximity
+  "at":         "2026-08-11T10:04:02Z"
+}
+```
+
+**A correlation, not an identity, and the distinction is the privacy posture.**
+It says a badge was probably carried by a tracked person — a guess, which is why
+it has a `confidence` and a `method` rather than being a fact. It is still
+anonymous: `tag_id` is a badge and `anon_id` is a track, and neither is a
+`Contact`. Linking either to a person is the identity consumer's job and is
+consent-gated (`consent-and-identity.md`). A consumer that reads this as
+identity has skipped the gate.
+
+`method` is recorded because RFID fusion is tuned per venue — reader geometry
+and RSSI decay differ per room — and a stored score whose derivation is unknown
+cannot be re-judged after the fact.
 
 **`spatial.zone_enter`** — producer: tracker:
 `{ "anon_id", "zone_id", "at" }`
@@ -226,6 +271,63 @@ for the reason the rule gives: this is a producer recording something that
 genuinely just happened. Two edits to the same zone set are two distinct facts,
 and deriving the id from the zone ids would collapse them onto one, silently
 discarding the second edit.
+
+**`intent.scored`** — producer: the intent consumer. **Provisional.**
+`{ "anon_id", "score", "band", "signals", "model_version" }`
+
+`score` is 0..1 and `band` is `"cold" | "warm" | "hot"` — the band is stored
+rather than recomputed, because the thresholds are a per-tenant setting and a
+report rendered next year must show the band the operator acted on, not the one
+today's thresholds would produce. `signals` is the feature map the score came
+from (dwell, revisits, surface touches), kept so a score can be explained to a
+client who disputes it. `model_version` is what makes a replay reproducible: the
+same events through a newer scorer give a different number, and without the
+version there is no way to tell that apart from a data change.
+
+Marked **provisional**: nothing pins the scoring model yet. The type is
+registered now so P4's producer does not arrive to a 422, and the payload is
+re-pinned here when that producer lands.
+
+**`drift.detected`** — producer: perception telemetry:
+`{ "camera_id", "metric", "observed", "baseline", "window_seconds", "severity" }`
+
+CV drift is on the risk register (`roadmap.md`) with calibration UI + drift
+telemetry as the mitigation. `metric` is what moved — `detection_rate`,
+`confidence_mean`, `track_length` — and both `observed` and `baseline` are
+carried so the event states the comparison it is making instead of asserting a
+verdict someone later cannot check. `severity` is `"warn" | "critical"`.
+
+About the *camera*, not a visitor, but session-scoped like everything on the bus:
+drift matters exactly when it silently degrades a session's numbers, and finding
+that out means being able to read it alongside that session's events.
+
+**`calibration.updated`** — producer: the calibration UI (an operator):
+`{ "camera_id", "kind", "revision", "by", "note" }`
+
+`kind` is `"homography" | "zone_map" | "reader_map" | "privacy_mask"` — the last
+being the opt-out polygon of `privacy.md`, whose pixels are masked before any
+model runs, which makes this event the audit trail for when masking changed.
+
+The second cache-invalidation event after `session.zones_updated`, and it takes
+the same exception as that one: its `event_id` is **random, not derived**. Two
+recalibrations of the same camera are two distinct facts, and an id derived from
+`camera_id` would collapse them, silently discarding the second — which here
+would mean the log claiming a mask was applied at a time it was not.
+
+**`crm.retract`** — producer: the re-anonymiser (`consent-and-identity.md` §5):
+`{ "contact_id", "destination", "reason", "dedupe_key" }`
+
+The outbound half of withdrawal. When consent is withdrawn the re-anonymiser
+drops the `IDENTIFIED_AS` edge and redacts the `Contact` locally, but the record
+already pushed to HubSpot or Salesforce is outside this system — this event is
+what tells the CRM adapters to go and retract it. `reason` is
+`"consent_withdrawn" | "erasure_request"`; `dedupe_key` mirrors `handoff.lead`
+so a retried retraction cannot fire twice.
+
+**This event carries PII** (`contact_id`), the only one of the Phase 3
+additions that does. §6 applies to it in full: it must never ride the anonymised
+cloud-sync path, and `dashboard/src/lib/contracts/events.ts` lists it in
+`PII_EVENT_TYPES` so `isPiiEventType` gates it without every caller remembering.
 
 ### Event ids on derived events
 

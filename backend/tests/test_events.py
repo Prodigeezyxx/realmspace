@@ -124,3 +124,32 @@ async def test_filters_by_type_and_session(client: AsyncClient) -> None:
 
     r = await client.get("/events", params={"session_id": "s_demo"})
     assert len(r.json()) == 2
+
+
+async def test_phase_3_types_post_over_http(client: AsyncClient) -> None:
+    """The six types Phase 3 pre-registers reach the log over the real endpoint.
+
+    The unit test in test_consumers.py proves the validator accepts them; this
+    proves the thing a producer's author will actually do — POST it — returns
+    201 rather than the 422 four of these got before the namespaces were added.
+    """
+    for event_type in (
+        "rfid.read",
+        "spatial.tagged",
+        "intent.scored",
+        "drift.detected",
+        "calibration.updated",
+        "crm.retract",
+    ):
+        r = await client.post("/events", json=make_event(type=event_type))
+        assert r.status_code == 201, f"{event_type}: {r.text}"
+
+
+async def test_a_misspelled_namespace_is_still_refused(client: AsyncClient) -> None:
+    """Registering four new namespaces widened what the bus accepts. It must not
+    have widened it to anything, and the 422 must still say where the taxonomy
+    lives — an error naming the doc is the difference between a producer author
+    fixing this in a minute and filing a bug."""
+    r = await client.post("/events", json=make_event(type="calibraton.updated"))
+    assert r.status_code == 422
+    assert "docs/event-bus-spec.md" in r.text
