@@ -28,6 +28,7 @@ import {
   subscribe,
 } from "@/lib/bus";
 import { computeScorecard, type Scorecard } from "@/lib/roi/scorecard";
+import { summarizeCost, type CostSummary } from "@/lib/roi/cost";
 import { getTenantId } from "@/lib/tenant/context";
 import { ZONE_TYPE_TO_KIND } from "@/lib/session/publish";
 import type { RealmEvent, ZoneNode } from "@/lib/contracts";
@@ -48,6 +49,12 @@ export interface LiveStats {
   lastEventAt: number | null;
   /** Distinct visitors per hour so far — the traffic sparkline's shape. */
   traffic: number[];
+  /**
+   * What the system itself has spent running this session — LLM tokens, action
+   * units, enrichment credits. Not the activation cost, which is fixed and
+   * lives in `scorecard.pipeline`; see `lib/roi/cost.ts`.
+   */
+  cost: CostSummary;
 }
 
 function emptyStats(): LiveStats {
@@ -58,6 +65,7 @@ function emptyStats(): LiveStats {
     eventCount: 0,
     lastEventAt: null,
     traffic: [],
+    cost: summarizeCost([]),
   };
 }
 
@@ -89,19 +97,25 @@ export function useLiveStats(session: Session): LiveStats {
       if (cancelled) return;
       const events = readAll(tenantId, session.id) as RealmEvent[];
       const measurement = session.measurement ?? {};
+      const scorecard = computeScorecard(events, {
+        zones: zonesFor(session),
+        engagedThresholdSec: measurement.engagedThresholdSec,
+        activationCost: measurement.activationCost,
+        revenueInfluenced: measurement.revenueInfluenced,
+        qualifiedLeads: measurement.qualifiedLeads,
+      });
       setStats({
         hasData: events.length > 0,
         peopleNow: presentNow(events),
-        scorecard: computeScorecard(events, {
-          zones: zonesFor(session),
-          engagedThresholdSec: measurement.engagedThresholdSec,
-          activationCost: measurement.activationCost,
-          revenueInfluenced: measurement.revenueInfluenced,
-          qualifiedLeads: measurement.qualifiedLeads,
-        }),
+        scorecard,
         eventCount: events.length,
         lastEventAt: lastEventAt(events),
         traffic: hourlyVisitors(events),
+        // Per *engaged* visitor, the same denominator CPEV uses, so the two
+        // cost figures on the page can be read against each other.
+        cost: summarizeCost(events, {
+          engagedVisitors: scorecard.engagement.engagedVisitors,
+        }),
       });
     };
 

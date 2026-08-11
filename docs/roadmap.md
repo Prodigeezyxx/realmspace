@@ -178,6 +178,14 @@ question in `< 5s`; twin replays a real recorded session.
       `RealmEventType` with `crm.retract` classified as PII. Pre-registered so no
       later phase pays a schema-migration tax, and so a producer written in P4 or
       P6 does not meet a 422 that says nothing about why. *(2026-08-11)*
+- ✅ **ADR-002: a rule is JSON data, and there is one evaluator**
+      (`docs/adr/002-rule-spec.md`). Adopts the spec `floats-agent` already
+      ships, verbatim, so the two tracks do not grow two rule languages — and
+      records the four places that evaluator must change to be replayable
+      (bus-derived window, event-time cooldown, derived `rule.fired` id with
+      dispatch idempotency keyed on it, `none` conditions judged at close-out).
+      The browser's eight `AgentDefinition`s become presets that compile to the
+      same document, ending the split-brain. *(2026-08-11)*
 - 🔲 Persist agent rules (Postgres); rules-engine consumer on the bus
 - 🔲 Real actions: Slack / webhook / screen swap / **staff prompt** (< 3s SLA)
 - ✅ HITL **dead-letter review** screen — `/ops`, plus `GET /v1/dead-letters`
@@ -188,7 +196,14 @@ question in `< 5s`; twin replays a real recorded session.
       screen. Repeat parks collapse onto one row instead of filling the queue.
       **Retries now back off exponentially with a ceiling**, and the chaos test
       the acceptance criterion names is in the suite.
-- 🔲 **Cost telemetry** meter (`cost.metered` → unit economics)
+- 🟡 **Cost telemetry** meter (`cost.metered` → unit economics) — the path is
+      built end to end: one emitter (`backend/app/cost.py`, deriving the
+      `event_id` from the cause so a replay cannot inflate a session's spend),
+      a reader that keeps units apart and refuses to total two currencies
+      (`lib/roi/cost.ts`), and a `/live` tile. Partial because **nothing spends
+      money yet** — Ask has no provider key and the dispatchers are unbuilt — so
+      the tile honestly reads "no meter yet" rather than "$0.00", which would be
+      a claim that the session was free. *(2026-08-11)*
 
 **Acceptance:** "when 5 people dwell at entrance 30s → ping Slack" fires live in
 `< 3s`; a forced failure lands in the HITL queue and can be retried.

@@ -35,6 +35,7 @@ import { formatDuration, formatNumber } from "@/lib/utils";
 import { useAgentAlerts } from "@/hooks/useAgentStream";
 import { useLiveStats } from "@/lib/live/useLiveStats";
 import { LiveRoiTile } from "@/components/live/LiveRoiTile";
+import { CostTile } from "@/components/live/CostTile";
 
 /**
  * How stale the feed is, in words.
@@ -186,6 +187,8 @@ export default function LivePage() {
       </div>
 
       <LiveRoiTile stats={live} session={activeSession} />
+
+      <CostTile cost={live.cost} />
 
       {/* ── Main grid */}
       <div className="grid grid-cols-12 gap-5">

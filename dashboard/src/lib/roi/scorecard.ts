@@ -44,6 +44,13 @@ export interface ReachLayer {
 export interface EngagementLayer {
   avgDwellSec: number;
   dwellWeightedAttention: number; // Σ(dwell × zoneWeight)
+  /**
+   * People past the engagement threshold — the numerator of `engagementRate`
+   * and the denominator every per-engaged-visitor cost divides by. Exposed
+   * because recovering it from the rate and the unique count reintroduces the
+   * rounding the rate already applied.
+   */
+  engagedVisitors: number;
   engagementRate: number; // engaged / unique
   zoneParticipation: { zoneId: string; visitors: number; pct: number }[];
   surfaceInteractions: number;
@@ -185,6 +192,7 @@ export function computeScorecard(
   const engagement: EngagementLayer = {
     avgDwellSec: dwellCount ? +(dwellSum / dwellCount).toFixed(1) : 0,
     dwellWeightedAttention: +weightedAttention.toFixed(1),
+    engagedVisitors: engaged,
     engagementRate: unique ? +((engaged / unique)).toFixed(3) : 0,
     zoneParticipation,
     surfaceInteractions,

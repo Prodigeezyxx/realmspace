@@ -19,6 +19,64 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-11
 
+### Added — 2026-08-11 (later) — `[neo4j-track]` Phase 3 starts with the two pieces nobody has to build twice
+
+Phase 3 is "turn signals into action". Its centre is a rules engine, and the
+postgres-track shipped one on 2026-08-10. Building a second is a week spent on
+work the bake-off will throw half of away, so this track took the two Phase 3
+items that are *store-agnostic* — they touch contracts and telemetry, not the
+graph — and left the evaluator alone until the tracks are compared.
+
+**A rule is now a document, not code — `docs/adr/002-rule-spec.md`.** The spec
+adopts the shape the other track already ships, field for field, so the two do
+not grow two rule languages: trigger type, an optional zone, a condition
+(`threshold` / `any` / `none`), an action (Slack, webhook, screen swap, staff
+prompt, log), enabled, cooldown. What the ADR adds is the reasoning and four
+corrections that turn a working evaluator into a replayable one:
+
+- the sliding window is read from the bus rather than held in a dictionary that
+  a restart empties and a replay cannot reproduce;
+- cooldown compares event time, not `datetime.now()` — the same rule the
+  tracker's dropout sweep follows, and for the same reason: a replay must
+  produce what the original run produced;
+- `rule.fired` carries a **derived** event id, and each dispatch is idempotent
+  on that id, so a retry after a timeout cannot post to Slack twice;
+- a `none` condition is judged at a boundary (the next event past the window, or
+  `session.ended`), because asking "did nothing happen?" at the moment something
+  did is close to a contradiction.
+
+It also ends the split-brain the roadmap names: the dashboard's eight agent
+definitions, which have their own trigger vocabulary, become presets that
+compile to the same document, and the browser runtime becomes the dry-run an
+operator sees before saving. Nothing in the browser decides what fires.
+
+**Cost telemetry, end to end but honest about being empty.** There is now one
+way to say "this spent money" (`backend/app/cost.py`): it takes the *cause* of
+the spend and derives the event id from it, rather than accepting an id. That
+matters more here than anywhere else the same rule applies — a duplicated cost
+survives every replay and lands in the direction that overstates what a client's
+activation cost. The reader (`lib/roi/cost.ts`) groups by kind and unit and
+**only totals money from amounts already denominated in a currency**; tokens are
+shown as tokens, and two currencies produce no single total rather than an
+invented exchange rate. The `/live` tile shows metered spend, cost per engaged
+visitor, and a line per kind.
+
+It reads "no meter yet", because nothing on this track spends money: Ask has no
+provider key and the dispatchers are unbuilt. That is deliberately not "$0.00",
+which would be a claim that the session was free — the same distinction the
+report makes about revenue it cannot see. The first readings will come from
+Ask's LLM calls and from rule actions.
+
+Small supporting change: `Scorecard.engagement` now exposes `engagedVisitors`.
+It was already computed and only reachable by multiplying the rounded rate back
+out by the unique count, which is the denominator every per-engaged-visitor cost
+divides by.
+
+Twelve new tests — the meter deduping a re-metered spend, distinguishing two
+dispatches of one rule, refusing a unitless or negative reading; the reader
+keeping units apart, refusing a two-currency total, and not dividing by zero
+visitors. 155 backend tests, 100 dashboard.
+
 ### Added — 2026-08-11 — `[neo4j-track]` the bus now accepts the events Phase 3 and beyond will send, before anything sends them
 
 Six event types that no part of the system produces yet — a badge read, a badge

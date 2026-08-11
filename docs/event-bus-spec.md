@@ -314,6 +314,26 @@ recalibrations of the same camera are two distinct facts, and an id derived from
 `camera_id` would collapse them, silently discarding the second — which here
 would mean the log claiming a mask was applied at a time it was not.
 
+**`cost.metered`** — producer: any consumer that spends money:
+`{ "kind", "amount", "unit", "detail" }`
+
+`kind` is `"llm_tokens" | "enrichment_credit" | "storage" | "other"` — a closed
+set, unlike the event taxonomy, because a kind nobody recognises cannot be
+summed into unit economics and would sit in the log looking as though it had
+been counted. `unit` is what `amount` counts: `"tokens"`, `"credits"`, or an ISO
+currency code when the spend is already money. The reader only totals a currency
+figure from events whose unit *is* a currency
+(`dashboard/src/lib/roi/cost.ts`) — adding tokens to dollars produces a number
+that reads like unit economics and is not.
+
+Emitted through `backend/app/cost.py`, which derives the `event_id` from the
+cause of the spend rather than generating one, per the rule below. A random id
+here is worse than elsewhere: the double count survives every replay and lands
+in the direction that overstates what a client's activation cost.
+
+`occurred_at` is when the work happened, not when the row was written, so a
+replayed cost does not attribute last week's spend to today's session.
+
 **`crm.retract`** — producer: the re-anonymiser (`consent-and-identity.md` §5):
 `{ "contact_id", "destination", "reason", "dedupe_key" }`
 
