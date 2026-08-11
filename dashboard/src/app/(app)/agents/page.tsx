@@ -7,140 +7,209 @@ import {
   Plus,
   Settings2,
   Sparkles,
+  Trash2,
   Webhook,
   Zap,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { listAgents, setAgentEnabled } from "@/agents/registry";
-import type { AgentDefinition } from "@/agents/types";
 import { Button } from "@/components/ui/Button";
-import { dispatchTrigger } from "@/lib/agent-engine";
-import { useAgentAlerts } from "@/hooks/useAgentStream";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
+import { getTenantId } from "@/lib/tenant/context";
 import { useActiveSession } from "@/lib/session/store";
-import { cn, formatRelative } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
-type Trigger = "dwell" | "count" | "gaze" | "group" | "exit_funnel";
-type Action = "slack" | "webhook" | "screen" | "log";
+// ── Types ──────────────────────────────────────────────────────────────────
 
-interface Agent {
-  id: string;
-  name: string;
-  trigger: Trigger;
-  conditionText: string;
-  action: Action;
-  actionText: string;
-  active: boolean;
-  fired: number;
-  lastFired?: number;
-  notes?: string;
+interface RuleCondition {
+  type: string;
+  count?: number | null;
+  windowSec?: number;
+  zoneId?: string | null;
+  minDwellSec?: number | null;
 }
 
-const NOW = Date.UTC(2026, 4, 18, 21, 14, 0);
+interface RuleAction {
+  type: string;
+  channel?: string | null;
+  url?: string | null;
+  message?: string;
+  screenId?: string | null;
+}
 
-const seed: Agent[] = [
-  {
-    id: "ag_entry_crowd",
-    name: "Entry Crowd Alert",
-    trigger: "count",
-    conditionText: "5+ people in Entry Arch for 30s+",
-    action: "slack",
-    actionText: "Ping #pavilion-ops in Slack",
-    active: true,
-    fired: 4,
-    lastFired: NOW - 12 * 60_000,
-  },
-  {
-    id: "ag_mirror_engage",
-    name: "Mirror Engagement",
-    trigger: "gaze",
-    conditionText: "Gaze on AR Mirror > 5s",
-    action: "screen",
-    actionText: "Trigger personalised scent recommendation",
-    active: true,
-    fired: 217,
-    lastFired: NOW - 32 * 1000,
-  },
-  {
-    id: "ag_lounge_vip",
-    name: "Lounge VIP Detector",
-    trigger: "dwell",
-    conditionText: "Group of 3+ in Lounge for 4m+",
-    action: "slack",
-    actionText: "Page brand ambassador to lounge",
-    active: true,
-    fired: 9,
-    lastFired: NOW - 6 * 60_000,
-  },
-  {
-    id: "ag_rfid_capture",
-    name: "RFID Capture Logger",
-    trigger: "gaze",
-    conditionText: "Visitor captures memory at RFID Wall",
-    action: "webhook",
-    actionText: "POST to CRM /api/leads/anonymous",
-    active: true,
-    fired: 488,
-    lastFired: NOW - 18 * 1000,
-  },
-  {
-    id: "ag_dropoff",
-    name: "Entry Drop-off Watchdog",
-    trigger: "exit_funnel",
-    conditionText: "Entry → exit within 30s exceeds 25%",
-    action: "slack",
-    actionText: "Alert experience lead — review queue signage",
-    active: false,
-    fired: 0,
-    notes: "Paused — being recalibrated",
-  },
-];
+interface BackendRule {
+  ruleId: string;
+  tenantId: string;
+  name: string;
+  triggerType: string;
+  triggerZoneId: string | null;
+  condition: RuleCondition;
+  action: RuleAction;
+  enabled: boolean;
+  cooldownSec: number;
+}
 
-const TRIGGER_META: Record<Trigger, { label: string; color: string; icon: React.ReactNode }> = {
-  count: { label: "People count", color: "text-accent-blue", icon: <CircleAlert size={14} /> },
-  dwell: { label: "Dwell threshold", color: "text-accent-cyan", icon: <Clock size={14} /> },
-  gaze: { label: "Gaze / attention", color: "text-accent-violet", icon: <Sparkles size={14} /> },
-  group: { label: "Group formation", color: "text-accent-amber", icon: <CircleAlert size={14} /> },
-  exit_funnel: { label: "Funnel breach", color: "text-accent-red", icon: <CircleAlert size={14} /> },
-};
+interface AgentUI {
+  id: string;
+  name: string;
+  triggerType: string;
+  conditionText: string;
+  actionType: string;
+  actionText: string;
+  enabled: boolean;
+  cooldownSec: number;
+}
 
-const ACTION_META: Record<Action, { label: string; icon: React.ReactNode }> = {
-  slack: { label: "Slack", icon: <Bell size={14} /> },
-  webhook: { label: "Webhook", icon: <Webhook size={14} /> },
-  screen: { label: "Screen / signage", icon: <Zap size={14} /> },
-  log: { label: "Log insight", icon: <Sparkles size={14} /> },
-};
+// ── Backend client ─────────────────────────────────────────────────────────
+
+const BUS_URL =
+  (typeof process !== "undefined" &&
+    process.env.NEXT_PUBLIC_BUS_URL?.replace(/\/$/, "")) ||
+  "http://localhost:8000";
+
+async function fetchRules(tenantId: string): Promise<BackendRule[]> {
+  const res = await fetch(`${BUS_URL}/v1/rules/${tenantId}`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.rules ?? [];
+}
+
+async function createRule(tenantId: string, rule: {
+  name: string; triggerType: string; triggerZoneId?: string;
+  condition: RuleCondition; action: RuleAction; cooldownSec?: number;
+}): Promise<BackendRule | null> {
+  const res = await fetch(`${BUS_URL}/v1/rules`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tenantId, ...rule }),
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function toggleRule(ruleId: string, enabled: boolean) {
+  await fetch(`${BUS_URL}/v1/rules/${ruleId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+async function deleteRule(ruleId: string) {
+  await fetch(`${BUS_URL}/v1/rules/${ruleId}`, { method: "DELETE" });
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function backendToUI(r: BackendRule): AgentUI {
+  const cond = r.condition;
+  let conditionText = "";
+  if (cond.type === "threshold") {
+    conditionText = `${cond.count ?? "?"}+ ${r.triggerType.replace("spatial.", "")} events`;
+    if (r.triggerZoneId) conditionText += ` in ${r.triggerZoneId}`;
+    if (cond.windowSec) conditionText += ` within ${cond.windowSec}s`;
+  } else if (cond.type === "any") {
+    conditionText = `Any ${r.triggerType.replace("spatial.", "")}`;
+    if (r.triggerZoneId) conditionText += ` in ${r.triggerZoneId}`;
+  } else {
+    conditionText = `${cond.type} ${r.triggerType.replace("spatial.", "")}`;
+  }
+
+  const act = r.action;
+  let actionText = "";
+  if (act.type === "slack") actionText = `Ping ${act.channel ?? "#ops"} in Slack`;
+  else if (act.type === "webhook") actionText = `POST to ${act.url ?? "webhook"}`;
+  else if (act.type === "screen_swap") actionText = `Swap ${act.screenId ?? "screen"}`;
+  else if (act.type === "staff_prompt") actionText = `Prompt staff: ${act.message ?? ""}`;
+  else if (act.type === "log") actionText = act.message ?? "Log insight";
+  else actionText = act.type;
+
+  return {
+    id: r.ruleId,
+    name: r.name,
+    triggerType: r.triggerType,
+    conditionText,
+    actionType: act.type,
+    actionText,
+    enabled: r.enabled,
+    cooldownSec: r.cooldownSec,
+  };
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────
 
 export default function AgentsPage() {
   const activeSession = useActiveSession();
   const isDemo = activeSession.isDemo;
-  // Registry mutates module-level state (setAgentEnabled); this setter exists
-  // only to force a re-render after that mutation — listAgents() is read
-  // fresh on every render, so no memoization/dependency array is needed.
-  const [, setRegistryVersion] = useState(0);
-  const registryAgents = listAgents();
-  const alerts = useAgentAlerts();
-  // Fresh sessions start with no rules. The demo keeps the curated seed.
-  const [agents, setAgents] = useState(isDemo ? seed : []);
+  const tenantId = getTenantId();
 
-  function toggle(id: string) {
-    setAgents((cur) =>
-      cur.map((a) => (a.id === id ? { ...a, active: !a.active } : a))
-    );
+  const [agents, setAgents] = useState<AgentUI[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch rules on mount and when demo mode changes
+  useEffect(() => {
+    if (!isDemo) { setAgents([]); setLoading(false); return; }
+    setLoading(true);
+    fetchRules(tenantId)
+      .then((rules) => setAgents(rules.map(backendToUI)))
+      .catch(() => setError("Could not reach backend"))
+      .finally(() => setLoading(false));
+  }, [isDemo, tenantId]);
+
+  async function handleToggle(agent: AgentUI) {
+    const newEnabled = !agent.enabled;
+    try {
+      await toggleRule(agent.id, newEnabled);
+      setAgents((cur) => cur.map((a) => a.id === agent.id ? { ...a, enabled: newEnabled } : a));
+    } catch {
+      // revert on failure
+    }
   }
 
-  // Pre-seed the composer textarea with a rule shaped around this session's
-  // actual zones and touchpoints so the user immediately sees how to write one.
-  const composerSeed = isDemo
-    ? `When 5+ people are in the Mirror Room for more than 90 seconds AND the Bottle Wall has fewer than 2 visitors, dim the Bottle Wall lighting by 30% and POST to /api/staff/redirect.`
-    : `When 5+ people are in the ${activeSession.zones[0]?.name ?? "Entry"} for more than 30 seconds, ping #ops-${(activeSession.brand ?? "session").toLowerCase().replace(/\s+/g, "-")} in Slack.${
-        activeSession.touchpoints[0]
-          ? `\n\nWhen a visitor interacts with the ${activeSession.touchpoints[0].name}, POST to https://hooks.your-crm.com/lead.`
-          : ""
-      }`;
+  async function handleDelete(agent: AgentUI) {
+    try {
+      await deleteRule(agent.id);
+      setAgents((cur) => cur.filter((a) => a.id !== agent.id));
+    } catch {
+      // revert on failure
+    }
+  }
+
+  async function handleCreate() {
+    const zone = activeSession.zones[0];
+    try {
+      const rule = await createRule(tenantId, {
+        name: `Alert: ${zone?.name ?? "zone"} entry`,
+        triggerType: "spatial.zone_enter",
+        triggerZoneId: zone?.id ?? null,
+        condition: { type: "threshold", count: 3, windowSec: 60 },
+        action: { type: "log", message: `3+ people entered ${zone?.name ?? "zone"}` },
+        cooldownSec: 60,
+      });
+      if (rule) {
+        setAgents((cur) => [...cur, backendToUI(rule)]);
+      }
+    } catch {
+      // silently fail
+    }
+  }
+
+  if (!isDemo) {
+    return (
+      <div className="p-5 max-w-[1400px] mx-auto">
+        <EmptyState
+          variant="page"
+          icon={<Zap size={26} strokeWidth={1.8} />}
+          title="Agents activate once a session is recording."
+          hint="Create spatial rules that fire actions in real time — ping Slack, hit webhooks, swap screens. Start recording a session to begin."
+          cta={{ href: "/live", label: "Open live & start recording" }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="p-5 max-w-[1400px] mx-auto space-y-5">
@@ -148,216 +217,175 @@ export default function AgentsPage() {
         <div>
           <Pill variant="warn" className="mb-2">
             <Zap size={11} />
-            Spatial agents
+            Rules Engine · Phase 3
           </Pill>
           <h1 className="text-2xl font-semibold tracking-tight">
             Turn observations into actions.
           </h1>
           <p className="text-sm text-text-secondary mt-1 max-w-xl">
-            Watch the spatial graph for patterns. When a condition fires,
-            RealmSpace can ping Slack, hit a webhook, change what a screen is
-            showing, or log a new insight to the graph.
+            Every spatial event is evaluated against your rules. When a condition
+            is met, RealmSpace dispatches the action — Slack, webhook, screen
+            swap, staff prompt, or logged insight. Rules run on the edge kit
+            with sub-3 second latency.
           </p>
         </div>
-        <Button variant="primary" icon={<Plus size={14} />}>New agent</Button>
-      </div>
-
-      <div className="grid grid-cols-4 gap-3">
-        <Summary label="Active agents" value={agents.filter((a) => a.active).length} />
-        <Summary
-          label="Fires today"
-          value={isDemo ? 718 : 0}
-          accent="cyan"
-        />
-        <Summary
-          label="Avg latency"
-          value={isDemo ? "240ms" : "—"}
-          accent="green"
-        />
-        <Summary
-          label="Insights logged"
-          value={isDemo ? 23 : 0}
-          accent="violet"
-        />
-      </div>
-
-      <Panel title="Runtime agents" subtitle="YAML-configured agents from registry">
-        <ul className="divide-y divide-border-hairline -m-5 mb-4">
-          {registryAgents.map((a) => (
-            <RegistryAgentRow
-              key={a.id}
-              agent={a}
-              onToggle={(en) => {
-                setAgentEnabled(a.id, en);
-                setRegistryVersion((v) => v + 1);
-              }}
-            />
-          ))}
-        </ul>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() =>
-            void dispatchTrigger({
-              type: "zone_threshold_exceeded",
-              timestamp: Date.now(),
-              payload: {
-                zoneId: "zone_entry",
-                count: 8,
-                threshold: 5,
-                title: "Simulated breach",
-                body: "Test alert from /agents",
-              },
-            })
-          }
-        >
-          Simulate threshold breach
+        <Button variant="primary" icon={<Plus size={14} />} onClick={handleCreate}>
+          New rule
         </Button>
-        {alerts[0] && (
-          <p className="text-xs text-accent-amber mt-3 font-mono">
-            Latest: {alerts[0].title} — {alerts[0].body}
-          </p>
-        )}
-      </Panel>
+      </div>
 
-      <Panel title="All agents" subtitle="Click to enable / disable">
-        {agents.length === 0 && (
+      {/* Summary */}
+      <div className="grid grid-cols-4 gap-3">
+        <Summary label="Active rules" value={agents.filter((a) => a.enabled).length} />
+        <Summary label="Total rules" value={agents.length} accent="cyan" />
+        <Summary label="Rule types" value={[...new Set(agents.map((a) => a.triggerType))].length} accent="green" />
+        <Summary label="Action types" value={[...new Set(agents.map((a) => a.actionType))].length} accent="violet" />
+      </div>
+
+      {/* Rules list */}
+      <Panel title="Active rules" subtitle={`${agents.length} rules from the edge engine`}>
+        {loading && (
+          <div className="p-8 text-center text-sm text-text-muted animate-pulse">
+            Loading rules…
+          </div>
+        )}
+        {error && (
+          <div className="p-4 text-sm text-accent-amber">
+            {error} — rules engine may not be running. Start the backend with{" "}
+            <code className="text-xs bg-bg-elevated px-1 rounded">uvicorn app.main:app</code>
+          </div>
+        )}
+        {!loading && agents.length === 0 && (
           <EmptyState
             icon={<Zap size={18} />}
-            title="No agents yet."
-            hint="Write a rule below in plain English — RealmSpace translates it to a graph subscription you can enable here."
+            title="No rules yet."
+            hint='Click "New rule" to create one. Rules are evaluated on every spatial event in real time.'
           />
         )}
         <ul className="divide-y divide-border-hairline -m-5">
-          {agents.map((a) => {
-            const t = TRIGGER_META[a.trigger];
-            const ac = ACTION_META[a.action];
-            return (
-              <li
-                key={a.id}
-                className="grid grid-cols-[1fr_auto_auto] items-center gap-4 px-5 py-4 hover:bg-bg-elevated/60 transition-colors"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-medium">{a.name}</span>
-                    {!a.active && <Pill variant="neutral">paused</Pill>}
-                    {a.notes && (
-                      <span className="text-[10px] text-text-muted italic">
-                        {a.notes}
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1.5 flex items-center gap-3 text-xs flex-wrap">
-                    <span className={cn("inline-flex items-center gap-1.5", t.color)}>
-                      {t.icon}
-                      <span className="text-text-secondary">When</span>
-                      <span className="text-text-primary">{a.conditionText}</span>
-                    </span>
-                    <span className="text-text-faint">→</span>
-                    <span className="inline-flex items-center gap-1.5 text-text-secondary">
-                      <span className="text-accent-amber">{ac.icon}</span>
-                      <span className="text-text-primary">{a.actionText}</span>
-                    </span>
-                  </div>
+          {agents.map((a) => (
+            <li
+              key={a.id}
+              className="grid grid-cols-[1fr_auto] items-center gap-4 px-5 py-4 hover:bg-bg-elevated/60 transition-colors"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium">{a.name}</span>
+                  {!a.enabled && <Pill variant="neutral">paused</Pill>}
+                  <span className="text-[10px] text-text-muted font-mono">
+                    {a.id.slice(0, 30)}…
+                  </span>
                 </div>
-                <div className="hidden md:flex flex-col items-end gap-0.5 min-w-[100px]">
-                  <span className="text-lg font-semibold tabular leading-none">
-                    {a.fired}
+                <div className="mt-1.5 flex items-center gap-3 text-xs flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 text-accent-cyan">
+                    <Clock size={14} />
+                    <span className="text-text-secondary">When</span>
+                    <span className="text-text-primary">{a.conditionText}</span>
                   </span>
-                  <span className="text-[10px] text-text-muted uppercase tracking-[0.15em]">
-                    fires
+                  <span className="text-text-faint">→</span>
+                  <span className="inline-flex items-center gap-1.5 text-accent-amber">
+                    {a.actionType === "slack" ? <Bell size={14} /> :
+                     a.actionType === "webhook" ? <Webhook size={14} /> :
+                     a.actionType === "screen_swap" ? <Zap size={14} /> :
+                     <Sparkles size={14} />}
+                    <span className="text-text-primary">{a.actionText}</span>
                   </span>
-                  {a.lastFired && (
-                    <span className="text-[10px] text-text-muted tabular">
-                      {formatRelative(NOW - a.lastFired)}
-                    </span>
+                </div>
+                <div className="mt-1 flex gap-2 text-[10px] text-text-muted">
+                  <span>cooldown: {a.cooldownSec}s</span>
+                  <span>trigger: {a.triggerType}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleToggle(a)}
+                  className={cn(
+                    "h-7 w-12 rounded-full relative transition-colors",
+                    a.enabled
+                      ? "bg-accent/30 border border-accent/50"
+                      : "bg-bg-elevated border border-border-subtle"
                   )}
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => toggle(a.id)}
+                  title={a.enabled ? "Disable rule" : "Enable rule"}
+                >
+                  <span
                     className={cn(
-                      "h-7 w-12 rounded-full relative transition-colors",
-                      a.active ? "bg-accent/30 border border-accent/50" : "bg-bg-elevated border border-border-subtle"
+                      "absolute top-0.5 h-5 w-5 rounded-full transition-all",
+                      a.enabled
+                        ? "left-[calc(100%-22px)] bg-accent shadow-[var(--glow-green)]"
+                        : "left-0.5 bg-text-muted"
                     )}
-                  >
-                    <span
-                      className={cn(
-                        "absolute top-0.5 h-5 w-5 rounded-full transition-all",
-                        a.active
-                          ? "left-[calc(100%-22px)] bg-accent shadow-[var(--glow-green)]"
-                          : "left-0.5 bg-text-muted"
-                      )}
-                    />
-                  </button>
-                  <Button variant="ghost" size="sm" icon={<Settings2 size={14} />} />
-                </div>
-              </li>
-            );
-          })}
+                  />
+                </button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon={<Trash2 size={14} />}
+                  onClick={() => handleDelete(a)}
+                  title="Delete rule"
+                />
+              </div>
+            </li>
+          ))}
         </ul>
       </Panel>
 
+      {/* Compose section */}
       <div className="grid md:grid-cols-2 gap-5">
         <Panel
-          title="Compose new agent"
-          subtitle="Plain English. We translate it to a graph subscription."
+          title="Compose new rule"
+          subtitle="Plain English. The edge engine evaluates conditions on every event."
         >
           <textarea
-            key={composerSeed /* re-seed when the active session changes */}
-            className="w-full bg-bg-canvas border border-border-subtle rounded-lg p-4 text-sm font-mono text-text-secondary focus:border-accent focus:outline-none min-h-[160px] resize-none"
-            defaultValue={composerSeed}
+            className="w-full bg-bg-canvas border border-border-subtle rounded-lg p-4 text-sm font-mono text-text-secondary focus:border-accent focus:outline-none min-h-[120px] resize-none"
+            defaultValue={
+              activeSession.zones[0]
+                ? `When 3+ people enter the ${activeSession.zones[0].name}, ping #ops in Slack.`
+                : "When 5+ people dwell in the entry zone for 30s, ping #ops in Slack."
+            }
+            placeholder="Describe your rule in plain English…"
           />
           <div className="flex gap-2 mt-3">
-            <Button variant="primary" size="sm" icon={<Sparkles size={14} />}>
-              Generate rule
+            <Button variant="primary" size="sm" icon={<Sparkles size={14} />} onClick={handleCreate}>
+              Create rule
             </Button>
-            <Button variant="secondary" size="sm">
-              Preview triggers
+            <Button variant="secondary" size="sm" onClick={handleCreate}>
+              Quick add (zone entry)
             </Button>
           </div>
+          <p className="text-[10px] text-text-muted mt-3">
+            Rules are persisted to SQLite, evaluated on every bus event, and
+            dispatched within 3 seconds. Use the REST API for advanced
+            configuration.
+          </p>
         </Panel>
 
-        <Panel
-          title="Recent firings"
-          subtitle="Live event log of agent activity"
-          padded={false}
-        >
-          {isDemo ? (
-            <ul className="p-3 space-y-1 font-mono text-xs">
-              <RecentFire
-                when="34s ago"
-                text="Mirror Engagement fired for P-216 — screen swapped to 'Rose Nuit' content"
-                color="text-accent-violet"
-              />
-              <RecentFire
-                when="1m 18s ago"
-                text="RFID Capture Logger fired for P-214 — POST /api/leads ok"
-                color="text-accent-blue"
-              />
-              <RecentFire
-                when="4m ago"
-                text="Lounge VIP Detector fired — group of 3 dwelling 4m+, paged @ambassador-amaka"
-                color="text-accent-amber"
-              />
-              <RecentFire
-                when="11m ago"
-                text="Entry Crowd Alert fired — 6 people in Entry Arch for 38s"
-                color="text-accent-red"
-              />
-              <RecentFire
-                when="22m ago"
-                text="Mirror Engagement fired for P-211 — screen swapped to 'Sable Vert'"
-                color="text-accent-violet"
-              />
-            </ul>
-          ) : (
-            <EmptyState
-              icon={<Sparkles size={18} />}
-              title="No firings yet."
-              hint="Recent agent activity will appear here in real time."
-            />
-          )}
+        <Panel title="Quick reference" subtitle="Supported triggers and actions">
+          <div className="space-y-3 text-xs">
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.16em] text-text-muted mb-1.5">Triggers</div>
+              <div className="flex flex-wrap gap-1">
+                {["spatial.zone_enter", "spatial.zone_exit", "spatial.dwell", "spatial.passby", "surface.interaction"].map((t) => (
+                  <span key={t} className="text-[10px] bg-bg-elevated border border-border-subtle px-2 py-1 rounded-md font-mono">{t}</span>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.16em] text-text-muted mb-1.5">Actions</div>
+              <div className="flex flex-wrap gap-1">
+                {["slack", "webhook", "screen_swap", "staff_prompt", "log"].map((a) => (
+                  <span key={a} className="text-[10px] bg-bg-elevated border border-border-subtle px-2 py-1 rounded-md font-mono">{a}</span>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-[0.16em] text-text-muted mb-1.5">Conditions</div>
+              <div className="flex flex-wrap gap-1">
+                {["threshold", "any", "none"].map((c) => (
+                  <span key={c} className="text-[10px] bg-bg-elevated border border-border-subtle px-2 py-1 rounded-md font-mono">{c}</span>
+                ))}
+              </div>
+            </div>
+          </div>
         </Panel>
       </div>
     </div>
@@ -373,7 +401,7 @@ function Summary({
   value: string | number;
   accent?: "cyan" | "violet" | "green" | "amber";
 }) {
-  const map = {
+  const map: Record<string, string> = {
     cyan: "text-accent-cyan",
     violet: "text-accent-violet",
     green: "text-accent",
@@ -381,84 +409,10 @@ function Summary({
   };
   return (
     <div className="panel-elevated px-5 py-4">
-      <div className="text-[11px] uppercase tracking-[0.16em] text-text-secondary">
-        {label}
-      </div>
-      <div
-        className={cn(
-          "text-3xl font-semibold tabular tracking-tight mt-1",
-          accent ? map[accent] : "text-text-primary"
-        )}
-      >
+      <div className="text-[11px] uppercase tracking-[0.16em] text-text-secondary">{label}</div>
+      <div className={cn("text-3xl font-semibold tabular tracking-tight mt-1", accent ? map[accent] : "text-text-primary")}>
         {value}
       </div>
     </div>
-  );
-}
-
-function RegistryAgentRow({
-  agent,
-  onToggle,
-}: {
-  agent: AgentDefinition;
-  onToggle: (enabled: boolean) => void;
-}) {
-  return (
-    <li className="grid grid-cols-[1fr_auto] gap-4 px-5 py-3 items-center">
-      <div>
-        <div className="text-sm font-medium">{agent.name}</div>
-        <p className="text-[11px] text-text-muted mt-0.5">{agent.description}</p>
-        <p className="text-[10px] font-mono text-text-faint mt-1">
-          {agent.trigger.event} → [{agent.skills.map((s) => s.id).join(", ")}] →{" "}
-          {agent.outputs.map((o) => o.type).join(", ")}
-        </p>
-      </div>
-      <button
-        type="button"
-        onClick={() => onToggle(!agent.enabled)}
-        className={cn(
-          "h-7 w-12 rounded-full relative transition-colors",
-          agent.enabled
-            ? "bg-accent/30 border border-accent/50"
-            : "bg-bg-elevated border border-border-subtle"
-        )}
-      >
-        <span
-          className={cn(
-            "absolute top-0.5 h-5 w-5 rounded-full transition-all",
-            agent.enabled
-              ? "left-[calc(100%-22px)] bg-accent"
-              : "left-0.5 bg-text-muted"
-          )}
-        />
-      </button>
-    </li>
-  );
-}
-
-function RecentFire({
-  when,
-  text,
-  color,
-}: {
-  when: string;
-  text: string;
-  color: string;
-}) {
-  // map text colors → matching background colors (Tailwind v4 needs static classes)
-  const bgMap: Record<string, string> = {
-    "text-accent-violet": "bg-accent-violet",
-    "text-accent-blue": "bg-accent-blue",
-    "text-accent-cyan": "bg-accent-cyan",
-    "text-accent-amber": "bg-accent-amber",
-    "text-accent-red": "bg-accent-red",
-    "text-accent": "bg-accent",
-  };
-  return (
-    <li className="grid grid-cols-[80px_8px_1fr] items-center gap-3 px-2 py-1.5 rounded hover:bg-bg-elevated">
-      <span className="text-text-faint tabular">{when}</span>
-      <span className={cn("h-1.5 w-1.5 rounded-full", bgMap[color] ?? "bg-text-muted")} />
-      <span className={color}>{text}</span>
-    </li>
   );
 }
