@@ -7,15 +7,17 @@ import json
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import __version__, ask, attribute, bus, db, graph_writer, intelligence, rules, scorecard
+from app import __version__, ask, attribute, bus, db, graph_writer, intelligence, platform, rules, scorecard
 from app.config import get_settings
 from app.hub import hub
 from app.models import (
     AskRequest,
     AskResponse,
+    AuthCheckRequest,
+    AuthCheckResponse,
     AuthResolveResponse,
     ConsentCaptureRequest,
     ConsentResponse,
@@ -41,6 +43,7 @@ from app.models import (
     SdrDraftResponse,
     SessionMeta,
     SessionOutcome,
+    UserAddRequest,
 )
 
 _loop: asyncio.AbstractEventLoop | None = None
@@ -474,6 +477,59 @@ def generate_sdr_draft(body: SdrDraftRequest) -> dict:
 @app.get("/v1/sdr/draft/{tenant_id}")
 def list_sdr_drafts(tenant_id: str, sessionId: str | None = None) -> list[dict]:
     return intelligence.list_drafts(tenant_id, sessionId)
+
+
+# ── PLATFORM (Phase 6): RBAC, exports, billing, health ──────────────────────
+
+
+@app.post("/v1/auth/check", response_model=AuthCheckResponse)
+def auth_check(body: AuthCheckRequest) -> AuthCheckResponse:
+    result = platform.check_permission(body.email, body.method, body.path)
+    return AuthCheckResponse(**result)
+
+
+@app.get("/v1/auth/users")
+def list_users() -> list[dict]:
+    return platform.list_users()
+
+
+@app.post("/v1/auth/users")
+def add_user(body: UserAddRequest) -> dict:
+    result = platform.add_user(body.email, body.displayName, body.orgId, body.role)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.get("/v1/platform/health")
+def system_health() -> dict:
+    return platform.system_health()
+
+
+@app.get("/v1/platform/tenant/{tenant_id}")
+def tenant_stats(tenant_id: str) -> dict:
+    return platform.tenant_stats(tenant_id)
+
+
+@app.get("/v1/export/{tenant_id}/{session_id}")
+def export_session(tenant_id: str, session_id: str, format: str = "json") -> Any:
+    if format == "csv":
+        csv_data = platform.export_session_csv(tenant_id, session_id)
+        return Response(content=csv_data, media_type="text/csv",
+                        headers={"Content-Disposition": f"attachment; filename={session_id}.csv"})
+    return platform.export_session_json(tenant_id, session_id)
+
+
+@app.get("/v1/export/ledger/{tenant_id}")
+def export_ledger(tenant_id: str, sessionId: str | None = None) -> Response:
+    csv_data = platform.export_attribution_ledger_csv(tenant_id, sessionId)
+    return Response(content=csv_data, media_type="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=attribution_ledger.csv"})
+
+
+@app.get("/v1/billing/usage/{tenant_id}")
+def billing_usage(tenant_id: str, periodDays: int = 30) -> dict:
+    return platform.usage_summary(tenant_id, periodDays)
 
 
 @app.websocket("/v1/ws/{tenant_id}/{session_id}")

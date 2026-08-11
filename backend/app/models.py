@@ -374,3 +374,33 @@ class SdrDraftResponse(BaseModel):
     body: str
     pathContext: dict
     generatedAt: str
+
+
+# ── Platform (Phase 6): RBAC, exports, billing, health ──────────────────────
+
+import enum as _enum  # noqa: E402
+
+
+class ExportFormat(str, _enum.Enum):
+    json = "json"
+    csv = "csv"
+
+
+class AuthCheckRequest(BaseModel):
+    email: str
+    method: str
+    path: str
+
+
+class AuthCheckResponse(BaseModel):
+    allowed: bool
+    role: str
+    required: str
+    error: str | None = None
+
+
+class UserAddRequest(BaseModel):
+    email: str
+    displayName: str | None = None
+    orgId: str = "t_floats"
+    role: str = "viewer"
