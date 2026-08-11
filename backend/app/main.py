@@ -10,16 +10,23 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import __version__, ask, bus, db, graph_writer, rules, scorecard
+from app import __version__, ask, attribute, bus, db, graph_writer, rules, scorecard
 from app.config import get_settings
 from app.hub import hub
 from app.models import (
     AskRequest,
     AskResponse,
     AuthResolveResponse,
+    ConsentCaptureRequest,
+    ConsentResponse,
+    CrmConnectionConfig,
+    CrmSyncRequest,
     EventBatch,
     GraphSnapshot,
     HealthResponse,
+    IdentityResolveRequest,
+    IntentScoreRequest,
+    LeadHandoffRequest,
     RealmEvent,
     RealmEventInput,
     RuleCreateRequest,
@@ -322,6 +329,121 @@ def test_rule_endpoint(body: RuleTestRequest) -> RuleTestResponse:
 
 
 import time  # noqa: E402 — needed for create_rule timestamp
+
+
+# ── ATTRIBUTE (Phase 4): Consent, Identity, Intent, Handoff, CRM ────────────
+
+
+@app.post("/v1/consent", response_model=ConsentResponse)
+def capture_consent(body: ConsentCaptureRequest) -> ConsentResponse:
+    result = attribute.capture_consent(
+        tenant_id=body.tenantId,
+        session_id=body.sessionId,
+        anon_id=body.anonId,
+        tier=body.tier,
+        method=body.method,
+        contact_email=body.contactEmail,
+        contact_name=body.contactName,
+        contact_phone=body.contactPhone,
+    )
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return ConsentResponse(**result)
+
+
+@app.post("/v1/consent/{consent_id}/withdraw")
+def withdraw_consent(consent_id: str) -> dict:
+    result = attribute.withdraw_consent(consent_id)
+    if "error" in result:
+        raise HTTPException(status_code=404 if "not found" in result["error"] else 400, detail=result["error"])
+    return result
+
+
+@app.get("/v1/consent/{tenant_id}")
+def list_consents(tenant_id: str, sessionId: str | None = None) -> list[dict]:
+    return attribute.list_consents(tenant_id, sessionId)
+
+
+@app.post("/v1/identity/resolve")
+def resolve_identity(body: IdentityResolveRequest) -> dict:
+    result = attribute.resolve_identity(
+        consent_id=body.consentId,
+        anon_id=body.anonId,
+        contact_email=body.contactEmail,
+        contact_name=body.contactName,
+        contact_phone=body.contactPhone,
+    )
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.get("/v1/identity/{tenant_id}")
+def list_identities(tenant_id: str, sessionId: str | None = None) -> list[dict]:
+    return attribute.list_identities(tenant_id, sessionId)
+
+
+@app.post("/v1/intent/score")
+def score_intent(body: IntentScoreRequest) -> dict:
+    return attribute.score_intent(body.tenantId, body.sessionId, body.anonId)
+
+
+@app.post("/v1/handoff")
+def create_handoff(body: LeadHandoffRequest) -> dict:
+    result = attribute.build_lead_handoff(
+        tenant_id=body.tenantId,
+        session_id=body.sessionId,
+        anon_id=body.anonId,
+        attribution_model=body.attributionModel,
+    )
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.get("/v1/handoff/{tenant_id}")
+def list_handoffs(tenant_id: str, sessionId: str | None = None) -> list[dict]:
+    return attribute.list_handoffs(tenant_id, sessionId)
+
+
+@app.post("/v1/handoff/{handoff_id}/sync")
+def sync_handoff(handoff_id: str, body: CrmSyncRequest) -> dict:
+    result = attribute.sync_to_crm(handoff_id, body.crmType, body.apiConfig)
+    if result.get("synced") or result.get("stub"):
+        attribute.update_handoff_status(handoff_id, "synced" if result["synced"] else "stub",
+                                         f"{body.crmType}:{'ok' if result['synced'] else 'stub' if result.get('stub') else 'error'}")
+    else:
+        attribute.update_handoff_status(handoff_id, "failed", f"{body.crmType}:error")
+    return result
+
+
+@app.put("/v1/crm/connection")
+def upsert_crm_connection(body: CrmConnectionConfig) -> dict:
+    now = attribute._now_iso()
+    db.execute(
+        """INSERT INTO crm_connections (tenant_id, crm_type, api_config, field_mapping, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(tenant_id, crm_type) DO UPDATE SET
+           api_config=excluded.api_config, field_mapping=excluded.field_mapping,
+           updated_at=excluded.updated_at""",
+        (body.tenantId, body.crmType, json.dumps(body.apiConfig),
+         json.dumps(body.fieldMapping), now, now),
+    )
+    return {"ok": True, "tenantId": body.tenantId, "crmType": body.crmType}
+
+
+@app.get("/v1/crm/connection/{tenant_id}")
+def get_crm_connections(tenant_id: str) -> list[dict]:
+    rows = db.fetchall("SELECT * FROM crm_connections WHERE tenant_id = ?", (tenant_id,))
+    return [
+        {
+            "tenantId": r["tenant_id"], "crmType": r["crm_type"],
+            "apiConfig": json.loads(r["api_config"]),
+            "fieldMapping": json.loads(r["field_mapping"]),
+            "healthStatus": r["health_status"], "lastCheckedAt": r["last_checked_at"],
+        }
+        for r in rows
+    ]
 
 
 @app.websocket("/v1/ws/{tenant_id}/{session_id}")

@@ -274,3 +274,66 @@ class RuleTestResponse(BaseModel):
     wouldFire: bool
     matchingEvents: int
     reason: str
+
+
+# ── Attribute (Phase 4): Consent, Identity, Intent, Handoff, CRM ────────────
+
+class ConsentCaptureRequest(BaseModel):
+    tenantId: str
+    sessionId: str
+    anonId: str | None = None
+    tier: Literal["t1", "t2", "t3"]
+    method: Literal["badge_scan", "qr", "kiosk", "form_webhook"]
+    contactEmail: str | None = None
+    contactName: str | None = None
+    contactPhone: str | None = None
+
+
+class ConsentResponse(BaseModel):
+    consentId: str
+    tenantId: str
+    sessionId: str
+    anonId: str | None
+    tier: str
+    method: str
+    contactEmail: str | None = None
+    contactName: str | None = None
+    contactPhone: str | None = None
+    copyVersion: str
+    capturedAt: str
+    withdrawnAt: str | None = None
+    active: bool = True
+
+
+class IdentityResolveRequest(BaseModel):
+    consentId: str
+    anonId: str
+    contactEmail: str
+    contactName: str | None = None
+    contactPhone: str | None = None
+
+
+class IntentScoreRequest(BaseModel):
+    tenantId: str
+    sessionId: str
+    anonId: str
+
+
+class LeadHandoffRequest(BaseModel):
+    tenantId: str
+    sessionId: str
+    anonId: str
+    attributionModel: str = "first_touch"
+
+
+class CrmSyncRequest(BaseModel):
+    handoffId: str
+    crmType: Literal["hubspot", "salesforce", "pipedrive", "webhook"]
+    apiConfig: dict | None = None
+
+
+class CrmConnectionConfig(BaseModel):
+    tenantId: str
+    crmType: str
+    apiConfig: dict
+    fieldMapping: dict = Field(default_factory=dict)

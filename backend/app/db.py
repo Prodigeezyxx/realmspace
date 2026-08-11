@@ -115,6 +115,83 @@ CREATE TABLE IF NOT EXISTS action_log (
   completed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_action_log_rule ON action_log (rule_id, created_at);
+
+-- Phase 4: Attribute — consent, identity, intent, lead handoff
+CREATE TABLE IF NOT EXISTS consents (
+  consent_id   TEXT PRIMARY KEY,
+  tenant_id    TEXT NOT NULL,
+  session_id   TEXT NOT NULL,
+  anon_id      TEXT,
+  tier         TEXT NOT NULL,
+  method       TEXT NOT NULL,
+  contact_email TEXT,
+  contact_name TEXT,
+  contact_phone TEXT,
+  copy_version TEXT NOT NULL,
+  captured_at  TEXT NOT NULL,
+  withdrawn_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_consents_tenant ON consents (tenant_id, session_id);
+
+CREATE TABLE IF NOT EXISTS identities (
+  identity_id  TEXT PRIMARY KEY,
+  consent_id   TEXT NOT NULL,
+  tenant_id    TEXT NOT NULL,
+  session_id   TEXT NOT NULL,
+  anon_id      TEXT NOT NULL,
+  contact_email TEXT NOT NULL,
+  contact_name TEXT,
+  contact_phone TEXT,
+  resolved_at  TEXT NOT NULL,
+  UNIQUE(tenant_id, session_id, anon_id)
+);
+
+CREATE TABLE IF NOT EXISTS intent_scores (
+  tenant_id    TEXT NOT NULL,
+  session_id   TEXT NOT NULL,
+  anon_id      TEXT NOT NULL,
+  score        INTEGER NOT NULL DEFAULT 0,
+  tier         TEXT NOT NULL DEFAULT 'cold',
+  zones_visited INTEGER NOT NULL DEFAULT 0,
+  deep_engagements INTEGER NOT NULL DEFAULT 0,
+  surface_interactions INTEGER NOT NULL DEFAULT 0,
+  computed_at  TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, session_id, anon_id)
+);
+
+CREATE TABLE IF NOT EXISTS lead_handoffs (
+  handoff_id       TEXT PRIMARY KEY,
+  dedupe_key       TEXT UNIQUE NOT NULL,
+  tenant_id        TEXT NOT NULL,
+  session_id       TEXT NOT NULL,
+  anon_id          TEXT NOT NULL,
+  contact_email    TEXT,
+  contact_name     TEXT,
+  contact_phone    TEXT,
+  attribution_model TEXT NOT NULL DEFAULT 'first_touch',
+  intent_score     INTEGER NOT NULL DEFAULT 0,
+  intent_tier      TEXT NOT NULL DEFAULT 'cold',
+  consent_id       TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT 'pending',
+  crm_status       TEXT DEFAULT 'pending',
+  payload          TEXT NOT NULL,
+  created_at       TEXT NOT NULL,
+  synced_at        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_handoffs_tenant ON lead_handoffs (tenant_id, session_id);
+
+-- Phase 4: CRM connection configs
+CREATE TABLE IF NOT EXISTS crm_connections (
+  tenant_id    TEXT NOT NULL,
+  crm_type     TEXT NOT NULL,
+  api_config   TEXT NOT NULL,
+  field_mapping TEXT NOT NULL DEFAULT '{}',
+  health_status TEXT DEFAULT 'unknown',
+  last_checked_at TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, crm_type)
+);
 """
 
 

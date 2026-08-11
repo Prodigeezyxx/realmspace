@@ -6,7 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Each entry explains what changed **in plain words** first, then the technical detail.
 Sections are dated (with time, local timezone +0100) so you can see when things landed.
 
-## [Unreleased] — last updated 2026-08-10
+## [Unreleased] — last updated 2026-08-11
+
+### Added — 2026-08-11 — Phase 4: Attribute (Consent, Identity, Intent, Handoff, CRM)
+
+- **The anonymous-to-identified pipeline is live — consent-gated identity with CRM
+  delivery.** Visitors scan a QR, badge, or kiosk to grant tiered consent (t1:
+  aggregate-only, t2: spatial attribution, t3: follow-up + CRM). The privacy
+  redline is enforced at capture: PII collection requires t2 minimum. Identity
+  resolution links an anonymous track to a Contact only against a non-withdrawn
+  consent (consumer-side invariant). Intent scoring computes a rules-based
+  lead score (zones visited + deep engagements + surface interactions, capped
+  at 10) producing cold/warm/hot tiers. Lead handoffs assemble the full spatial
+  profile with attribution model (first/last/linear touch) and dedupe keys for
+  idempotent CRM delivery. The CRM adapter interface supports HubSpot (live or
+  stub), Salesforce (TBD), Pipedrive (TBD), and BYO HMAC-signed webhook.
+  Withdrawal drops the identity link and marks consent as inactive. CRM
+  connection configs are persisted per-tenant per-provider. Full pipeline
+  verified: consent → identity → intent → handoff → CRM sync → withdrawal.
+  *New `backend/app/attribute.py`: 529 lines — `capture_consent()` /
+  `withdraw_consent()` / `resolve_identity()` / `score_intent()` /
+  `build_lead_handoff()` / `sync_to_crm()` / `_sync_hubspot()` stub + live /
+  `_sync_webhook()`. New DB tables: `consents`, `identities`, `intent_scores`,
+  `lead_handoffs`, `crm_connections`. New models: `ConsentCaptureRequest` /
+  `ConsentResponse` / `IdentityResolveRequest` / `IntentScoreRequest` /
+  `LeadHandoffRequest` / `CrmSyncRequest` / `CrmConnectionConfig`. 10 new REST
+  endpoints: consent CRUD, identity resolve/list, intent score, handoff
+  create/list/sync, CRM connection upsert/get. Verified 6/6 pipeline steps.*
 
 ### Added — 2026-08-10 — Phase 3: Rules Engine (Act layer)
 
