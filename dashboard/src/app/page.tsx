@@ -99,10 +99,8 @@ export default function LandingPage() {
               </span>
             </h1>
 
-            <p className="mt-10 text-lg md:text-xl text-text-secondary max-w-xl leading-relaxed">
-              A control room for physical brand experiences. A queryable graph of
-              every person, zone, and dwell in your activation. Replayable.
-              Askable. Deliverable.
+            <p className="mt-10 text-lg md:text-xl text-on-surface-variant max-w-xl leading-relaxed body-large">
+              Know exactly what happens in your activation — who stopped, how long they stayed, and what they touched. No guesswork, no hand-counted door tallies. Just a live graph you can query in plain English.
             </p>
 
             <div className="mt-10 flex flex-wrap items-center gap-3">
@@ -116,12 +114,12 @@ export default function LandingPage() {
                     </span>
                   }
                 >
-                  Try RealmSpace
+                  See your booth live
                 </Button>
               </Link>
               <Link href="/report">
                 <Button variant="secondary" size="lg">
-                  See a client report
+                  View a sample report
                 </Button>
               </Link>
             </div>

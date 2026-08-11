@@ -274,6 +274,19 @@ export function StatusBar() {
             })}
           </div>
 
+          {/* Theme toggle */}
+          <button
+            onClick={() => {
+              const html = document.documentElement;
+              const current = html.getAttribute("data-theme");
+              html.setAttribute("data-theme", current === "light" ? "dark" : "light");
+            }}
+            className="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-colors"
+            title="Toggle theme"
+          >
+            <span className="material-symbol">dark_mode</span>
+          </button>
+
           {active.status === "live" && !active.isDemo ? (
             <button
               onClick={() => setConfirmEnd(true)}
