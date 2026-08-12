@@ -9,7 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { RealmEvent, RealmEventType } from "@/lib/contracts";
-import { lastEventAt, presentNow } from "./derive";
+import { lastEventAt, presentNow, PROMPT_TTL_MS, staffPrompts } from "./derive";
 
 const T0 = Date.parse("2026-08-04T10:00:00Z");
 
@@ -92,5 +92,66 @@ describe("lastEventAt", () => {
     // A feed that stopped and a feed that never started are different, and the
     // live screen has to be able to say which.
     expect(lastEventAt([])).toBeNull();
+  });
+});
+
+describe("staffPrompts", () => {
+  const prompt = (message: string, at: number, priority = "normal") =>
+    ev(
+      "rule.staff_prompt",
+      {
+        message,
+        zoneId: "z_entry",
+        priority,
+        ruleId: "r_entry_crowd",
+        ruleName: "Entrance crowding",
+      },
+      at
+    );
+
+  it("reads a prompt off the log", () => {
+    const prompts = staffPrompts([prompt("Greet the group", T0)], T0);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].message).toBe("Greet the group");
+    expect(prompts[0].ruleName).toBe("Entrance crowding");
+  });
+
+  it("drops a prompt once it is stale", () => {
+    // A prompt still on screen twenty minutes later is not information, it is
+    // furniture — and it teaches the floor staff to stop reading the panel.
+    const old = prompt("Greet the group", T0);
+    expect(staffPrompts([old], T0 + PROMPT_TTL_MS + 1)).toHaveLength(0);
+  });
+
+  it("shows the newest first, because that is the one to act on", () => {
+    const events = [
+      prompt("older", T0),
+      prompt("newest", T0 + 30_000),
+      prompt("middle", T0 + 10_000),
+    ];
+    expect(staffPrompts(events, T0 + 30_000).map((p) => p.message)).toEqual([
+      "newest",
+      "middle",
+      "older",
+    ]);
+  });
+
+  it("ignores every other kind of event", () => {
+    // Deliberately not derived from `rule.fired` by checking what its action
+    // happens to be — that would be a second implementation of the rule spec in
+    // the browser, which is the split-brain ADR-002 exists to end.
+    const events = [
+      ev("rule.fired", { ruleId: "r_x", action: { type: "staff_prompt" } }, T0),
+      enter("P1", "z_a"),
+    ];
+    expect(staffPrompts(events, T0)).toHaveLength(0);
+  });
+
+  it("renders the same panel in a replay as it did live", () => {
+    // `now` is a parameter rather than Date.now() precisely so this holds: a
+    // replay of an afternoon shows what was on screen at each moment.
+    const events = [prompt("Greet the group", T0)];
+    expect(staffPrompts(events, T0 + 1000)).toHaveLength(1);
+    expect(staffPrompts(events, Date.now())).toHaveLength(0);
   });
 });

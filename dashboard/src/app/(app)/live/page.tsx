@@ -36,6 +36,7 @@ import { useAgentAlerts } from "@/hooks/useAgentStream";
 import { useLiveStats } from "@/lib/live/useLiveStats";
 import { LiveRoiTile } from "@/components/live/LiveRoiTile";
 import { CostTile } from "@/components/live/CostTile";
+import { StaffPromptTile } from "@/components/live/StaffPromptTile";
 
 /**
  * How stale the feed is, in words.
@@ -187,6 +188,13 @@ export default function LivePage() {
       </div>
 
       <LiveRoiTile stats={live} session={activeSession} />
+
+      {/* Above the cost tile on purpose: this is the one panel on the page that
+          is asking somebody to do something in the next few seconds, and the
+          rest of the screen is reporting on what already happened. */}
+      {/* The log's clock. A prompt *is* an event, so an empty log means an empty
+          panel and the fallback is never the value anything is aged against. */}
+      <StaffPromptTile prompts={live.prompts} now={live.lastEventAt ?? 0} />
 
       <CostTile cost={live.cost} />
 

@@ -9,11 +9,14 @@ same process, and they will call read_events() directly with no router involved.
 
 from __future__ import annotations
 
-from sqlalchemy import func, select, text
+import datetime as dt
+import uuid
+
+from sqlalchemy import BigInteger, delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.models import ConsumerCursor, DeadLetter, EventLog
+from app.models import ConsumerCursor, DeadLetter, EventLog, Rule, RuleDispatch
 from app.schemas import EventIn
 
 # A consumer polling in a tight loop should not be able to ask for the whole log
@@ -289,3 +292,341 @@ async def list_tenants(session: AsyncSession) -> list[str]:
     # only, never row data.
     result = await session.execute(text("SELECT tenant_id FROM app_tenants()"))
     return list(result.scalars().all())
+
+
+async def read_window(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str,
+    type: str,
+    since: dt.datetime,
+    until: dt.datetime,
+    before_seq: int,
+    limit: int = MAX_LIMIT,
+) -> list[EventLog]:
+    """Events of one type inside a window of **event time**, up to a seq bound.
+
+    This is ADR-002 §1 in one query — the sliding window the rules evaluator uses,
+    read from the log rather than held in a dictionary that a restart empties.
+
+    ## Why `before_seq` is not optional
+
+    It is what makes a replay reproduce the original run. The window is a range
+    of *occurred_at*, and on a replay the log already contains events that
+    happened inside that range but arrived after the event being evaluated. Read
+    without a seq bound, a rule evaluated at seq 100 would see events from seq
+    150 — the future, relative to the moment being replayed — and fire where the
+    original run did not. Bounding by seq restricts the read to what the log
+    actually held at that point.
+
+    `since` is exclusive and `until` inclusive, so an event exactly `windowSec`
+    old falls outside a window of that length and the boundary is not counted
+    twice by two adjacent evaluations.
+
+    Served by `event_log_tenant_session_type_occurred_idx` (migration 0004).
+    """
+    stmt = (
+        select(EventLog)
+        .where(
+            EventLog.tenant_id == tenant_id,
+            EventLog.session_id == session_id,
+            EventLog.type == type,
+            EventLog.occurred_at > since,
+            EventLog.occurred_at <= until,
+            EventLog.seq <= before_seq,
+        )
+        .order_by(EventLog.seq.asc())
+        .limit(min(limit, MAX_LIMIT))
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def last_event_of_type(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str,
+    type: str,
+    before_seq: int,
+) -> EventLog | None:
+    """The most recent event of a type strictly before a seq.
+
+    The evaluator's `none` condition asks this: "when did anything of this type
+    last happen here?" The seq bound is exclusive — the event being evaluated is
+    not part of its own history — and it is what keeps a replay from seeing
+    events that, at the point being replayed, had not arrived yet.
+    """
+    stmt = (
+        select(EventLog)
+        .where(
+            EventLog.tenant_id == tenant_id,
+            EventLog.session_id == session_id,
+            EventLog.type == type,
+            EventLog.seq < before_seq,
+        )
+        .order_by(EventLog.seq.desc())
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def last_rule_firing(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str,
+    rule_id: str,
+    before_trigger_seq: int,
+) -> EventLog | None:
+    """The last time one rule fired, for the cooldown check.
+
+    ## Why this is keyed on `triggerSeq` rather than on the firing's own seq
+
+    The obvious query — "the last `rule.fired` for this rule at a lower seq" — is
+    wrong, and wrong in the direction that makes cooldown do nothing at all. A
+    firing is appended *after* the event that caused it, so it always holds the
+    higher seq. Evaluating a burst of dwells, every one of them looks for an
+    earlier firing, finds that the firing sits ahead of it in the log, and
+    concludes the rule has never fired. Cooldown silently never applies, and a
+    crowd of five produces five Slack posts instead of one.
+
+    Found by `test_a_replay_produces_the_same_firings`, which expected one firing
+    and got six — one per dwell past the threshold.
+
+    What locates a firing in the stream is the event that caused it, which the
+    payload carries as `triggerSeq`. Ordering on that puts a firing where its
+    cause is, which is where the cooldown question is actually being asked.
+
+    It is also what makes a replay reproduce the original run. Replaying the
+    input at seq 5, the firing it produced carries `triggerSeq: 5`, which is not
+    *before* seq 5 — so a replayed evaluation does not find its own output and
+    suppress itself into producing nothing. The input at seq 6 does find it,
+    exactly as in the original run.
+    """
+    # ->> extracts JSONB as text; the cast is what makes 10 sort after 9.
+    trigger_seq = EventLog.payload["triggerSeq"].astext.cast(BigInteger)
+    stmt = (
+        select(EventLog)
+        .where(
+            EventLog.tenant_id == tenant_id,
+            EventLog.session_id == session_id,
+            EventLog.type == "rule.fired",
+            EventLog.payload["ruleId"].astext == rule_id,
+            trigger_seq < before_trigger_seq,
+        )
+        .order_by(trigger_seq.desc())
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+# ── rules ─────────────────────────────────────────────────────────────────────
+#
+# ADR-002: a rule is a JSON document, stored per tenant, evaluated by exactly one
+# evaluator. These are the document's storage half; app/consumers/rules.py is the
+# evaluator and app/routers/rules.py is how an operator authors one.
+
+
+async def list_rules(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    trigger_type: str | None = None,
+    enabled_only: bool = False,
+) -> list[Rule]:
+    """Rules for one tenant, optionally narrowed to one trigger type.
+
+    The narrowed form is the evaluator's per-event query and is served by
+    `rules_tenant_id_trigger_type_idx`. The wide form is the operator's list.
+    Ordered by rule_id so a list endpoint and a preview agree on order.
+    """
+    stmt = select(Rule).where(Rule.tenant_id == tenant_id).order_by(Rule.rule_id)
+    if trigger_type is not None:
+        stmt = stmt.where(Rule.trigger_type == trigger_type)
+    if enabled_only:
+        stmt = stmt.where(Rule.enabled.is_(True))
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_rule(
+    session: AsyncSession, *, tenant_id: str, rule_id: str
+) -> Rule | None:
+    """One rule. tenant_id is in the WHERE even though rule_id is the primary
+    key: RLS would refuse a cross-tenant read anyway, but a 404 is a better
+    answer than an empty result the caller has to interpret."""
+    return (
+        await session.execute(
+            select(Rule).where(Rule.tenant_id == tenant_id, Rule.rule_id == rule_id)
+        )
+    ).scalar_one_or_none()
+
+
+async def upsert_rule(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    rule_id: str,
+    name: str,
+    trigger_type: str,
+    trigger_zone_id: str | None,
+    condition: dict,
+    action: dict,
+    enabled: bool,
+    cooldown_sec: int,
+) -> Rule:
+    """Create or replace one rule document.
+
+    Upsert rather than separate insert/update because the composer UI saves a
+    whole document either way — an operator editing a rule is not sending a
+    patch, they are sending the rule as it should now read.
+
+    The conflict target is `rule_id` alone, which is the primary key. Adding
+    tenant_id to it would not compile, and it is not needed: the WITH CHECK half
+    of the RLS policy refuses a write that would land in another tenant, so a
+    caller cannot overwrite a rule_id they do not own — they get a policy
+    violation rather than someone else's rule.
+    """
+    values = {
+        "rule_id": rule_id,
+        "tenant_id": tenant_id,
+        "name": name,
+        "trigger_type": trigger_type,
+        "trigger_zone_id": trigger_zone_id,
+        "condition": condition,
+        "action": action,
+        "enabled": enabled,
+        "cooldown_sec": cooldown_sec,
+    }
+    stmt = (
+        pg_insert(Rule)
+        .values(**values)
+        .on_conflict_do_update(
+            index_elements=["rule_id"],
+            set_={
+                k: v for k, v in values.items() if k not in ("rule_id", "tenant_id")
+            }
+            | {"updated_at": func.now()},
+        )
+        .returning(Rule)
+    )
+    return (await session.execute(stmt)).scalar_one()
+
+
+async def delete_rule(session: AsyncSession, *, tenant_id: str, rule_id: str) -> bool:
+    """Remove a rule. Returns whether there was one to remove.
+
+    A real delete, not a soft one. `enabled: false` is already the way to stop a
+    rule firing while keeping it, so a tombstone would be a third state with no
+    meaning — and `rule.fired` rows on the bus are the durable record of what a
+    rule did, which is what an audit actually needs.
+    """
+    result = await session.execute(
+        delete(Rule).where(Rule.tenant_id == tenant_id, Rule.rule_id == rule_id)
+    )
+    return result.rowcount > 0
+
+
+# ── dispatches ────────────────────────────────────────────────────────────────
+
+
+async def claim_dispatch(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    fired_event_id: uuid.UUID,
+    rule_id: str,
+    action_type: str,
+) -> RuleDispatch | None:
+    """Take exclusive ownership of carrying out one action, or return None.
+
+    This is the whole of ADR-002 §3's "a retry after a timeout cannot
+    double-post", and it has to be a database write rather than a check: posting
+    to Slack is not idempotent, and no amount of care on this side makes it so.
+    The UNIQUE on (fired_event_id, action_type) is what decides.
+
+    ## Three existing states, three different answers
+
+    The first version was `ON CONFLICT DO NOTHING`, which reads well and is
+    wrong. It treats every existing row as "somebody else has this", including
+    the row a *failed* attempt just wrote — so the dispatcher's own second
+    attempt returned quietly, the exception never came back, and
+    `base.Consumer` recorded a success. A Slack outage silently produced no
+    message and no dead letter. (`test_a_failing_slack_post_lands_in_the_dead_letter_queue`.)
+
+    So the conflict is resolved on the existing `status`:
+
+    - **`delivered`** — refuse. This is the double-post case the table exists
+      for, and the one a replay hits.
+    - **`failed`** — take it back and try again, counting the attempt. Nothing
+      was delivered, so there is nothing to duplicate.
+    - **`claimed`** — refuse. A process died between the claim and the outcome,
+      and whether the message arrived is genuinely unknown. Retrying would risk
+      the double-post; the honest state is the one `complete_dispatch` describes,
+      and it needs a human rather than a guess.
+
+    A `DO UPDATE … WHERE` whose condition fails returns no row, so all three
+    answers come out of one statement with no read-then-write race between them.
+    """
+    stmt = (
+        pg_insert(RuleDispatch)
+        .values(
+            tenant_id=tenant_id,
+            fired_event_id=fired_event_id,
+            rule_id=rule_id,
+            action_type=action_type,
+            status="claimed",
+            attempts=1,
+        )
+        .on_conflict_do_update(
+            index_elements=["fired_event_id", "action_type"],
+            set_={
+                "status": "claimed",
+                "attempts": RuleDispatch.attempts + 1,
+                "completed_at": None,
+            },
+            where=RuleDispatch.status == "failed",
+        )
+        .returning(RuleDispatch)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def complete_dispatch(
+    session: AsyncSession,
+    *,
+    dispatch_id: int,
+    status: str,
+    detail: str | None = None,
+) -> None:
+    """Record how a claimed dispatch ended: `delivered` or `failed`.
+
+    A row left at `claimed` is not a bug to clean up — it is a dispatch whose
+    process died between the claim and the outcome, and the honest reading is
+    "we do not know whether Slack got it". Leaving it says so; overwriting it
+    with `failed` on restart would be a guess, and a retry on that guess is the
+    double-post this table exists to prevent.
+    """
+    await session.execute(
+        update(RuleDispatch)
+        .where(RuleDispatch.id == dispatch_id)
+        .values(status=status, detail=detail, completed_at=func.now())
+    )
+
+
+async def get_dispatch(
+    session: AsyncSession, *, tenant_id: str, fired_event_id: uuid.UUID, action_type: str
+) -> RuleDispatch | None:
+    """The dispatch for one firing and action, if it exists. For `/ops` and for
+    tests asking whether an action ran exactly once."""
+    return (
+        await session.execute(
+            select(RuleDispatch).where(
+                RuleDispatch.tenant_id == tenant_id,
+                RuleDispatch.fired_event_id == fired_event_id,
+                RuleDispatch.action_type == action_type,
+            )
+        )
+    ).scalar_one_or_none()

@@ -1,6 +1,11 @@
 # ADR 002 — Rules are data, and there is one evaluator
 
-**Status:** Accepted (2026-08-11)
+**Status:** Accepted (2026-08-11) · **Implemented on this track (2026-08-12)** —
+`backend/app/consumers/rules.py` (the evaluator, with all four corrections
+below), `consumers/dispatch.py` + `app/actions/` (the actions), `app/routers/
+rules.py` (authoring), and `dashboard/src/agents/presets.ts` + `preview.ts` (the
+presets and the dry run). Two things this document did not anticipate are
+recorded under "What implementing it changed", at the end.
 **Context:** `roadmap.md` Phase 3 — "ADR-002: rule spec as JSON data
 (trigger/condition/action) + one evaluator in the edge engine + browser preview
 reuse. Existing browser agent runtime becomes *simulation/preview* of edge rules
@@ -127,6 +132,39 @@ decides whether a rule fires in production.
   evaluators rather than dialects.
 - A rule language change is a spec version bump, not a code change in two
   runtimes.
+
+## What implementing it changed
+
+Two things this document got wrong, or did not say, kept in the ADR rather than
+only in the changelog — a decision record that hides its own corrections is worth
+less than one that carries them.
+
+**§2's cooldown is right and its obvious implementation is not.** "Cooldown
+compares `occurredAt` to the `occurredAt` of the last firing" is correct and
+under-specified: *finding* the last firing by taking the most recent `rule.fired`
+at a lower `seq` never finds one, because a firing is appended after the event
+that caused it and therefore always holds the higher seq. Every event in a burst
+concludes the rule has never fired and cooldown silently never applies — a crowd
+of five produces five Slack posts. The lookup has to order on the `triggerSeq`
+the firing carries, which is also what makes a replay reproduce the original run.
+
+**§4's `none` needs an identity, not just a boundary.** Judging an absence when
+the next event arrives is right, but *every* event after the boundary reveals the
+same silence, so two arrivals a second apart each fire. Suppressing the second
+with control flow is another backwards read and another thing to get wrong. The
+firing's derived id is keyed on the **silence** — the seq of the event the quiet
+started after — so every later arrival derives the same id and the bus refuses
+the duplicate. §3's mechanism, applied to a condition whose cause is an absence.
+
+**A third thing, which is not about the spec but about how it was verified.** The
+evaluator read the rule document's camelCase (`zoneId`, `anonId`) against
+payloads the tracker writes in snake_case (`event-bus-spec.md` §3). A rule was
+armed, correct, and matched nothing, with no error to show for it. Both spellings
+are now accepted, snake_case first, as the spec already concedes for
+`anon_id` / `person_id`. What is worth recording is that a full unit-test suite
+on each side stayed green: each had been written in its own dialect and agreed
+with itself. `tests/test_phase3_acceptance.py` runs the chain end to end for
+exactly that class of failure.
 
 ## Rejected
 

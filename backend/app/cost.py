@@ -20,13 +20,14 @@ So the meter takes the *cause* of the spend rather than an id, and derives one.
 Two calls describing the same spend produce the same id and the bus dedupes the
 second.
 
-## Nothing calls this yet, on purpose
+## Its first caller
 
-No code on this track spends money today: Ask is not wired to a provider and the
-rule dispatchers are not built. This is registered ahead of its callers for the
-same reason the Phase 3 event types were (`event-bus-spec.md` §3) — the first
-person to need it should find a meter with a settled contract, not invent a
-second way to write the same event.
+Written ahead of any caller, for the same reason the Phase 3 event types were
+(`event-bus-spec.md` §3): the first person to need it should find a meter with a
+settled contract rather than invent a second way to write the same event. That
+first caller is now `consumers/dispatch.py` — every rule action that goes out
+meters an `action_unit` — which is why `/live`'s cost tile stopped reading "no
+meter yet". Ask's LLM calls are still waiting on a provider key.
 """
 
 from __future__ import annotations
@@ -45,7 +46,9 @@ from app.schemas import EventIn
 #: A closed set here and there: unlike the event taxonomy, which is additive by
 #: design, a cost kind nobody recognises cannot be summed into unit economics —
 #: it would sit in the log looking like it had been counted.
-CostKind = Literal["llm_tokens", "enrichment_credit", "storage", "other"]
+CostKind = Literal[
+    "llm_tokens", "action_unit", "enrichment_credit", "storage", "other"
+]
 
 EVENT_TYPE = "cost.metered"
 

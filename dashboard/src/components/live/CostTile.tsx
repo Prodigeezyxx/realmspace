@@ -10,13 +10,16 @@
  * cost is the ROI tile's business (`LiveRoiTile`, `Cost / engaged`), and the two
  * are deliberately not added together.
  *
- * ## Why it says "nothing meters cost yet"
+ * ## Why an empty tile does not read "$0.00"
  *
- * Nothing on this track spends money at the moment: Ask is not wired to a
- * provider and the rule dispatchers are not built. An empty tile that read
- * "$0.00" would be a claim — that the session was free — and the honest state is
- * that no meter has reported. The distinction is the same one the report makes
- * about revenue it cannot see.
+ * It would be a claim — that the session was free — where the honest state is
+ * that no meter has reported. The same distinction the report makes about
+ * revenue it cannot see.
+ *
+ * There are meters now: every rule action the edge dispatches meters an
+ * `action_unit`, so a session with an armed Slack rule reports as soon as it
+ * fires. Ask still spends nothing, having no provider key. So an empty tile on a
+ * running session means no rule has acted yet — not that nothing can.
  */
 
 import { Coins } from "lucide-react";
@@ -110,10 +113,11 @@ export function CostTile({ cost }: { cost: CostSummary }) {
         <div className="flex items-start gap-3">
           <Coins size={16} className="mt-0.5 shrink-0 text-text-muted" />
           <p className="text-sm text-text-secondary leading-relaxed">
-            Nothing has metered a cost for this session. That is not the same as
-            a free session — no spender is wired up yet. The first readings will
-            come from Ask&apos;s LLM calls and from rule actions, both of which
-            meter through <code>cost.metered</code> on the bus.
+            Nothing has metered a cost for this session — which is not the same
+            as a free session. A rule action meters one as soon as it is
+            dispatched, so this fills in once a rule fires. Ask&apos;s LLM calls
+            will report here too, once a provider key is configured. Both meter
+            through <code>cost.metered</code> on the bus.
           </p>
         </div>
       )}

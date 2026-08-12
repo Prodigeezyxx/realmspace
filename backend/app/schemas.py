@@ -357,6 +357,184 @@ class SessionGraphOut(BaseModel):
     dwell_by_zone: list[ZoneDwell]
 
 
+# ── rules ─────────────────────────────────────────────────────────────────────
+#
+# ADR-002's document, as a wire shape. The ADR's example is the test: every field
+# below appears there, spelled the same way.
+#
+#   { ruleId, tenantId, name, triggerType, triggerZoneId,
+#     condition: { type: "threshold", count, windowSec, zoneId, minDwellSec },
+#     action:    { type: "slack", channel, message },
+#     enabled, cooldownSec }
+#
+# Adopted verbatim from what floats-agent already ships, "so the two tracks do
+# not end up with two rule languages". Two shapes here are deliberately unlike
+# each other: `triggerType` is an open prefix check, and condition/action are
+# closed discriminated unions. See the note on RuleIn.
+
+
+class ThresholdCondition(BaseModel):
+    """N of something within a window. The only condition that counts."""
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    type: Literal["threshold"]
+    count: int = Field(ge=1)
+    window_sec: int = Field(gt=0)
+    #: Narrows the window to one zone. Distinct from `triggerZoneId`: the trigger
+    #: decides which events wake the rule, this decides which are counted.
+    zone_id: str | None = None
+    #: For dwell triggers — ignore a dwell shorter than this. A dwell event is
+    #: emitted for every stay, including a two-second one, and "5 people at the
+    #: entrance" does not mean five people who walked past it.
+    min_dwell_sec: float | None = Field(default=None, ge=0)
+
+
+class AnyCondition(BaseModel):
+    """Fire on the trigger itself, with no counting. `count: 1` in spirit, but
+    named separately because "any dwell in this zone" is what an operator says,
+    and a spec they can read back is the point of ADR-002."""
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    type: Literal["any"]
+    zone_id: str | None = None
+
+
+class NoneCondition(BaseModel):
+    """Nothing happened for `windowSec`.
+
+    ADR-002 §4: this cannot be judged when an event arrives, because that asks
+    whether the window is empty at the moment something filled it. It is judged
+    at a boundary — the first event past the window, or `session.ended`.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    type: Literal["none"]
+    window_sec: int = Field(gt=0)
+    zone_id: str | None = None
+
+
+RuleCondition = ThresholdCondition | AnyCondition | NoneCondition
+
+
+class SlackAction(BaseModel):
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    type: Literal["slack"]
+    channel: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+
+
+class WebhookAction(BaseModel):
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    type: Literal["webhook"]
+    url: str = Field(min_length=1)
+    #: Merged into the POST body alongside the firing. Whatever the operator's
+    #: receiver needs to route it.
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class ScreenSwapAction(BaseModel):
+    """Change what a screen in the room is showing."""
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    type: Literal["screen_swap"]
+    screen_id: str = Field(min_length=1)
+    content_id: str = Field(min_length=1)
+
+
+class StaffPromptAction(BaseModel):
+    """Tell a human on the floor to do something. The `< 3s` in the Phase 3
+    acceptance criterion is mostly about this one — the others can be a second
+    late without anybody noticing."""
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    type: Literal["staff_prompt"]
+    message: str = Field(min_length=1)
+    #: Where in the room the prompt is about, so a screen can place it.
+    zone_id: str | None = None
+    priority: Literal["low", "normal", "high"] = "normal"
+
+
+class LogAction(BaseModel):
+    """Do nothing but say so. The action for a rule an operator is still
+    trialling, and the one every test uses."""
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    type: Literal["log"]
+    message: str = ""
+
+
+RuleAction = (
+    SlackAction | WebhookAction | ScreenSwapAction | StaffPromptAction | LogAction
+)
+
+
+class RuleIn(BaseModel):
+    """A rule document as an operator POSTs it.
+
+    ## Why triggerType is validated loosely and the rest strictly
+
+    `triggerType` reuses `EVENT_NAMESPACES` — the same prefix test the bus
+    applies to an incoming event, with the same known gap (a typo in the suffix
+    passes). That is ADR-002's explicit choice: "`triggerType` is any type
+    registered in event-bus-spec.md §3 — **not** a closed enum … a rule spec that
+    cannot name `intent.scored` or `spatial.tagged` the day those producers land
+    would force a spec migration to use them, which is the tax Phase 3's
+    pre-registration was meant to avoid."
+
+    `condition.type` and `action.type` are the opposite: closed unions, because
+    unlike the taxonomy they are not additive by design. An action type nothing
+    dispatches is a rule that looks armed and does nothing, which is worse than
+    a 422 at the moment of saving.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    rule_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    trigger_type: str = Field(min_length=1)
+    trigger_zone_id: str | None = None
+    condition: RuleCondition = Field(discriminator="type")
+    action: RuleAction = Field(discriminator="type")
+    enabled: bool = True
+    #: Seconds of event time between two firings of the same rule. Zero is
+    #: allowed and means "every match", which is a defensible choice for a `log`
+    #: rule and a bad one for Slack.
+    cooldown_sec: int = Field(default=60, ge=0)
+
+    @field_validator("trigger_type")
+    @classmethod
+    def trigger_is_in_a_known_namespace(cls, value: str) -> str:
+        if not value.startswith(EVENT_NAMESPACES):
+            raise ValueError(
+                f"unknown event namespace in triggerType {value!r}; "
+                f"expected one of {', '.join(EVENT_NAMESPACES)} "
+                "(taxonomy: docs/event-bus-spec.md §3)"
+            )
+        return value
+
+
+class RuleOut(RuleIn):
+    """A stored rule. `tenantId` appears here and not on RuleIn: the tenant comes
+    from the authenticated principal, never from the body, or an operator could
+    write a rule into somebody else's booth."""
+
+    model_config = ConfigDict(
+        from_attributes=True, alias_generator=_to_camel, populate_by_name=True
+    )
+
+    tenant_id: str
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+
 def to_wire(row) -> dict:
     """An event_log row as the canonical RealmEvent the browser expects.
 

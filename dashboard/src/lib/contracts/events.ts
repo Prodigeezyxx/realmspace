@@ -36,6 +36,15 @@ export type RealmEventType =
   | "identity.resolved"
   // rules + intelligence
   | "rule.fired"
+  /**
+   * A rule's action, carried out. Distinct types rather than the browser reading
+   * `rule.fired` and checking what its action happens to be — that would put a
+   * second implementation of the rule spec in the client, which is the
+   * split-brain ADR-002 exists to end. A screen subscribes to the one type it
+   * renders and knows nothing about rules.
+   */
+  | "rule.staff_prompt"
+  | "rule.screen_swap"
   | "insight.generated"
   /** provisional — the scoring model is not pinned yet (event-bus-spec.md §3) */
   | "intent.scored"
@@ -65,6 +74,13 @@ export const ANONYMOUS_EVENT_TYPES: readonly RealmEventType[] = [
   "spatial.passby",
   "surface.interaction",
   "rule.fired",
+  /**
+   * A message to staff and a content id for a screen. Neither names a visitor —
+   * a prompt is about a zone and a moment, which is what keeps the Next-Step
+   * surface on the anonymous side of `privacy.md` rather than needing consent.
+   */
+  "rule.staff_prompt",
+  "rule.screen_swap",
   "insight.generated",
   "rfid.read",
   /**
@@ -292,7 +308,23 @@ export interface CrmRetractPayload {
   dedupeKey: string;
 }
 export interface CostMeteredPayload {
-  kind: "llm_tokens" | "enrichment_credit" | "storage" | "other";
+  /**
+   * A closed set, unlike the event taxonomy: a cost kind nothing recognises
+   * cannot be summed into unit economics, and would sit in the log looking as
+   * though it had been counted.
+   *
+   * `action_unit` is one dispatched rule action — a Slack post, a webhook, a
+   * screen swap. Added when the Phase 3 dispatchers landed, and named rather
+   * than folded into `other` because "actions" is one of the two spends the
+   * roadmap's cost line calls out, and a `/live` tile that labels it `other`
+   * tells an operator nothing about what their booth is spending on.
+   */
+  kind:
+    | "llm_tokens"
+    | "action_unit"
+    | "enrichment_credit"
+    | "storage"
+    | "other";
   amount: number;
   unit: string;
 }

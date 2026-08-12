@@ -122,6 +122,11 @@ async def db_session() -> AsyncIterator[AsyncSession]:
     a consumer's cursor still points at the previous test's high-water mark, so
     it silently skips every event and the test fails with an empty graph and no
     hint as to why. Tests would pass alone and fail in a suite.
+
+    `rules` and `rule_dispatch` (migration 0004) are on the list for the same
+    reason and a sharper version of it: a rule left behind fires in the *next*
+    test, against events that test wrote for another purpose, so the failure
+    surfaces somewhere unrelated to the test that caused it.
     """
     # Wipe as the owner: TRUNCATE is a privilege the app role deliberately does
     # not have, and it would in any case only be able to see its own tenant.
@@ -130,7 +135,7 @@ async def db_session() -> AsyncIterator[AsyncSession]:
         await cleaner.execute(
             text(
                 "TRUNCATE event_log, consumer_cursor, dead_letter, "
-                "auth_user, api_key RESTART IDENTITY;"
+                "rules, rule_dispatch, auth_user, api_key RESTART IDENTITY;"
             )
         )
         await cleaner.commit()

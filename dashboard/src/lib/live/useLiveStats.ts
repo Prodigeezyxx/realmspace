@@ -34,7 +34,7 @@ import { ZONE_TYPE_TO_KIND } from "@/lib/session/publish";
 import type { RealmEvent, ZoneNode } from "@/lib/contracts";
 import type { Session } from "@/lib/session/types";
 import { hourlyVisitors } from "@/lib/report/derive";
-import { lastEventAt, presentNow } from "./derive";
+import { lastEventAt, presentNow, staffPrompts, type StaffPrompt } from "./derive";
 
 /** How often the scorecard may be recomputed, however fast events arrive. */
 const RECOMPUTE_MS = 1000;
@@ -55,6 +55,11 @@ export interface LiveStats {
    * lives in `scorecard.pipeline`; see `lib/roi/cost.ts`.
    */
   cost: CostSummary;
+  /**
+   * What rules have asked the floor staff to do, newest first and recent only.
+   * The `< 3s` end of Phase 3 — see `staffPrompts` for what "recent" means.
+   */
+  prompts: StaffPrompt[];
 }
 
 function emptyStats(): LiveStats {
@@ -66,6 +71,7 @@ function emptyStats(): LiveStats {
     lastEventAt: null,
     traffic: [],
     cost: summarizeCost([]),
+    prompts: [],
   };
 }
 
@@ -116,6 +122,10 @@ export function useLiveStats(session: Session): LiveStats {
         cost: summarizeCost(events, {
           engagedVisitors: scorecard.engagement.engagedVisitors,
         }),
+        // Against the *log's* clock, not the browser's. A replay of yesterday
+        // then shows the prompts that were live at each moment rather than an
+        // empty panel, and a live session is unaffected because the two agree.
+        prompts: staffPrompts(events, lastEventAt(events) ?? Date.now()),
       });
     };
 

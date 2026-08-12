@@ -17,7 +17,111 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-11
+## [Unreleased] — last updated 2026-08-12
+
+### Added — 2026-08-12 — `[neo4j-track]` the booth can act now: rules fire, and something happens in the room
+
+Yesterday's entry said this track was leaving the evaluator alone until the
+bake-off compared the two backends, because `floats-agent` shipped one on
+2026-08-10 and building a second is a week spent on work half of which gets
+thrown away. That was the right call with the information available and it is
+wrong now, for two reasons that only became visible while writing ADR-002:
+
+- **The shipped evaluator is the version the ADR says is wrong.** All four of
+  its corrections — bus-derived window, event-time cooldown, derived firing id,
+  `none` judged at a boundary — describe things `rules.py` does differently.
+  Building the corrected one is not a duplicate; it is the thing the ADR was
+  written to specify, and whichever track wins inherits it.
+- **None of it touches the graph.** Rules live in the bus's SQL database by
+  ADR-002's own reasoning, so this survives either bake-off outcome intact.
+
+So Phase 3's remaining boxes are ticked. **"When 5 people dwell at the entrance
+for 30 seconds → ping Slack" now fires, in the room, from real detections.**
+
+**A rule is a row, and `/v1/rules` is how an operator writes one.** A `rules`
+table under the same forced row-level security as the log, plus `rule_dispatch`,
+which exists for its UNIQUE constraint and nothing else. The validator is
+deliberately asymmetric: `triggerType` is a namespace prefix check, so a rule can
+name `intent.scored` the day that producer lands; `condition.type` and
+`action.type` are closed unions, because an action nothing dispatches is a rule
+that looks armed on screen and does nothing in the room.
+
+**The evaluator is a bus consumer** (`consumers/rules.py`), subclassing the same
+base as the tracker — so cursor, exponential backoff and dead-lettering are the
+ones `/ops` already surfaces, rather than a second set. It emits `rule.fired` and
+stops there; carrying out the action is a separate consumer, which keeps a slow
+Slack API off the path with the `< 3s` budget on it.
+
+Two bugs the tests found, both of which would have shipped quietly:
+
+- **Cooldown ordered on the firing's own `seq` never applies at all.** A firing
+  is appended *after* the event that caused it, so it always holds the higher
+  seq — every dwell in a burst looks for an earlier firing, finds it sitting
+  ahead in the log, and concludes the rule has never fired. A crowd of five
+  produced five Slack posts. It has to order on the `triggerSeq` the payload
+  carries, which puts a firing where its cause is.
+- **A threshold that counts events fires a five-person rule on one person.**
+  `spatial.dwell` is emitted per stay, so a visitor leaving and returning five
+  times is five events. It counts distinct `anon_id`s, and says which it did.
+
+**The actions are real.** `consumers/dispatch.py` reads `rule.fired` and runs one
+handler from `app/actions/`: Slack, a signed webhook, a screen swap, a staff
+prompt, or a deliberate no-op. Idempotency is a `rule_dispatch` row claimed
+*before* the call goes out, because Slack is not a database we can put an
+`ON CONFLICT` on — so the decision moves to one that is. The claim reads three
+prior states differently: `delivered` refuses, which is the replay case; `failed`
+is retaken, because nothing was delivered and there is nothing to duplicate; and
+`claimed` refuses, because a process that died mid-call leaves it genuinely
+unknown whether the message arrived, and that wants a human rather than a guess.
+
+Screen swaps and staff prompts go **on the bus**, not straight at the WebSocket
+hub. A tablet that reconnects ten seconds later catches up from its cursor; a
+prompt pushed at the sockets that happened to be open is gone. The `/live` panel
+that shows them expires its own entries after five minutes, which is the one
+number here that is a judgement rather than a derivation: a prompt still on
+screen twenty minutes later is not information, it is furniture, and it teaches
+the floor staff to stop reading the panel.
+
+**The cost tile has a reading.** Every dispatched action meters an `action_unit`,
+so `cost.metered` finally has a caller and the tile stops saying "no meter yet".
+The reading is **1 action**, not a price — a default cost per action would be a
+number invented on a client's behalf, which `roi-framework.md` rules out for
+revenue and this refuses for spend. Actions are counted in a unit that is not a
+currency, so they sit on their own line and are never added to dollars.
+
+**The browser stopped owning rules**, which was ADR-002's last unbuilt section.
+There were *three* rule vocabularies: the eight `AgentDefinition`s, the composer
+screen's own `Trigger = "dwell" | "count" | "gaze" | …` with hand-written
+condition strings, and the thing that actually decides whether a booth acts. The
+definitions now compile to the document; three of them turn out not to be rules
+at all — they are jobs this browser runs over its own state — and say so instead
+of being padded into the shape. That mismatch is the finding rather than a gap:
+a list mixing "ping ops when the entrance is crowded" with "regenerate the
+heatmap" reads as one kind of thing and is two, which is most of why the
+split-brain was hard to see.
+
+`/agents` reads real rules from the backend and real firings from `rule.fired`.
+`fired: 488`, "718 fires today" and "240ms avg latency" are gone, on the same
+grounds the report's and the live tile's invented figures were. The browser runs
+a **dry run** — the same document, this session's events, a count of how often it
+would have fired — and dispatches nothing. A `none` rule reports that it cannot
+be previewed here rather than showing zero, because this log is a partial mirror
+and an apparent silence may just be an event that has not arrived.
+
+**One integration bug worth recording, because a green suite hid it.** The
+evaluator read `zoneId` and `anonId`; the tracker writes `zone_id` and `anon_id`,
+which is what `event-bus-spec.md` §3 pins and what is actually in the log. A rule
+was therefore armed, correct, watching the right events — and silently matching
+none of them. No error, no dead letter, nothing to see. Every unit test on either
+side had been written in that side's own dialect and agreed with itself. It took
+`tests/test_phase3_acceptance.py`, which runs perception → tracker → evaluator →
+dispatcher as one chain, to catch it, and that test now stands as the acceptance
+criterion rather than a paragraph in a doc.
+
+Fifty new backend tests (205 total) and twenty-six new dashboard tests (126). The
+preview's cases are deliberate twins of the evaluator's — same rule, same events,
+same expected firings — so the two runners of one document cannot drift without
+both suites failing.
 
 ### Added — 2026-08-11 (later) — `[neo4j-track]` Phase 3 starts with the two pieces nobody has to build twice
 

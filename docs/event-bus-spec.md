@@ -97,7 +97,9 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `consent.captured` | capture surface | tier, basis, copy_version | identity, CRM gate |
 | `consent.withdrawn` | anywhere | contact_id | re-anonymiser, CRM retract |
 | `identity.resolved` | identity consumer | anon_id ↔ contact | CRM, follow-up |
-| `rule.fired` | rules engine | rule_id, action | action consumers |
+| `rule.fired` | rules evaluator | rule_id, action, matched | dispatcher, report |
+| `rule.staff_prompt` | dispatcher | message, zone_id, priority | `/live` Next-Step surface |
+| `rule.screen_swap` | dispatcher | screen_id, content_id | in-room screens |
 | `intent.scored` | intent consumer | anon_id, score, band | rules, report, handoff |
 | `handoff.lead` | attribution | normalized LeadHandoff | CRM adapters |
 | `crm.retract` | re-anonymiser | contact_id, destination, reason | CRM adapters |
@@ -111,7 +113,11 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 **Six of these have no producer yet** — `rfid.read`, `spatial.tagged`,
 `intent.scored`, `drift.detected`, `calibration.updated`, `crm.retract`. They are
 registered here, and their namespaces accepted by `backend/app/schemas.py`,
-*before* the phases that emit them (P3 rules/RFID, P4 capture, P6 calibration).
+*before* the phases that emit them (P4 capture, P6 calibration). `rule.fired` was
+on that list until the evaluator landed; `rule.staff_prompt` and
+`rule.screen_swap` needed no registration at all, the `rule.` namespace having
+been accepted since before anything used it — which is the pre-registration
+argument working exactly as intended.
 Additive-only is only free if the additions land ahead of the code: a producer
 that meets a 422 from a namespace check has nothing in the error to tell its
 author that the taxonomy, not their request, is the thing refusing them.
@@ -317,10 +323,14 @@ would mean the log claiming a mask was applied at a time it was not.
 **`cost.metered`** — producer: any consumer that spends money:
 `{ "kind", "amount", "unit", "detail" }`
 
-`kind` is `"llm_tokens" | "enrichment_credit" | "storage" | "other"` — a closed
-set, unlike the event taxonomy, because a kind nobody recognises cannot be
-summed into unit economics and would sit in the log looking as though it had
-been counted. `unit` is what `amount` counts: `"tokens"`, `"credits"`, or an ISO
+`kind` is
+`"llm_tokens" | "action_unit" | "enrichment_credit" | "storage" | "other"` — a
+closed set, unlike the event taxonomy, because a kind nobody recognises cannot
+be summed into unit economics and would sit in the log looking as though it had
+been counted. `action_unit` is one dispatched rule action, added when the Phase 3
+dispatchers landed and named rather than folded into `other`: actions are one of
+the two spends the roadmap's cost line calls out, and a tile labelling it
+`other` tells an operator nothing about what their booth is spending on. `unit` is what `amount` counts: `"tokens"`, `"credits"`, or an ISO
 currency code when the spend is already money. The reader only totals a currency
 figure from events whose unit *is* a currency
 (`dashboard/src/lib/roi/cost.ts`) — adding tokens to dollars produces a number
@@ -333,6 +343,69 @@ in the direction that overstates what a client's activation cost.
 
 `occurred_at` is when the work happened, not when the row was written, so a
 replayed cost does not attribute last week's spend to today's session.
+
+**`rule.fired`** — producer: the rules evaluator (`backend/app/consumers/rules.py`):
+
+```json
+{
+  "ruleId":      "r_entry_crowd",
+  "ruleName":    "Entrance crowding → ping ops",
+  "triggerType": "spatial.dwell",
+  "triggerSeq":  418,              // the event that caused it
+  "condition":   { "type": "threshold", "count": 5, "windowSec": 30 },
+  "action":      { "type": "slack", "channel": "#ops", "message": "5 at entrance" },
+  "matched":     { "observed": 5, "countedBy": "people", "windowSec": 30 }
+}
+```
+
+The rule document, per `adr/002-rule-spec.md`, plus what it matched on. Three
+fields are load-bearing beyond the obvious:
+
+- **`action` is copied in, not looked up.** The dispatcher acts on the document
+  *as it was when the rule matched*, so an operator editing a rule between the
+  firing and the dispatch has not retroactively changed what their booth decided
+  to do. ADR-002's second reason for rules-as-data — "a rule must be inspectable
+  after it fires … reading the document as it was" — is only true of the log if
+  the log carries it.
+- **`triggerSeq`** answers "why this moment?" in one lookup, and is what the
+  cooldown check orders on. It has to be: a firing is appended *after* its cause,
+  so ordering firings by their own `seq` puts every one of them ahead of the
+  event that would be asking about it, and cooldown silently never applies.
+- **`matched.countedBy`** is `"people"` or `"events"`. A threshold counts
+  distinct `anonId`s where the payload carries them, because one visitor leaving
+  and re-entering five times is five events and one person. Which was used
+  changes what `observed` means, so it is stated rather than assumed.
+
+`event_id` is derived from `(consumer, tenant, session, ruleId, cause)`, where
+the cause is `triggerSeq` — or, for a `none` condition, the silence that closed.
+Per the rule below, and doubly so here: the dispatcher keys its idempotency on
+this id, so a random one posts to Slack twice.
+
+**`rule.staff_prompt`** / **`rule.screen_swap`** — producer: the dispatcher
+(`backend/app/consumers/dispatch.py`):
+
+```json
+{ "message": "Greet the group at the entrance", "zoneId": "z_entry",
+  "priority": "normal", "ruleId": "r_entry_crowd", "ruleName": "…" }
+
+{ "screenId": "scr_main", "contentId": "reel_b",
+  "ruleId": "r_mirror", "ruleName": "…" }
+```
+
+The two rule actions that act on the room rather than on an outside service. They
+go on the bus rather than straight to the WebSocket hub for the reason §5 gives
+about every other event: a tablet or screen that reconnects mid-session catches
+up from its cursor, and it can only do that if the prompt was in the log. A
+missed prompt is a missed message; a missed screen swap leaves a display stuck on
+the wrong content for the rest of the activation.
+
+They are separate types rather than something the client derives from
+`rule.fired` by inspecting its action. A browser that had to know which actions
+are staff prompts would be a second implementation of the rule spec, which is the
+split-brain ADR-002 exists to end — a client subscribes to the one type it
+renders and knows nothing about rules.
+
+Both are **anonymous**: a prompt is about a zone and a moment, never a visitor.
 
 **`crm.retract`** — producer: the re-anonymiser (`consent-and-identity.md` §5):
 `{ "contact_id", "destination", "reason", "dedupe_key" }`

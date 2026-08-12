@@ -26,7 +26,7 @@ from app.consumers import run as consumer_run
 from app.consumers.run import build_all
 from app.db import engine
 from app.graph import driver as graph_driver
-from app.routers import auth, consumers, dead_letters, events, live, sessions
+from app.routers import auth, consumers, dead_letters, events, live, rules, sessions
 
 log = logging.getLogger(__name__)
 settings = get_settings()
@@ -128,6 +128,7 @@ app.include_router(live.router)
 app.include_router(sessions.router)
 app.include_router(dead_letters.router)
 app.include_router(consumers.router)
+app.include_router(rules.router)
 
 
 @app.get("/health", tags=["meta"])

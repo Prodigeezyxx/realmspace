@@ -153,6 +153,26 @@ class Settings(BaseSettings):
     # a device API key carries, and it can only write.
     default_role: str = "viewer"
 
+    # ── rule actions (roadmap Phase 3) ────────────────────────────────────────
+    # A rule's `slack` action names a channel; the credential to post with is
+    # deployment configuration and never part of the rule document, which an
+    # operator authors in a browser and which is returned by a GET.
+    #
+    # None means "no Slack configured". A `slack` rule then dead-letters with
+    # that as the reason, which is the honest outcome: the alternative is a
+    # dispatcher that reports success for a message nobody received.
+    slack_webhook_url: str | None = None
+
+    # Signs outgoing `webhook` actions, so the receiver can tell a firing from
+    # this booth from anything else that finds the URL. Same scheme
+    # integrations.md specifies for Phase 4's bring-your-own delivery.
+    webhook_signing_secret: str | None = None
+
+    # How long a dispatcher waits on an outbound call before treating it as
+    # failed. Short, because event-bus-spec.md §4 budgets `< 3s` end to end and
+    # base.Consumer will retry twice on top of this.
+    action_timeout_seconds: float = 2.0
+
 
 @lru_cache
 def get_settings() -> Settings:

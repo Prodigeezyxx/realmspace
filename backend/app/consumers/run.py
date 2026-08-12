@@ -20,16 +20,27 @@ import sys
 
 from app.consumers.base import Consumer
 from app.consumers.broadcast import BroadcastConsumer
+from app.consumers.dispatch import DispatchConsumer
 from app.consumers.graph_writer import GraphWriterConsumer
+from app.consumers.rules import RulesConsumer
 from app.consumers.tracker import TrackerConsumer
 from app.graph.driver import connect, disconnect
 
 # Order matters when running them all in one pass: the tracker produces the
 # spatial events the graph writer consumes, so running it first means a single
 # pass carries a detection all the way to the graph.
+#
+# Phase 3 extends that chain by two. The tracker's spatial.* events are what
+# rules fire on, and the evaluator's rule.fired is what the dispatcher acts on,
+# so in this order one pass carries a detection all the way to a Slack post.
+# Reversed, each link would wait a poll interval for the one before it — which
+# would still be correct, and would spend most of the `< 3s` budget in
+# event-bus-spec.md §4 waiting on nothing.
 CONSUMER_CLASSES: list[type[Consumer]] = [
     TrackerConsumer,
     GraphWriterConsumer,
+    RulesConsumer,
+    DispatchConsumer,
     BroadcastConsumer,
 ]
 

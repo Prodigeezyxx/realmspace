@@ -20,7 +20,19 @@ async function emitOutput(
     console.info(`[agent:${agent.id}]`, result.skillChain);
   }
   if (outputType === "webhook") {
-    console.info(`[agent:${agent.id}:webhook stub]`, result);
+    // Named a dry run rather than a stub, because the difference is the whole of
+    // ADR-002's last section. A "webhook stub" reads as an action that is nearly
+    // finished; what it actually is, and must stay, is the browser declining to
+    // act — "nothing in the browser decides whether a rule fires in production".
+    //
+    // The webhook a rule performs is dispatched on the edge
+    // (`backend/app/actions/webhook.py`), signed, idempotent, and parked in the
+    // HITL queue when it fails. None of that is available here and none of it
+    // should be reimplemented here.
+    console.info(
+      `[agent:${agent.id}] dry run — an armed rule would POST this from the edge`,
+      result
+    );
   }
 }
 

@@ -186,8 +186,41 @@ question in `< 5s`; twin replays a real recorded session.
       dispatch idempotency keyed on it, `none` conditions judged at close-out).
       The browser's eight `AgentDefinition`s become presets that compile to the
       same document, ending the split-brain. *(2026-08-11)*
-- 🔲 Persist agent rules (Postgres); rules-engine consumer on the bus
-- 🔲 Real actions: Slack / webhook / screen swap / **staff prompt** (< 3s SLA)
+- ✅ **Persist agent rules (Postgres); rules-engine consumer on the bus.** A
+      `rules` table under the same forced RLS as the log, `/v1/rules` for an
+      operator to author one, and `consumers/rules.py` — a `Consumer` subclass,
+      so cursor, backoff and dead-lettering are the ones `/ops` already
+      surfaces. Built with ADR-002's four corrections rather than ported: the
+      window is a seq-and-time-bounded read of the log (so it survives a
+      restart), cooldown compares `occurredAt` (so a replay reproduces the
+      original run), `rule.fired` carries a derived id, and a `none` condition
+      is judged at a boundary and dated when the silence closed. Two bugs found
+      by writing the tests first: a cooldown ordered on the firing's own `seq`
+      never applies at all, because a firing is always appended *after* its
+      cause — it has to order on the `triggerSeq` it carries. And a threshold
+      counts distinct people, not events, or one restless visitor fires a
+      five-person rule. *(2026-08-12)*
+- ✅ **Real actions: Slack / webhook / screen swap / staff prompt.** A second
+      consumer (`consumers/dispatch.py`) reads `rule.fired` and runs one handler
+      from `app/actions/`. Idempotency is a `rule_dispatch` row claimed *before*
+      the call goes out — Slack is not a database we can put an ON CONFLICT on,
+      so the decision moves to one that is. The claim distinguishes three prior
+      states: `delivered` refuses (the replay case), `failed` is retaken, and
+      `claimed` refuses because a process that died mid-call leaves genuinely
+      unknown whether the message arrived. Screen swaps and staff prompts go on
+      the bus rather than at the hub, so a tablet that reconnects catches up
+      from its cursor. The prompt surface is on `/live`, and it expires its own
+      entries: a prompt still shown twenty minutes later is furniture, and it
+      teaches the floor to stop reading the panel. *(2026-08-12)*
+- ✅ **The browser stops owning rules** (ADR-002's last section). The eight
+      `AgentDefinition`s become presets that compile to the document; three of
+      them turn out not to be rules at all and now say so instead of being
+      padded into the shape. `/agents` reads real rules from `/v1/rules` and
+      real firings from `rule.fired` — the hardcoded five agents, `fired: 488`,
+      "718 fires today" and "240ms avg latency" are gone on the same grounds the
+      report's invented figures were. The browser runs a **dry run** that says
+      how often a document would have fired, and dispatches nothing.
+      *(2026-08-12)*
 - ✅ HITL **dead-letter review** screen — `/ops`, plus `GET /v1/dead-letters`
       with retry and resolve. Retry is offered only for consumers that are pure
       functions of the event (the graph writer); the tracker and broadcast
@@ -196,14 +229,17 @@ question in `< 5s`; twin replays a real recorded session.
       screen. Repeat parks collapse onto one row instead of filling the queue.
       **Retries now back off exponentially with a ceiling**, and the chaos test
       the acceptance criterion names is in the suite.
-- 🟡 **Cost telemetry** meter (`cost.metered` → unit economics) — the path is
-      built end to end: one emitter (`backend/app/cost.py`, deriving the
-      `event_id` from the cause so a replay cannot inflate a session's spend),
-      a reader that keeps units apart and refuses to total two currencies
-      (`lib/roi/cost.ts`), and a `/live` tile. Partial because **nothing spends
-      money yet** — Ask has no provider key and the dispatchers are unbuilt — so
-      the tile honestly reads "no meter yet" rather than "$0.00", which would be
-      a claim that the session was free. *(2026-08-11)*
+- ✅ **Cost telemetry** meter (`cost.metered` → unit economics) — one emitter
+      (`backend/app/cost.py`, deriving the `event_id` from the cause so a replay
+      cannot inflate a session's spend), a reader that keeps units apart and
+      refuses to total two currencies (`lib/roi/cost.ts`), and a `/live` tile.
+      It has a caller now: every dispatched action meters an `action_unit`, so
+      the tile fills in as soon as a rule fires. The reading is **1 action**, not
+      a price — a default cost per action would be a number invented on a
+      client's behalf, which `roi-framework.md` rules out for revenue and this
+      refuses for spend. Actions are counted in a unit that is not a currency,
+      so they show on their own line and are never added to dollars. Ask's LLM
+      calls remain the missing spender, pending a provider key. *(2026-08-12)*
 
 **Acceptance:** "when 5 people dwell at entrance 30s → ping Slack" fires live in
 `< 3s`; a forced failure lands in the HITL queue and can be retried.
