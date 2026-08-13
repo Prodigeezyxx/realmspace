@@ -649,6 +649,286 @@ async def people_in_session(
     return record["people"]
 
 
+# ── consent and identity (Phase 4) ────────────────────────────────────────────
+#
+# The one part of this module where a *failure* to write is the safe outcome.
+# Everything above records what a camera saw; these record that somebody agreed
+# to be named, and the edge below is the only thing in the system that connects
+# an anonymous track to a person. `consent-and-identity.md` §3: "the
+# IDENTIFIED_AS edge cannot be created unless a non-withdrawn ConsentEvent of the
+# required tier exists in the same transaction. This is enforced in code (the bus
+# consumer), not by convention."
+#
+# It is enforced here instead, one layer lower than the doc says, and deliberately
+# so: a consumer that forgot the check would still be able to draw the edge, and
+# the check is worth nothing if it can be skipped by writing a second caller.
+# Below, the MATCH on the consent *is* the gate — no consent of the right tier,
+# no rows, no edge, no exception. The caller is told what happened by the return
+# value rather than by a promise it kept.
+
+
+async def upsert_consent_event(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    consent_id: str,
+    tier: str,
+    basis: str,
+    copy_version: str,
+    captured_at: str,
+    captured_by: str,
+    source: str,
+    anon_id: str,
+    session_id: str,
+    expires_at: str | None = None,
+) -> dict[str, Any]:
+    """Create or update the ConsentEvent, and point it at what it covers.
+
+    `PERMITS` (ConsentEvent → Person) is the scope of the permission, per
+    `consent-and-identity.md` §3. It is drawn here rather than with the
+    `IDENTIFIED_AS` edge because it is true whether or not a Contact is ever
+    created: a T1 consent with no details yet still covers this person.
+
+    `withdrawn_at` is never set by this function, only read. A capture cannot
+    un-withdraw a consent — replaying the log after a withdrawal must not resurrect
+    the permission, and an ON CREATE/SET that touched it would do exactly that on
+    the next replay.
+    """
+    result = await session.run(
+        """
+        MERGE (c:ConsentEvent {tenant_id: $tenant_id, id: $consent_id})
+        ON CREATE SET c.captured_at = $captured_at
+        SET c.tier         = $tier,
+            c.basis        = $basis,
+            c.copy_version = $copy_version,
+            c.captured_by  = $captured_by,
+            c.source       = $source,
+            c.session_id   = $session_id,
+            c.anon_id      = $anon_id,
+            c.expires_at   = $expires_at
+        WITH c
+        OPTIONAL MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id,
+                                  anon_id: $anon_id})
+        FOREACH (_ IN CASE WHEN p IS NULL THEN [] ELSE [1] END |
+            MERGE (c)-[:PERMITS]->(p)
+        )
+        RETURN c
+        """,
+        tenant_id=tenant_id,
+        consent_id=consent_id,
+        tier=tier,
+        basis=basis,
+        copy_version=copy_version,
+        captured_at=captured_at,
+        captured_by=captured_by,
+        source=source,
+        session_id=session_id,
+        anon_id=anon_id,
+        expires_at=expires_at,
+    )
+    record = await result.single()
+    return dict(record["c"])
+
+
+async def identify(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str,
+    anon_id: str,
+    contact_id: str,
+    consent_id: str,
+    minimum_tier: str,
+    via: str,
+    at: str,
+    email: str | None = None,
+    name: str | None = None,
+    company: str | None = None,
+    title: str | None = None,
+) -> dict[str, Any] | None:
+    """Create the Contact and link it to the anonymous track — **if** consent allows.
+
+    Returns the Contact's properties, or **None** when the gate refused. None is
+    the interesting answer and callers must handle it: it means a consent event
+    of at least `minimum_tier`, not withdrawn, does not exist for this id.
+
+    ## Why the gate is one statement and not an `if`
+
+    Reading the consent, deciding, and then writing would leave a window in which
+    a withdrawal lands between the two — and the write would proceed on a consent
+    that no longer exists. The MATCH below is inside the same statement as the
+    MERGE, so there is no gap: Neo4j either finds a valid consent and creates the
+    edge, or finds nothing and returns no rows.
+
+    ## The tier comparison
+
+    Tiers are a strict superset chain (`consent-and-identity.md` §2: "each tier
+    is a strict superset of the one above"), so `T1 <= T2 <= T3` is a string
+    comparison over `'T1' | 'T2' | 'T3'` and stays correct as long as the labels
+    keep sorting in permission order. A fourth tier named `T0` would break that
+    silently, which is why the tier vocabulary is a closed union at the API.
+    """
+    result = await session.run(
+        """
+        MATCH (c:ConsentEvent {tenant_id: $tenant_id, id: $consent_id})
+        WHERE c.withdrawn_at IS NULL AND c.tier >= $minimum_tier
+        MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
+        MERGE (ct:Contact {tenant_id: $tenant_id, id: $contact_id})
+        ON CREATE SET ct.created_at = $at, ct.source = $via
+        SET ct.email   = coalesce($email, ct.email),
+            ct.name    = coalesce($name, ct.name),
+            ct.company = coalesce($company, ct.company),
+            ct.title   = coalesce($title, ct.title)
+        MERGE (p)-[:IDENTIFIED_AS {via: $via, at: $at}]->(ct)
+        MERGE (ct)-[:GRANTED]->(c)
+        RETURN ct
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        anon_id=anon_id,
+        contact_id=contact_id,
+        consent_id=consent_id,
+        minimum_tier=minimum_tier,
+        via=via,
+        at=at,
+        email=email,
+        name=name,
+        company=company,
+        title=title,
+    )
+    record = await result.single()
+    return dict(record["ct"]) if record else None
+
+
+async def person_exists(
+    session: AsyncSession, *, tenant_id: str, session_id: str, anon_id: str
+) -> bool:
+    """Whether the tracked person a consent names is in the graph yet.
+
+    Exists so the identity consumer can tell two failures apart. `identify`
+    returns None for both "consent does not permit this" and "there is no such
+    Person", and they call for opposite responses: the first is a decision to
+    respect, the second is usually the graph writer being a poll behind and is
+    worth retrying.
+    """
+    result = await session.run(
+        """
+        MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
+        RETURN count(p) > 0 AS found
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        anon_id=anon_id,
+    )
+    record = await result.single()
+    return bool(record["found"])
+
+
+async def contact_for_anon(
+    session: AsyncSession, *, tenant_id: str, session_id: str, anon_id: str
+) -> dict[str, Any] | None:
+    """The Contact an anonymous track was identified as, if any."""
+    result = await session.run(
+        """
+        MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
+              -[:IDENTIFIED_AS]->(ct:Contact)
+        RETURN ct
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        anon_id=anon_id,
+    )
+    record = await result.single()
+    return dict(record["ct"]) if record else None
+
+
+async def re_anonymise(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    withdrawn_at: str,
+    consent_id: str | None = None,
+    contact_id: str | None = None,
+    anon_id: str | None = None,
+    session_id: str | None = None,
+) -> list[str]:
+    """Undo an identification. Returns the contact ids affected.
+
+    `consent-and-identity.md` §5: "a bus consumer re-anonymises: drops the
+    `IDENTIFIED_AS` edge, deletes/redacts the `Contact` per policy … The
+    anonymous path survives for aggregate ROI."
+
+    That last sentence is the constraint that shapes this whole function. The
+    Person, its zone edges, its dwells — none of it is touched. It was never
+    consent-gated in the first place (`privacy.md`), and deleting it would
+    silently change every report already delivered from that activation. What is
+    removed is the *link* and the PII, which is all consent ever granted.
+
+    The ConsentEvent survives too, stamped with `withdrawn_at`. It is the
+    evidence: a record that consent was given, and then withdrawn, and when. A
+    deployment that deleted it would be unable to answer the question the
+    withdrawal itself might later raise.
+
+    Matched by whichever identifier the caller has, because a withdrawal arrives
+    from a kiosk that knows only the track, an operator who knows the contact, or
+    an erasure request that names the consent.
+    """
+    result = await session.run(
+        """
+        MATCH (ct:Contact {tenant_id: $tenant_id})
+        OPTIONAL MATCH (p:Person)-[link:IDENTIFIED_AS]->(ct)
+        OPTIONAL MATCH (ct)-[:GRANTED]->(c:ConsentEvent)
+        WITH ct, p, link, c
+        WHERE ($contact_id IS NOT NULL AND ct.id = $contact_id)
+           OR ($consent_id IS NOT NULL AND c.id = $consent_id)
+           OR ($anon_id    IS NOT NULL AND p.anon_id = $anon_id
+               AND ($session_id IS NULL OR p.session_id = $session_id))
+        // The consent stays, stamped. It is the evidence that permission was
+        // given and then taken back — deleting it would leave nothing able to
+        // answer the question a withdrawal might later raise.
+        FOREACH (_ IN CASE WHEN c IS NULL THEN [] ELSE [1] END |
+            SET c.withdrawn_at = $withdrawn_at
+        )
+        // The PII goes; the node stays as a tombstone so the ids in an already
+        // pushed CRM record still resolve to something that says "retracted".
+        SET ct.email = NULL, ct.name = NULL, ct.company = NULL, ct.title = NULL,
+            ct.redacted_at = $withdrawn_at
+        DELETE link
+        RETURN DISTINCT ct.id AS contact_id
+        """,
+        tenant_id=tenant_id,
+        withdrawn_at=withdrawn_at,
+        consent_id=consent_id,
+        contact_id=contact_id,
+        anon_id=anon_id,
+        session_id=session_id,
+    )
+    return [record["contact_id"] async for record in result]
+
+
+async def withdraw_consent(
+    session: AsyncSession, *, tenant_id: str, consent_id: str, withdrawn_at: str
+) -> bool:
+    """Stamp a ConsentEvent withdrawn even though no Contact was ever created.
+
+    The T1-with-no-details case: somebody agreed, nothing was ever linked, and
+    they changed their mind. `re_anonymise` matches from the Contact and so finds
+    nothing to do here — but the consent must still stop being valid, or a replay
+    of the capture would happily identify them afterwards.
+    """
+    result = await session.run(
+        """
+        MATCH (c:ConsentEvent {tenant_id: $tenant_id, id: $consent_id})
+        SET c.withdrawn_at = coalesce(c.withdrawn_at, $withdrawn_at)
+        RETURN c.id AS id
+        """,
+        tenant_id=tenant_id,
+        consent_id=consent_id,
+        withdrawn_at=withdrawn_at,
+    )
+    return (await result.single()) is not None
+
+
 async def delete_tenant(session: AsyncSession, *, tenant_id: str) -> int:
     """Delete every node for a tenant and its relationships. Returns node count.
 

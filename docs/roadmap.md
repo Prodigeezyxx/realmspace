@@ -241,8 +241,27 @@ question in `< 5s`; twin replays a real recorded session.
       so they show on their own line and are never added to dollars. Ask's LLM
       calls remain the missing spender, pending a provider key. *(2026-08-12)*
 
-**Acceptance:** "when 5 people dwell at entrance 30s → ping Slack" fires live in
-`< 3s`; a forced failure lands in the HITL queue and can be retried.
+- ✅ **The `< 3s` is measured, not asserted.** `tests/test_phase3_latency.py`
+      drives the consumers through their real `run_forever()` loop at the
+      configured poll intervals, ingests over `POST /v1/events`, and times from
+      the ingest response to the Slack call: **~1.1s** against a local stack.
+      The acceptance test alongside it calls `run_once()` three times in
+      process order and so had never measured anything — it proves correctness,
+      which is a different claim. *(2026-08-13)*
+- ✅ **The stranded `claimed` dispatch has a human.** A dispatch whose process
+      died between the claim and the outbound call reads `claimed` forever, and
+      `claim_dispatch` refuses it — correctly, since whether Slack got the
+      message is unknowable from this side. There was no way to ask anybody:
+      `get_dispatch` said it was "for `/ops`" and no route read it, so a crash
+      mid-call blocked its `(fired_event_id, action_type)` pair permanently.
+      `GET /v1/dispatches/stranded` and a verdict endpoint now record what a
+      person found — `delivered` closes it, `failed` releases it — and neither
+      re-sends, because a retry is the double-post the claim exists to prevent.
+      *(2026-08-13)*
+
+**Acceptance:** ✅ "when 5 people dwell at entrance 30s → ping Slack" fires live
+in `< 3s` (measured ~1.1s); a forced failure lands in the HITL queue and can be
+retried.
 
 ---
 
@@ -252,15 +271,42 @@ question in `< 5s`; twin replays a real recorded session.
 CRM. This is where "Attribute & Follow up" fully switches on — as new bus
 consumers, without touching Phase-1 producers.*
 
-- 🔲 **Consent capture** surfaces (badge/QR/kiosk/form) → `consent.captured`
-      (`consent-and-identity.md`) with versioned copy + tiers/redlines
-- 🔲 **Identity consumer**: consent-gated anon → Contact link (anon+PII modes)
+- ✅ **Consent capture** → `POST /v1/consent`, appending `consent.captured` with
+      tier, basis and the versioned copy, and `POST /v1/consent/withdraw` for
+      `consent.withdrawn`. Payloads pinned in `event-bus-spec.md` §3 and
+      mirrored in the browser's contract; both classified PII. The endpoint
+      writes to the log and nowhere else — no Contact, no graph — so a kiosk can
+      still record a yes when the graph is down, and a deployment can replay its
+      whole consent history through a corrected identity consumer without
+      re-asking anybody. `consentId` comes from the capture surface, which is
+      what stops a kiosk's retry on bad wifi producing two consent records for
+      one conversation. The **surfaces** themselves (badge/QR/kiosk hardware)
+      are not built. *(2026-08-13)*
+- ✅ **Identity consumer**: `consumers/identity.py`, `consent.captured` →
+      `(:ConsentEvent)`, `(Person)-[:IDENTIFIED_AS]->(:Contact)`,
+      `identity.resolved`. The gate is inside `graph_repo.identify`'s single
+      Cypher statement rather than in the consumer, one layer below where
+      `consent-and-identity.md` §3 puts it: a check in the consumer is a check a
+      second caller can skip, which is the convention the doc is replacing. The
+      property this exists for is that **replaying a capture after a withdrawal
+      does not re-identify** — the log is append-only, so that capture is on it
+      forever. Contact ids derive from the email where there is one, so a
+      visitor at two activations is one Contact; from the consent id where there
+      is not, because merging people we cannot identify would be inventing a
+      fact. *(2026-08-13)*
+- ✅ **Re-anonymiser**: `consumers/reanonymise.py`, `consent.withdrawn` → drop
+      the link, redact the Contact to a tombstone, stamp the ConsentEvent
+      `withdrawn_at`, emit `crm.retract`. The anonymous path survives untouched —
+      it was never consent-gated, and deleting it would silently rewrite reports
+      already delivered about somebody those reports never named. The consent
+      record survives too, because it is the evidence a disputed withdrawal
+      would be settled by. *(2026-08-13)*
 - 🔲 **Attribution consumer**: build normalized **LeadHandoff**, apply
       model + window (`integrations.md`, `roi-framework.md`)
 - 🔲 **CRM adapters** in order: HubSpot → Salesforce → Pipedrive → Zoho →
       Dynamics; each idempotent, retract-capable
 - 🔲 **Bring-your-own**: signed webhook + Zapier/Make + CSV export
-- 🔲 Withdrawal / erasure flows (re-anonymise, `crm.retract`)
+- 🔲 Erasure job (tenant-scoped, GDPR Art. 17) — withdrawal itself is done above
 - 🔲 (opt, T3) enrichment adapter (Apollo/Clearbit), metered
 - 🔲 **Attribution ledger** + **CFO one-pager** (`roi-framework.md`)
 
@@ -325,7 +371,7 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 | Blind spot | Where it's handled |
 |---|---|
 | Offline / edge reliability | `event-bus-spec.md` §5 (local log + replay) — P1 |
-| Latency SLA (< 3s) | edge-run rules engine — P3 |
+| Latency SLA (< 3s) | ✅ measured at **~1.1s** detection → Slack, through the consumers' real poll loop (`tests/test_phase3_latency.py`). Local stack, one process: what it covers is the number of poll intervals a firing waits through, which is the part that regressed silently before. Network to a real webhook and a smaller edge box are on top. |
 | CV model drift | calibration UI + drift telemetry — P6 |
 | Failure states (CRM 429, consent revoked) | dead-letter + HITL, withdrawal flow — P3/P4 |
 | Attribution decay (30/60/90d) | window on outcome edge — P4 |

@@ -150,6 +150,47 @@ REKEY_002_DOWN: list[str] = [
 ]
 
 
+# ── Migration 003 — Contact and ConsentEvent (Phase 4) ──────────────────────
+#
+# `consent-and-identity.md` §3 declares both nodes; nothing has ever created
+# them, because until Phase 4 nothing was allowed to name a visitor.
+#
+# **Both are keyed per tenant, not per session, and that asymmetry is the
+# point.** A Person is session-scoped — `anon_id` is "never re-used across
+# sessions", so the same id in a different activation is a different human. A
+# Contact is the opposite: it is the same person across every activation they
+# ever attend, which is the whole reason attribution has anything to attach to.
+# Keying a Contact per session would mean one visitor at three events was three
+# contacts, and the CFO one-pager Phase 4 ends in would be counting them thrice.
+#
+# ConsentEvent is tenant-keyed for a blunter reason: it is evidence. It has to
+# outlive the session it was taken in, because a withdrawal argued six months
+# later is settled by the record of what was shown, and a record that was
+# cleaned up with its activation cannot settle anything.
+#
+# No constraint on `Contact.email`. A person may legitimately consent under one
+# address at two activations, and a unique index would refuse the second — which
+# is a refusal to record consent somebody actually gave. Deduplication by email
+# is an attribution decision, made where attribution is, with the evidence in
+# front of it.
+CONSENT_003: list[str] = [
+    "CREATE CONSTRAINT contact_tenant_id_unique IF NOT EXISTS "
+    "FOR (c:Contact) REQUIRE (c.tenant_id, c.id) IS UNIQUE",
+    "CREATE CONSTRAINT consent_tenant_id_unique IF NOT EXISTS "
+    "FOR (e:ConsentEvent) REQUIRE (e.tenant_id, e.id) IS UNIQUE",
+    # Withdrawal arrives with whichever identifier the person has, and email is
+    # the one a visitor at a kiosk knows.
+    "CREATE INDEX contact_email_idx IF NOT EXISTS "
+    "FOR (c:Contact) ON (c.tenant_id, c.email)",
+]
+
+CONSENT_003_DOWN: list[str] = [
+    "DROP INDEX contact_email_idx IF EXISTS",
+    "DROP CONSTRAINT consent_tenant_id_unique IF EXISTS",
+    "DROP CONSTRAINT contact_tenant_id_unique IF EXISTS",
+]
+
+
 def statements() -> list[str]:
     """Migration 001 as a list of Cypher statements.
 

@@ -216,3 +216,12 @@ class RuleDispatch(Base):
     completed_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: The operator who ruled on a stranded `claimed` row, and when. NULL on
+    #: every row the dispatcher closed by itself — which is the point of them
+    #: being separate from `status` and `completed_at`. A `delivered` the
+    #: dispatcher wrote is a 200 from Slack; a `delivered` an operator wrote is a
+    #: person saying they saw the message. Added in migration 0005.
+    resolved_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

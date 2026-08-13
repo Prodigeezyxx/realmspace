@@ -173,6 +173,21 @@ class Settings(BaseSettings):
     # base.Consumer will retry twice on top of this.
     action_timeout_seconds: float = 2.0
 
+    # After this long, a dispatch still sitting at `claimed` is stranded rather
+    # than in flight, and `/ops` shows it to a human.
+    #
+    # A row is at `claimed` for the whole of every normal dispatch — the claim is
+    # committed before the call goes out, which is the entire idempotency
+    # mechanism — so this is not a tuning knob but the line between "running" and
+    # "its process died holding this". An action gives up at
+    # `action_timeout_seconds` and each attempt claims afresh, so the longest
+    # legitimate life of a claimed row is one timeout. Thirty times that, because
+    # the cost of the two errors is wildly asymmetric: too low puts healthy
+    # dispatches on the operator's screen as problems and teaches them to ignore
+    # the panel, while too high only delays a row nobody was going to see for
+    # another minute.
+    stranded_dispatch_after_seconds: float = 60.0
+
 
 @lru_cache
 def get_settings() -> Settings:

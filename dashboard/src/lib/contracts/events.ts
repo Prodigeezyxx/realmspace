@@ -249,21 +249,64 @@ export interface SurfaceInteractionPayload {
   kind: string;
   durationSec?: number;
 }
+/** Where a consent was taken. Mirrors `Contact.source` in consent-and-identity.md §3. */
+export type ConsentSource = "badge" | "qr" | "kiosk" | "form" | "manual";
+
+/** The PII half of a capture, and the only PII in the payload. */
+export interface CapturedContact {
+  email?: string;
+  name?: string;
+  company?: string;
+  title?: string;
+}
+
 export interface ConsentCapturedPayload {
+  consentId: string;
+  /**
+   * The track this consent is about — **not** a contactId. At capture time
+   * there is no Contact yet: creating one is the identity consumer's job and it
+   * happens after the gate is checked, never as part of asking permission.
+   */
   anonId: string;
-  contactId: string;
   tier: "T1" | "T2" | "T3";
   basis: "explicit_optin" | "contract" | "legitimate_interest";
+  /**
+   * The exact wording shown, versioned. Required, and the load-bearing field:
+   * the tier says what somebody was asked for, this says what they read before
+   * agreeing, and it is the only thing that settles a withdrawal argued later.
+   */
   copyVersion: string;
+  /** The surface or operator that captured it. */
   capturedBy: string;
+  source: ConsentSource;
+  capturedAt?: string;
+  /** Null/absent = the end of the activation (consent-and-identity.md §3). */
+  expiresAt?: string | null;
+  /**
+   * Optional: a badge scan may carry only an `anonId`, with the details
+   * arriving from the registry later. Everything outside this object is
+   * anonymous, which is what lets a deployment keep the consent record after
+   * erasing the person.
+   */
+  contact?: CapturedContact;
 }
+
 export interface ConsentWithdrawnPayload {
-  contactId: string;
+  consentId?: string;
+  contactId?: string;
+  anonId?: string;
+  reason: "visitor_request" | "erasure_request" | "operator";
+  withdrawnAt?: string;
 }
+
 export interface IdentityResolvedPayload {
   anonId: string;
   contactId: string;
-  via: "badge" | "qr" | "kiosk" | "form" | "manual";
+  /** Carried so a CRM adapter can re-check the justification it is acting on. */
+  consentId: string;
+  tier: "T1" | "T2" | "T3";
+  via: ConsentSource;
+  at?: string;
 }
 export interface RuleFiredPayload {
   ruleId: string;

@@ -22,6 +22,8 @@ from app.consumers.base import Consumer
 from app.consumers.broadcast import BroadcastConsumer
 from app.consumers.dispatch import DispatchConsumer
 from app.consumers.graph_writer import GraphWriterConsumer
+from app.consumers.identity import IdentityConsumer
+from app.consumers.reanonymise import ReAnonymiseConsumer
 from app.consumers.rules import RulesConsumer
 from app.consumers.tracker import TrackerConsumer
 from app.graph.driver import connect, disconnect
@@ -36,9 +38,17 @@ from app.graph.driver import connect, disconnect
 # Reversed, each link would wait a poll interval for the one before it — which
 # would still be correct, and would spend most of the `< 3s` budget in
 # event-bus-spec.md §4 waiting on nothing.
+# Phase 4 adds two more, and their position is for the same reason. The identity
+# consumer needs the Person the graph writer creates, so it follows it; the
+# re-anonymiser undoes what identity draws, so it follows that. Out of order they
+# are still correct — identity retries until the Person appears — but a capture
+# would spend a poll interval and a retry backoff waiting for a node that a
+# single pass could have produced first.
 CONSUMER_CLASSES: list[type[Consumer]] = [
     TrackerConsumer,
     GraphWriterConsumer,
+    IdentityConsumer,
+    ReAnonymiseConsumer,
     RulesConsumer,
     DispatchConsumer,
     BroadcastConsumer,

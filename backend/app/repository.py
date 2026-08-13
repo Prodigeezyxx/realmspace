@@ -630,3 +630,98 @@ async def get_dispatch(
             )
         )
     ).scalar_one_or_none()
+
+
+async def get_dispatch_by_id(
+    session: AsyncSession, *, dispatch_id: int
+) -> RuleDispatch | None:
+    """One dispatch by primary key. No tenant filter, and none is needed —
+    `rule_dispatch` is under forced RLS, so a row belonging to another tenant is
+    not visible to this query at all."""
+    return (
+        await session.execute(
+            select(RuleDispatch).where(RuleDispatch.id == dispatch_id)
+        )
+    ).scalar_one_or_none()
+
+
+async def list_stranded_dispatches(
+    session: AsyncSession, *, older_than_seconds: float, limit: int = 200
+) -> list[RuleDispatch]:
+    """Dispatches stuck at `claimed`, oldest first.
+
+    `claim_dispatch` refuses these and explains why: nobody can say whether the
+    message arrived, so the row is left alone rather than guessed at. That is the
+    right call and it is not an end state — without a human it blocks its
+    `(fired_event_id, action_type)` pair forever.
+
+    ## Why there is an age cutoff
+
+    A row is at `claimed` for the whole duration of every normal dispatch — the
+    claim is committed *before* the call goes out, which is the entire mechanism.
+    Listing every `claimed` row would put each Slack post currently in flight on
+    the operator's screen as a problem to solve, and a queue that is mostly false
+    alarms is a queue that stops being read.
+
+    `older_than_seconds` is therefore not a tuning knob but a definition: longer
+    than any dispatch could legitimately still be running (see
+    `settings.stranded_dispatch_after_seconds`, which derives it from the action
+    timeout and the retry schedule).
+    """
+    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=older_than_seconds)
+    return list(
+        (
+            await session.execute(
+                select(RuleDispatch)
+                .where(
+                    RuleDispatch.status == "claimed",
+                    RuleDispatch.created_at < cutoff,
+                )
+                .order_by(RuleDispatch.created_at)
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def resolve_dispatch(
+    session: AsyncSession,
+    *,
+    dispatch_id: int,
+    status: str,
+    resolved_by: str,
+    detail: str | None = None,
+) -> None:
+    """Record a human's answer to "did the message actually arrive?".
+
+    `status` is `delivered` or `failed`, and the two mean different things to the
+    rest of the system:
+
+    - **`delivered`** — closed. `claim_dispatch` already refuses a `delivered`
+      row, so the pair stays protected against a replay double-posting.
+    - **`failed`** — releases it. `claim_dispatch` takes a `failed` row back,
+      because nothing was delivered and there is nothing to duplicate.
+
+    Note what `failed` does *not* do: it does not re-send anything by itself. The
+    dispatcher's cursor is long past that firing, so a redelivery needs the
+    firing replayed — a cursor rewind, which is deliberately an operator action
+    and not a button, for the same reason `DispatchConsumer.retryable` is False.
+    Marking it `failed` removes the block; it does not decide to act again.
+
+    `resolved_by` is written even though `status` and `completed_at` would carry
+    the outcome on their own, because a human's "I checked the channel" and the
+    dispatcher's 200 from Slack are different evidence for the same word.
+    """
+    await session.execute(
+        update(RuleDispatch)
+        .where(RuleDispatch.id == dispatch_id)
+        .values(
+            status=status,
+            detail=detail,
+            completed_at=func.now(),
+            resolved_by=resolved_by,
+            resolved_at=func.now(),
+        )
+    )

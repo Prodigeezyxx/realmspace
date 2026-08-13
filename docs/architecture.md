@@ -38,9 +38,11 @@ Two halves that meet at the event bus:
   function tenant-scoped. Schema and constraints in `app/graph/schema.py`,
   applied by `app/graph/migrations.py`. Spec: [`data-model.md`](./data-model.md).
 - **Consumers** — `app/consumers/`: `base.py` holds the one poll → handle →
-  advance → dead-letter loop; `tracker.py` and `graph_writer.py` subclass it.
-  Both run as asyncio tasks started by the FastAPI lifespan and reported by
-  `/health`.
+  advance → dead-letter loop, and everything else subclasses it — `tracker`,
+  `graph_writer`, `identity`, `reanonymise`, `rules`, `dispatch`, `broadcast`,
+  registered in that order in `run.py`. They run as asyncio tasks started by the
+  FastAPI lifespan and reported by `/health`. Adding a feature to this system
+  almost always means adding one of these rather than a route.
 - **Derived ids** — `app/consumers/ids.py`: a consumer that *produces* events
   derives each `event_id` from what caused it, so replay is a no-op instead of
   double-counting.

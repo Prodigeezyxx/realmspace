@@ -40,6 +40,11 @@ MIGRATIONS: dict[str, tuple[str, list[str], list[str]]] = {
         schema.REKEY_002,
         schema.REKEY_002_DOWN,
     ),
+    "003": (
+        "Contact and ConsentEvent, keyed per tenant (consent-and-identity.md §3)",
+        schema.CONSENT_003,
+        schema.CONSENT_003_DOWN,
+    ),
 }
 
 

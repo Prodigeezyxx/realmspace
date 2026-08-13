@@ -15,7 +15,15 @@
  * and a retry that fails says so instead of quietly doing nothing.
  */
 
-import { AlertTriangle, Check, Info, RefreshCw, RotateCcw, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  HelpCircle,
+  Info,
+  RefreshCw,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
@@ -23,6 +31,11 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
 import { useDeadLetters, type DeadLetter } from "@/lib/ops/useDeadLetters";
+import {
+  useStrandedDispatches,
+  type StrandedDispatch,
+  type Verdict,
+} from "@/lib/ops/useStrandedDispatches";
 
 export default function OpsPage() {
   const { status, items, detail, refresh, retry, dismiss } = useDeadLetters();
@@ -100,8 +113,178 @@ export default function OpsPage() {
             onDismiss={() => void run(item.id, dismiss)}
           />
         ))}
+
+      <StrandedSection />
     </div>
   );
+}
+
+/**
+ * Dispatches whose outcome nobody knows.
+ *
+ * Kept as its own section rather than mixed into the queue above, because the
+ * two ask different things of the reader. A failed event asks "can this be
+ * retried?"; these ask "go and look in the channel, then tell us." Same screen,
+ * because it is the same job — but an operator should never be one careless
+ * click away from treating an unknown as a failure.
+ */
+function StrandedSection() {
+  const { status, items, detail, refresh, resolve } = useStrandedDispatches();
+  const [busy, setBusy] = useState<number | null>(null);
+  const [outcome, setOutcome] = useState<Record<number, string>>({});
+
+  // Nothing stranded is the overwhelmingly common case, and it needs no
+  // reassurance of its own — the "nothing has failed" empty above already says
+  // the queue is being read. Rendering a second empty panel next to it would
+  // make a healthy screen look like two things to check.
+  if (status === "loading" || (status === "ready" && !items.length)) return null;
+
+  async function decide(id: number, verdict: Verdict, note: string) {
+    setBusy(id);
+    const result = await resolve(id, verdict, note);
+    setBusy(null);
+    setOutcome((prev) => ({
+      ...prev,
+      [id]: "error" in result ? result.error : result.effect,
+    }));
+  }
+
+  return (
+    <section className="space-y-6 pt-4">
+      <div className="flex items-end justify-between gap-4 flex-wrap border-t border-border-hairline pt-6">
+        <div>
+          <Pill variant="warn" className="mb-2">
+            <HelpCircle size={11} />
+            {items.length
+              ? `${items.length} unknown ${items.length === 1 ? "outcome" : "outcomes"}`
+              : "Unknown outcomes"}
+          </Pill>
+          <h2 className="text-xl font-semibold tracking-tight">
+            Actions nobody can confirm
+          </h2>
+          <p className="text-sm text-text-secondary mt-1 max-w-2xl leading-relaxed">
+            The rule fired and the action was claimed, but the process stopped
+            before the call came back. Nothing here failed — we simply cannot tell
+            from this side whether the message arrived. Until somebody says, the
+            same firing can never be acted on again.
+          </p>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<RefreshCw size={14} />}
+          onClick={() => void refresh()}
+        >
+          Refresh
+        </Button>
+      </div>
+
+      {(status === "offline" || status === "error") && (
+        <EmptyState
+          variant="page"
+          icon={<Info size={20} />}
+          title={
+            status === "offline"
+              ? "No backend configured"
+              : "Could not read the dispatches"
+          }
+          hint={detail ?? undefined}
+        />
+      )}
+
+      {status === "ready" &&
+        items.map((item) => (
+          <StrandedItem
+            key={item.id}
+            item={item}
+            busy={busy === item.id}
+            outcome={outcome[item.id]}
+            onDecide={(verdict, note) => void decide(item.id, verdict, note)}
+          />
+        ))}
+    </section>
+  );
+}
+
+function StrandedItem({
+  item,
+  busy,
+  outcome,
+  onDecide,
+}: {
+  item: StrandedDispatch;
+  busy: boolean;
+  outcome?: string;
+  onDecide: (verdict: Verdict, note: string) => void;
+}) {
+  const [note, setNote] = useState("");
+  const stuckFor = formatDuration(item.strandedForSeconds);
+
+  return (
+    <Panel
+      title={item.ruleName ?? item.ruleId}
+      subtitle={`${item.actionType} · claimed ${stuckFor} ago · ${new Date(
+        item.createdAt
+      ).toLocaleString()}`}
+    >
+      <div className="space-y-3">
+        {!item.ruleName && (
+          <p className="text-xs text-text-muted leading-relaxed">
+            The rule <code>{item.ruleId}</code> has since been deleted. The
+            dispatch still has to be answered for — a deleted rule does not
+            un-send a message.
+          </p>
+        )}
+
+        <p className="text-sm text-text-secondary leading-relaxed">
+          Check the destination for this action, then say what you found. There
+          is no retry here on purpose: re-sending something that may already have
+          arrived is the duplicate this whole mechanism exists to prevent.
+        </p>
+
+        <input
+          type="text"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="How you know — e.g. “found it in #ops at 14:32”"
+          className="w-full text-sm bg-bg-canvas border border-border-hairline rounded-lg px-3 py-2 placeholder:text-text-muted"
+        />
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Check size={14} />}
+            disabled={busy}
+            onClick={() => onDecide("delivered", note)}
+          >
+            {busy ? "Working…" : "It arrived"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<X size={14} />}
+            disabled={busy}
+            onClick={() => onDecide("failed", note)}
+          >
+            It never arrived
+          </Button>
+        </div>
+
+        {outcome !== undefined && (
+          <p className="text-xs text-text-secondary leading-relaxed">{outcome}</p>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+/** Rounded, and never more precise than it is useful — "4 minutes", not "247s". */
+function formatDuration(seconds: number): string {
+  if (seconds < 90) return `${Math.round(seconds)}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 90) return `${minutes} min`;
+  return `${Math.round(minutes / 60)} h`;
 }
 
 function QueueItem({

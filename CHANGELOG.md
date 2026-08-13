@@ -17,7 +17,147 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-12
+## [Unreleased] — last updated 2026-08-13
+
+### Added — 2026-08-13 — `[neo4j-track]` two things Phase 3 claimed but had not proved, and the beginning of consent
+
+Phase 3's boxes were all ticked yesterday. Two of the things they claimed were
+not actually true, and both are the kind that stay invisible until a client hits
+them. Closing those, then opening Phase 4 with the part everything else in it
+depends on.
+
+**The `< 3s` had never been measured.** The acceptance test calls `run_once()`
+three times in process order, with no poll interval anywhere, and asserts nothing
+about time — so the answer it gives is always "fast", including in a build where
+the real deployment takes twenty seconds. `tests/test_phase3_latency.py` runs the
+consumers through their real `run_forever()` loop at the configured intervals,
+ingests over `POST /v1/events`, and starts the clock at the ingest response of
+the event that makes the rule true. **~1.1s**, against a local stack — consistent
+with the three poll hops between the tracker, the evaluator and the dispatcher.
+What that covers is the number of intervals a firing waits through, which is
+the part that would regress silently; a real webhook's network and a smaller edge
+box are on top of it, and the roadmap now says so rather than implying the number
+is the whole story.
+
+One thing worth recording because it contradicts a comment in the code:
+`run.py`'s consumer *order* matters only to `--once`. `main.py` starts them with
+`asyncio.create_task` and they poll independently, so registration order does not
+serialise the live path at all.
+
+**A dispatch nobody could answer for had no way to be answered.**
+`claim_dispatch` refuses a row sitting at `claimed` and says why — a process died
+between the claim and the outbound call, and whether Slack got the message is
+genuinely unknowable from this side, so it "needs a human rather than a guess."
+There was no way to ask one. `get_dispatch`'s docstring said it was "for `/ops`"
+and no route read it, so a crash mid-call blocked its
+`(fired_event_id, action_type)` pair permanently. It was the one state in the
+whole Phase 3 chain with no exit.
+
+`GET /v1/dispatches/stranded` and a verdict endpoint now record what a person
+went and found: **it arrived** closes the row and keeps the claim taken, so a
+replay still cannot post twice; **it never arrived** releases it, because
+`claim_dispatch` takes a `failed` row back. Neither re-sends. The dispatcher's
+cursor is long past that firing, so a redelivery needs the firing replayed, which
+is a cursor rewind and deliberately an operator action rather than a button — the
+same reasoning that makes `DispatchConsumer.retryable` False. The panel on `/ops`
+sits in its own section with no retry control at all, because the easy version of
+this feature is a retry button and a retry button is exactly the double-post the
+`rule_dispatch` table exists to prevent.
+
+`resolved_by` is a new column rather than a line in `detail`, and the distinction
+it keeps is worth the migration: a `delivered` the dispatcher wrote is a 200 from
+Slack, and a `delivered` an operator wrote is a person saying they saw the
+message. Both are legitimate. They are not the same evidence.
+
+There is also a staleness cutoff, and it is not a tuning knob. Every dispatch is
+`claimed` for the duration of its outbound call — that is the whole idempotency
+mechanism — so listing them all would put each healthy Slack post on the
+operator's screen as a problem to solve, and a queue that is mostly false alarms
+is a queue that stops being read.
+
+**Phase 4 opens with consent, which is the gate everything after it needs.**
+`POST /v1/consent` records a consent exactly as it was given — tier, basis, and
+the versioned copy — and appends `consent.captured`. It writes nothing else: no
+Contact, no graph, no identity. Asking for permission and acting on it are
+separate decisions, and putting them in one function means the record of what
+somebody agreed to is written by the same code that benefits from the answer. It
+also makes the endpoint honest about failure: a kiosk can still record a yes when
+the graph is down.
+
+`consentId` comes from the capture surface, generated before the copy is shown,
+which is the same argument `event-bus-spec.md` §2 already makes about `event_id`.
+A kiosk on conference wifi will resend after a timeout, and two consent records
+for one conversation differing only in id is precisely the state that makes "what
+did they actually see?" unanswerable.
+
+`copy_version` is required for the same reason, and it is the load-bearing field
+rather than the tier: a tier says what somebody was asked for; the copy version
+says what they read before agreeing.
+
+**The identity consumer draws the link, and the gate is one layer below it.**
+`consumers/identity.py` turns a capture into `(:ConsentEvent)`,
+`(Person)-[:IDENTIFIED_AS]->(:Contact)` and `identity.resolved`.
+`consent-and-identity.md` §3 says the edge "cannot be created unless a
+non-withdrawn ConsentEvent of the required tier exists in the same transaction …
+enforced in code (the bus consumer), not by convention." It is enforced inside
+`graph_repo.identify`'s single Cypher statement instead — a check in the consumer
+is a check a second caller can skip, and "the consumer remembers to look" is the
+convention the doc is trying to replace.
+
+The property that arrangement exists for is this: **the log is append-only, so a
+capture that was later withdrawn is on it forever, and replaying it must not put
+the link back.** A cursor rewind, a crash, or an operator replaying a session
+would otherwise silently re-identify somebody who asked not to be, and every
+guarantee in `privacy.md` would be decorative. That test is the one worth reading
+in `tests/test_identity.py`.
+
+A refusal is logged and consumed, not raised: it is a decision, and parking it
+would ask an operator to un-refuse a correct one. A *missing Person* raises,
+because that is usually the graph writer being one poll behind and is worth
+retrying — the two failures look identical through `identify`'s return value,
+which is why `person_exists` exists to tell them apart.
+
+Contact ids are derived, never random. Where an email is given it is the key, so
+the same visitor consenting at two activations is one Contact and attribution has
+something continuous to attach to. Where none is given the consent id is the key,
+so two anonymous captures stay two people — merging people we cannot identify
+would be inventing a fact, and §2's redlines put cross-activation
+re-identification behind T3 rather than behind a guess.
+
+**Withdrawal is a separate consumer, and most of its design is about what it must
+not touch.** `consumers/reanonymise.py` drops the `IDENTIFIED_AS` edge, redacts
+the Contact to a tombstone, stamps the ConsentEvent `withdrawn_at`, and emits
+`crm.retract`.
+
+The Person, its zone edges, its dwells and every figure derived from them stay
+exactly as they were. That data was never consent-gated — the anonymous path runs
+with no consent at all — and deleting it would silently rewrite reports already
+delivered about a person those reports never named. The ConsentEvent survives
+too, stamped rather than deleted, because it is the evidence that permission was
+given and then withdrawn: a deployment that erased it would have nothing to
+answer with if the withdrawal itself were ever disputed.
+
+What goes is the link and the PII, which is all consent ever granted. Setting a
+property to NULL in Neo4j removes it outright rather than storing a null, which
+is a stronger erasure than the `SET` reads like.
+
+`crm.retract` goes on the bus rather than at a CRM, for the same reason
+`rule.fired` does not post to Slack itself: a slow third-party API has no
+business inside the path that makes a withdrawal true locally. No adapter reads
+it yet, and it is emitted anyway — a withdrawal that happened before the adapters
+ship still has to be retractable by them, and an adapter starting from seq 0 will
+find it.
+
+Graph migration 003 adds `Contact` and `ConsentEvent`, both keyed per tenant
+rather than per session. The asymmetry with `Person` is the point: an `anon_id`
+is never reused across sessions, so the same one at another activation is a
+different human — but a Contact is the same person at every activation they
+attend, which is the only reason attribution has anything to attach to. There is
+deliberately no unique index on `Contact.email`: a person may legitimately
+consent under one address twice, and a constraint would refuse to record consent
+somebody actually gave.
+
+Forty-one new backend tests (246 total) and seven new dashboard tests (133).
 
 ### Added — 2026-08-12 — `[neo4j-track]` the booth can act now: rules fire, and something happens in the room
 

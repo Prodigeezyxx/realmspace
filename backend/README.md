@@ -175,6 +175,10 @@ item in `data-model.md` → "Store decision".
 | `GET /v1/dead-letters` | token | The HITL review queue: events no consumer could process, with the event that failed and whether it can be retried. |
 | `POST /v1/dead-letters/{id}/retry` | token, **admin/operator** | Re-run the event through its consumer. 409 if that consumer is not safe to retry in isolation. A retry that fails again returns 200 with `resolved: false` and the new error — that is a result, not an error. |
 | `POST /v1/dead-letters/{id}/resolve` | token, **admin/operator** | Dismiss without retrying. Needed because the tracker's failures cannot be retried from here at all, and a queue nobody can clear stops being read. |
+| `GET /v1/dispatches/stranded` | token | Rule actions stuck at `claimed`: the process died between claiming the dispatch and the outbound call returning, so whether the message arrived is unknown. |
+| `POST /v1/dispatches/{id}/resolve` | token, **admin/operator** | Record a human's answer to *did it arrive?* — `delivered` closes it, `failed` releases it. Neither re-sends: a retry is the double-post the claim exists to prevent. |
+| `POST /v1/consent` | key or token | Record a consent exactly as given (tier, basis, versioned copy). Appends `consent.captured` and nothing else — the Contact and the link are the identity consumer's job. `consentId` is supplied by the capture surface, so a kiosk's retry is one consent and not two. |
+| `POST /v1/consent/withdraw` | key or token | Record a withdrawal. Names the person by whichever of `consentId` / `contactId` / `anonId` is to hand. |
 | `GET /health` | none | Liveness for **both** stores plus the consumers. |
 
 **Configure a session before running perception against it.** The tracker reads

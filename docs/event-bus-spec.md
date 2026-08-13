@@ -422,6 +422,70 @@ additions that does. §6 applies to it in full: it must never ride the anonymise
 cloud-sync path, and `dashboard/src/lib/contracts/events.ts` lists it in
 `PII_EVENT_TYPES` so `isPiiEventType` gates it without every caller remembering.
 
+**`consent.captured`** — producer: a capture surface (badge, QR, kiosk, form),
+via `POST /v1/consent`:
+
+```json
+{
+  "consent_id":   "c_01J...",         // stable; the id of the ConsentEvent node
+  "anon_id":      "P-012",            // the track this consent is about
+  "tier":         "T1",               // 'T1'|'T2'|'T3' — consent-and-identity.md §2
+  "basis":        "explicit_optin",   // 'explicit_optin'|'contract'|'legitimate_interest'
+  "copy_version": "consent-en-2026-08",  // the exact wording shown, versioned
+  "captured_by":  "kiosk-entrance",   // the surface or operator that captured it
+  "source":       "qr",               // 'badge'|'qr'|'kiosk'|'form'|'manual'
+  "captured_at":  "2026-08-13T10:04:02Z",
+  "expires_at":   null,               // optional; null = end of the activation
+  "contact": {                        // the PII itself — see below
+    "email":   "sam@example.com",
+    "name":    "Sam Rivera",
+    "company": "Example Ltd",
+    "title":   "Head of Ops"
+  }
+}
+```
+
+**`copy_version` is the load-bearing field, not the tier.** A tier says what
+somebody is being asked for; the copy version says what they actually read
+before agreeing, and it is the only thing that settles a withdrawal argued after
+the fact. It is required for that reason — a capture surface that cannot say
+which wording it displayed has not really captured consent.
+
+**`contact` is optional and is the only PII in the payload.** A T1 capture that
+is a badge scan may carry nothing but an `anon_id` and a tag, with the details
+arriving from the badge registry later. Everything outside `contact` is
+anonymous and is what the audit trail is made of, which means a deployment can
+keep the consent record after erasing the person.
+
+**`anon_id`, not `contact_id`.** At capture time there is no Contact yet —
+creating one is the identity consumer's job, and it happens *after* the gate is
+checked, never as part of asking for permission.
+
+**`consent.withdrawn`** — producer: anywhere (a kiosk, an operator, an inbound
+erasure request):
+`{ "consent_id", "contact_id", "anon_id", "reason", "withdrawn_at" }`
+
+`reason` is `"visitor_request" | "erasure_request" | "operator"`. Carrying all
+three identifiers is deliberate redundancy: the withdrawal has to work when the
+person can only be identified by one of them — a visitor at a kiosk knows their
+email, an erasure request names a Contact, and a mid-session withdrawal at the
+capture surface knows only the track it is standing in front of.
+
+**Both events carry PII** and are listed in `PII_EVENT_TYPES` alongside
+`crm.retract`. `consent.captured` carries it in `contact`; `consent.withdrawn`
+carries `contact_id`, which is PII by §6's own definition — an identifier that
+resolves to a person is not made anonymous by being opaque.
+
+**`identity.resolved`** — producer: the identity consumer:
+`{ "anon_id", "contact_id", "consent_id", "tier", "via", "at" }`
+
+The record that the gate was passed and the link drawn. `via` mirrors the
+`IDENTIFIED_AS` edge's own property (`'badge'|'qr'|'kiosk'|'form'|'manual'`), and
+`consent_id` is carried so a downstream consumer can re-check the justification
+without re-deriving it — a CRM adapter refusing anything below T2
+(`consent-and-identity.md` §3) should not have to go looking for the reason it is
+allowed to act.
+
 ### Event ids on derived events
 
 Consumers that produce events — the tracker is the first — must **derive** the
