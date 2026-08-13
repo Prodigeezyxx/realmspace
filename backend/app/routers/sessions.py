@@ -93,6 +93,7 @@ def _config_out(
         activation_cost=props.get("activation_cost"),
         currency=props.get("currency") or "USD",
         attribution_model=props.get("attribution_model") or "influenced",
+        attribution_window_days=props.get("attribution_window_days") or 90,
         revenue_influenced=props.get("revenue_influenced"),
         qualified_leads=props.get("qualified_leads"),
         zones=[ZoneConfig(**z) for z in zones],
@@ -141,6 +142,7 @@ async def put_session_config(
         activation_cost=config.activation_cost,
         currency=config.currency,
         attribution_model=config.attribution_model,
+        attribution_window_days=config.attribution_window_days,
         revenue_influenced=config.revenue_influenced,
         qualified_leads=config.qualified_leads,
     )

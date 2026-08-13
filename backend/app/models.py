@@ -182,13 +182,19 @@ class Rule(Base):
 
 
 class RuleDispatch(Base):
-    """One attempt to carry out a rule's action. Added in migration 0004.
+    """One attempt at an outbound act somebody else's system will receive.
 
-    This table exists for its UNIQUE constraint. ADR-002 §3: `rule.fired` carries
-    a derived event id and "per-dispatch idempotency keys on that `event_id`, as
+    Added in migration 0004 for rule actions; widened in 0006 to cover Phase 4's
+    lead handoffs, which pose the identical problem. The name stays for the
+    table it already is.
+
+    This exists for its UNIQUE constraint. ADR-002 §3: `rule.fired` carries a
+    derived event id and "per-dispatch idempotency keys on that `event_id`, as
     Phase 3 requires, so a retry after a timeout cannot double-post". Posting to
     Slack is not idempotent and cannot be made so from this side, so the claim
-    has to happen in the database before the call goes out.
+    has to happen in a database we control before the call goes out — and a
+    `handoff.lead` reaching a customer's webhook is the same sentence with the
+    nouns changed.
 
     The other columns are for the human reading `/ops` afterwards, not for the
     dispatcher.
@@ -202,8 +208,15 @@ class RuleDispatch(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(Text, nullable=False)
-    #: The derived event_id of the `rule.fired` that caused this dispatch.
+    #: The derived event_id of the event that caused this dispatch — a
+    #: `rule.fired` or a `handoff.lead`.
     fired_event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    #: What caused it: `rule` or `handoff`. Added in 0006, and only for the human
+    #: on `/ops` — the claim itself works without it, since a causing event id is
+    #: already unique across the log. What it buys is that a stranded row is
+    #: legible: a stuck Slack post and a stuck lead are different urgencies.
+    kind: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'rule'"))
+    #: The rule that fired, or the session a handoff belongs to.
     rule_id: Mapped[str] = mapped_column(Text, nullable=False)
     action_type: Mapped[str] = mapped_column(Text, nullable=False)
     #: claimed | delivered | failed

@@ -318,13 +318,90 @@ export interface InsightGeneratedPayload {
   generatedBy: "llm" | "rule" | "manual";
   refs?: string[];
 }
+/**
+ * The part of a lead no CRM could have known — `integrations.md` §2 calls it
+ * "the realmspace differentiator".
+ */
+export interface SpatialIntent {
+  /** In the order first entered, de-duplicated. A route, not a set. */
+  zonesVisited: string[];
+  topDwellZone: string | null;
+  dwellSecondsTotal: number;
+  surfacesEngaged: string[];
+  /**
+   * `Σ(dwell × zone weight)` per roi-framework.md §2 — a quantity in seconds,
+   * not a 0–1 ratio. `attentionBasis` names the unit because the number alone
+   * does not, and there is no denominator in the framework that would normalise
+   * it without inventing one.
+   */
+  attentionScore: number;
+  attentionBasis: string;
+  funnelDepthReached: number | null;
+  /** Generated from the rows above, never written by a model. */
+  pathSummary: string;
+  /**
+   * Null when nothing measurable was configured — never 0. "We cannot score
+   * this lead" and "this is a bad lead" are different statements, and a CRM
+   * sorting by score would treat them identically.
+   */
+  leadScore: number | null;
+  /** e.g. `spatial/v1`. A score in a CRM outlives the formula that made it. */
+  leadScoreBasis: string;
+  /** Which components actually contributed; the rest were not configured. */
+  leadScoreComponents: string[];
+  surfacesAvailable: number | null;
+  maxFunnelOrder: number | null;
+}
+
+/** normalized LeadHandoff/v1 — pinned in docs/event-bus-spec.md §3. */
 export interface LeadHandoffPayload {
-  // normalized LeadHandoff/v1 — see docs/integrations.md §2
-  contactId?: string;
-  destination: string; // 'hubspot' | 'salesforce' | 'webhook' | ...
+  schema: "realmspace.lead_handoff/v1";
+  /**
+   * `identified` goes out while the visitor is still on the floor and carries
+   * the path so far; `final` goes out at session end with the complete one.
+   * Both share a `dedupeKey` so a destination upserts one lead.
+   */
+  stage: "identified" | "final";
+  tenantId: string;
+  activation: {
+    id: string;
+    name: string | null;
+    venue: string | null;
+    city: string | null;
+    startedAt: string | null;
+    endsAt: string | null;
+  };
+  /** PII, and present only behind a live consent — see PII_EVENT_TYPES. */
+  contact: {
+    id: string;
+    email: string | null;
+    name: string | null;
+    company: string | null;
+    title: string | null;
+    source: string | null;
+  };
+  spatialIntent: SpatialIntent;
+  /** Required for any PII emission (integrations.md §2). */
+  consent: {
+    tier: "T1" | "T2" | "T3" | null;
+    basis: string | null;
+    copyVersion: string | null;
+    capturedAt: string | null;
+  };
+  roiContext: {
+    attributionModel: string;
+    attributionWindowDays: number;
+    /**
+     * Null until the session ends: the denominator is how many leads the
+     * activation produced, which is unknowable while the doors are open.
+     */
+    activationCostShare: number | null;
+  };
+  /** `tenant:email|anonId` — every adapter's upsert key. */
   dedupeKey: string;
-  spatialIntent?: Record<string, unknown>;
-  consentTier?: "T1" | "T2" | "T3";
+  anonId: string;
+  emittedAt: string;
+  eventSeq: number;
 }
 /**
  * **Provisional** — no doc pins the scoring model yet (event-bus-spec.md §3).

@@ -39,8 +39,8 @@ Two halves that meet at the event bus:
   applied by `app/graph/migrations.py`. Spec: [`data-model.md`](./data-model.md).
 - **Consumers** — `app/consumers/`: `base.py` holds the one poll → handle →
   advance → dead-letter loop, and everything else subclasses it — `tracker`,
-  `graph_writer`, `identity`, `reanonymise`, `rules`, `dispatch`, `broadcast`,
-  registered in that order in `run.py`. They run as asyncio tasks started by the
+  `graph_writer`, `identity`, `reanonymise`, `attribution`, `handoff_delivery`,
+  `rules`, `dispatch`, `broadcast`, registered in that order in `run.py`. They run as asyncio tasks started by the
   FastAPI lifespan and reported by `/health`. Adding a feature to this system
   almost always means adding one of these rather than a route.
 - **Derived ids** — `app/consumers/ids.py`: a consumer that *produces* events

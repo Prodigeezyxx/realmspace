@@ -260,6 +260,7 @@ async def upsert_session(
     activation_cost: float | None = None,
     currency: str = "USD",
     attribution_model: str = "influenced",
+    attribution_window_days: int = 90,
     revenue_influenced: float | None = None,
     qualified_leads: int | None = None,
 ) -> dict[str, Any]:
@@ -306,6 +307,7 @@ async def upsert_session(
             s.activation_cost           = $activation_cost,
             s.currency                  = $currency,
             s.attribution_model         = $attribution_model,
+            s.attribution_window_days   = $attribution_window_days,
             s.revenue_influenced        = $revenue_influenced,
             s.qualified_leads           = $qualified_leads
         RETURN s
@@ -325,6 +327,7 @@ async def upsert_session(
         activation_cost=activation_cost,
         currency=currency,
         attribution_model=attribution_model,
+        attribution_window_days=attribution_window_days,
         revenue_influenced=revenue_influenced,
         qualified_leads=qualified_leads,
     )
@@ -798,6 +801,124 @@ async def identify(
     )
     record = await result.single()
     return dict(record["ct"]) if record else None
+
+
+async def spatial_intent_for(
+    session: AsyncSession, *, tenant_id: str, session_id: str, anon_id: str
+) -> dict[str, Any]:
+    """One person's whole path, as the raw rows a LeadHandoff is assembled from.
+
+    `integrations.md` §2 calls `spatial_intent` "the realmspace differentiator" —
+    it is the part of a lead no CRM could have known. This returns the
+    measurements; `app/attribution/spatial_intent.py` turns them into the block,
+    because the shaping is arithmetic and belongs somewhere it can be tested
+    without a database.
+
+    ## Why two collections in one query
+
+    Dwells and surface interactions are separate patterns, and matching both in
+    one MATCH would give their cross product — a visitor with three dwells and
+    two surfaces would report six of each, and the total dwell in a lead's
+    handoff would be tripled. Collected in separate subqueries instead, which is
+    the shape that returns each edge once.
+
+    `weight` and `funnel_order` travel with the dwells because the two numbers
+    the handoff needs are defined in terms of them: weighted attention is
+    `Σ(dwell × weight)` per `roi-framework.md` §2, and funnel depth is the
+    furthest `funnel_order` the person reached.
+    """
+    result = await session.run(
+        """
+        MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
+        CALL (p) {
+            MATCH (p)-[d:DWELLED_IN]->(z:Zone)
+            RETURN collect({
+                zone_id:      z.id,
+                zone:         z.name,
+                duration:     d.duration,
+                started_at:   d.started_at,
+                weight:       z.weight,
+                funnel_order: z.funnel_order
+            }) AS dwells
+        }
+        CALL (p) {
+            MATCH (p)-[i:INTERACTED_WITH]->(s:Surface)
+            RETURN collect({
+                surface_id: s.id,
+                label:      s.label,
+                kind:       i.kind,
+                duration:   i.duration,
+                at:         i.at
+            }) AS surfaces
+        }
+        RETURN dwells, surfaces, p.first_seen AS first_seen, p.last_seen AS last_seen
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        anon_id=anon_id,
+    )
+    record = await result.single()
+    if record is None:
+        # No Person at all. An empty path rather than None: the caller is
+        # building a handoff for somebody the identity consumer already linked,
+        # so "this person has walked nowhere yet" is the honest reading and it
+        # produces a handoff with an empty spatial_intent rather than no handoff.
+        return {"dwells": [], "surfaces": [], "first_seen": None, "last_seen": None}
+    return {
+        "dwells": list(record["dwells"]),
+        "surfaces": list(record["surfaces"]),
+        "first_seen": record["first_seen"],
+        "last_seen": record["last_seen"],
+    }
+
+
+async def contacts_in_session(
+    session: AsyncSession, *, tenant_id: str, session_id: str
+) -> list[dict[str, Any]]:
+    """Every live identification in a session — what `session.ended` fans out over.
+
+    Only live ones: the match requires the `IDENTIFIED_AS` edge, which the
+    re-anonymiser deletes on withdrawal. Somebody who consented and then changed
+    their mind is simply not here, which is the behaviour the final handoff
+    wants and the reason this is a graph read rather than a scan of the log.
+    """
+    result = await session.run(
+        """
+        MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id})
+              -[:IDENTIFIED_AS]->(ct:Contact)
+        OPTIONAL MATCH (ct)-[:GRANTED]->(c:ConsentEvent)
+        WHERE c.withdrawn_at IS NULL
+        RETURN p.anon_id AS anon_id, ct.id AS contact_id, ct.email AS email
+        ORDER BY p.anon_id
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+    )
+    return [dict(record) async for record in result]
+
+
+async def consent_for_contact(
+    session: AsyncSession, *, tenant_id: str, contact_id: str
+) -> dict[str, Any] | None:
+    """The live consent a contact granted, or None if it was withdrawn.
+
+    The handoff carries a `consent` block because `integrations.md` §2 makes it
+    "required for any PII emission" — a destination receiving a name has to be
+    able to see what permitted it without trusting that we checked.
+    """
+    result = await session.run(
+        """
+        MATCH (ct:Contact {tenant_id: $tenant_id, id: $contact_id})-[:GRANTED]->(c:ConsentEvent)
+        WHERE c.withdrawn_at IS NULL
+        RETURN c
+        ORDER BY c.captured_at DESC
+        LIMIT 1
+        """,
+        tenant_id=tenant_id,
+        contact_id=contact_id,
+    )
+    record = await result.single()
+    return dict(record["c"]) if record else None
 
 
 async def person_exists(

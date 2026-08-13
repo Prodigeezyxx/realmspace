@@ -50,8 +50,10 @@ Every adapter receives this shape. It is versioned and additive-only.
     "top_dwell_zone": "Product Pod A",
     "dwell_seconds_total": 214,
     "surfaces_engaged": ["AR Mirror","Bottle Wall"],
-    "attention_score": 0.82,
-    "lead_score": 74,                // computed from spatial + (opt) enrichment
+    "attention_score": 268.0,        // Σ(dwell × zone weight), in SECONDS
+    "attention_basis": "weighted_dwell_seconds",
+    "lead_score": 74,                // or null; see below. Never 0 when unknown
+    "lead_score_basis": "spatial/v1",
     "path_summary": "Entered, 3m at AR Mirror, dwelled Product Pod A 2m"
   },
   "consent": {                       // required for any PII emission
@@ -69,7 +71,35 @@ Every adapter receives this shape. It is versioned and additive-only.
 ```
 
 **Anonymous handoffs** (no `contact`) are still valid — they carry spatial_intent
-for aggregate ROI and can be attached to a lead later if consent arrives.
+for aggregate ROI and can be attached to a lead later if consent arrives. *Not
+built yet:* the attribution consumer emits only for identified contacts, because
+an anonymous handoff needs a different trigger (every person, not every consent)
+and a different consent story. Tracked in `roadmap.md` Phase 4.
+
+### Where the two computed fields come from *(added 2026-08-13)*
+
+The shape above says what a handoff contains; these two say nothing about where
+the number comes from, and both were filled in when the attribution consumer was
+built. Pinned in `event-bus-spec.md` §3, summarised here:
+
+- **`attention_score` is in seconds, not a 0–1 ratio.** The `0.82` above was
+  illustrative and misleading. `roi-framework.md` §2 defines dwell-weighted
+  attention as `Σ(dwell × weight)`, which is a quantity, and nothing in the
+  framework provides a denominator to normalise it. `attention_basis` ships
+  beside it so a destination mapping it into a CRM field knows what it holds.
+- **`lead_score` is a stated formula, versioned as `spatial/v1`.** Three ratios
+  of what the visitor did to what the activation offered — dwell against the
+  engagement threshold, funnel depth against the deepest configured zone,
+  surfaces used against surfaces present — weighted 0.5/0.3/0.2. Denominators
+  are the operator's own configuration, never constants: a booth with one
+  product pod and a booth with six must not be scored against the same idea of
+  "engaged". A component nobody configured is dropped and the rest
+  renormalised; with nothing computable the score is `null`, never `0`.
+
+**Both stages of one lead share a `dedupe_key`.** A handoff goes out when the
+visitor consents and again when the session ends, so an adapter's `upsert` must
+genuinely be an upsert — a create-only implementation will duplicate every lead
+in the client's CRM.
 
 ---
 

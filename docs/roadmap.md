@@ -301,11 +301,34 @@ consumers, without touching Phase-1 producers.*
       already delivered about somebody those reports never named. The consent
       record survives too, because it is the evidence a disputed withdrawal
       would be settled by. *(2026-08-13)*
-- 🔲 **Attribution consumer**: build normalized **LeadHandoff**, apply
-      model + window (`integrations.md`, `roi-framework.md`)
+- ✅ **Attribution consumer**: `consumers/attribution.py` builds
+      `LeadHandoff/v1` and emits `handoff.lead` at **two stages** — on
+      `identity.resolved` with the path so far, because a trade-show lead is
+      worth most while the visitor is still on the floor, and on `session.ended`
+      with the complete one. Both carry the same `dedupe_key` so an adapter's
+      upsert updates one lead, and different derived `event_id`s so the bus does
+      not swallow the second. A withdrawn contact builds nothing, including on a
+      replay, because the consumer reads the `IDENTIFIED_AS` edge the
+      re-anonymiser deletes. `attribution_window_days` joins the session config
+      (30/60/90, default 90). Payload pinned in `event-bus-spec.md` §3, which
+      also records where `attention_score` and `lead_score` come from —
+      `integrations.md` asked for both and said nothing about their source.
+      *(2026-08-13)*
 - 🔲 **CRM adapters** in order: HubSpot → Salesforce → Pipedrive → Zoho →
-      Dynamics; each idempotent, retract-capable
-- 🔲 **Bring-your-own**: signed webhook + Zapier/Make + CSV export
+      Dynamics; each idempotent, retract-capable. *Blocked on a per-tenant
+      credential store, which nothing in the repo has yet.*
+- ✅ **Bring-your-own: signed webhook.** `consumers/handoff_delivery.py` POSTs
+      the handoff to `settings.handoff_webhook_url`, signed with `sign()` from
+      `app/actions/webhook.py` — the same function the rule action uses, as that
+      file asked for. Idempotency is the Phase 3 claim: migration 0006 widened
+      `rule_dispatch` with a `kind` column so a stranded lead is legible on
+      `/ops` beside a stranded Slack post. No destination configured is not a
+      failure — the handoffs are on the log, and a destination added later reads
+      them from seq 0. *(2026-08-13)*
+- 🔲 Bring-your-own, the rest: Zapier/Make + CSV export + inbound REST
+- 🔲 **Anonymous handoffs** (`integrations.md` §2 allows a handoff with no
+      `contact`) — needs a different trigger, every person rather than every
+      consent, and a different consent story
 - 🔲 Erasure job (tenant-scoped, GDPR Art. 17) — withdrawal itself is done above
 - 🔲 (opt, T3) enrichment adapter (Apollo/Clearbit), metered
 - 🔲 **Attribution ledger** + **CFO one-pager** (`roi-framework.md`)

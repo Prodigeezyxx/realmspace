@@ -539,6 +539,7 @@ async def claim_dispatch(
     fired_event_id: uuid.UUID,
     rule_id: str,
     action_type: str,
+    kind: str = "rule",
 ) -> RuleDispatch | None:
     """Take exclusive ownership of carrying out one action, or return None.
 
@@ -577,6 +578,7 @@ async def claim_dispatch(
             fired_event_id=fired_event_id,
             rule_id=rule_id,
             action_type=action_type,
+            kind=kind,
             status="claimed",
             attempts=1,
         )

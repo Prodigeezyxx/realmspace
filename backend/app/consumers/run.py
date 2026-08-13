@@ -18,10 +18,12 @@ import asyncio
 import logging
 import sys
 
+from app.consumers.attribution import AttributionConsumer
 from app.consumers.base import Consumer
 from app.consumers.broadcast import BroadcastConsumer
 from app.consumers.dispatch import DispatchConsumer
 from app.consumers.graph_writer import GraphWriterConsumer
+from app.consumers.handoff_delivery import HandoffDeliveryConsumer
 from app.consumers.identity import IdentityConsumer
 from app.consumers.reanonymise import ReAnonymiseConsumer
 from app.consumers.rules import RulesConsumer
@@ -49,6 +51,11 @@ CONSUMER_CLASSES: list[type[Consumer]] = [
     GraphWriterConsumer,
     IdentityConsumer,
     ReAnonymiseConsumer,
+    # Attribution reads the link identity draws, and delivery carries what
+    # attribution builds — so the lead chain sits in that order for the same
+    # single-pass reason as the rule chain below it.
+    AttributionConsumer,
+    HandoffDeliveryConsumer,
     RulesConsumer,
     DispatchConsumer,
     BroadcastConsumer,

@@ -264,6 +264,18 @@ class SessionConfigIn(BaseModel):
         "first_touch", "last_touch", "linear", "time_decay", "influenced"
     ] = "influenced"
 
+    #: How long after a booth touch an outcome may still be attributed to it.
+    #: roi-framework.md §2 calls for "configurable 30/60/90-day windows on the
+    #: outcome edge"; 90 is the default because it is the longest of the three,
+    #: and a window widened after the fact to capture a deal that closed late is
+    #: exactly the argument §3's design principle rules out. Narrow it before the
+    #: doors open if the client's sales cycle is shorter.
+    #:
+    #: A closed set rather than a free integer for the same reason
+    #: `attribution_model` is: these are the three windows a CFO recognises, and
+    #: an arbitrary 47 is a number somebody chose to make a ratio work.
+    attribution_window_days: Literal[30, 60, 90] = 90
+
     #: **Operator-supplied, not measured.** Influenced revenue comes from CRM
     #: attribution, which is Phase 4; until then the only honest sources are the
     #: client's own figure or nothing at all. Left null, the ROI ratio reports as

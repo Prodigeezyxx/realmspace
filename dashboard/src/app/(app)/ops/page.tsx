@@ -219,16 +219,26 @@ function StrandedItem({
 }) {
   const [note, setNote] = useState("");
   const stuckFor = formatDuration(item.strandedForSeconds);
+  const isHandoff = item.kind === "handoff";
 
   return (
     <Panel
-      title={item.ruleName ?? item.ruleId}
+      title={
+        <span className="flex items-center gap-2">
+          {/* Which kind, first and unmissable: a lead nobody can account for and
+              a Slack post nobody can account for want different people. */}
+          <Pill variant={isHandoff ? "violet" : "info"}>
+            {isHandoff ? "Lead" : "Rule"}
+          </Pill>
+          {isHandoff ? `Lead handoff · ${item.ruleId}` : item.ruleName ?? item.ruleId}
+        </span>
+      }
       subtitle={`${item.actionType} · claimed ${stuckFor} ago · ${new Date(
         item.createdAt
       ).toLocaleString()}`}
     >
       <div className="space-y-3">
-        {!item.ruleName && (
+        {!isHandoff && !item.ruleName && (
           <p className="text-xs text-text-muted leading-relaxed">
             The rule <code>{item.ruleId}</code> has since been deleted. The
             dispatch still has to be answered for — a deleted rule does not
@@ -237,9 +247,9 @@ function StrandedItem({
         )}
 
         <p className="text-sm text-text-secondary leading-relaxed">
-          Check the destination for this action, then say what you found. There
-          is no retry here on purpose: re-sending something that may already have
-          arrived is the duplicate this whole mechanism exists to prevent.
+          {isHandoff
+            ? "Check whether this lead reached its destination, then say what you found. Answering “it arrived” keeps the claim, so a replay cannot send the same lead a second time."
+            : "Check the destination for this action, then say what you found. There is no retry here on purpose: re-sending something that may already have arrived is the duplicate this whole mechanism exists to prevent."}
         </p>
 
         <input

@@ -19,6 +19,108 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-13
 
+### Added — 2026-08-13 (later) — `[neo4j-track]` a consented visitor becomes a lead, and the lead leaves the building
+
+The morning's work produced a Contact linked to a spatial path and nothing that
+did anything with it. This is the attribution consumer that turns that into a
+lead, and a destination that receives one.
+
+**A handoff goes out twice, and the pairing is the whole design.** A trade-show
+lead is worth most while the visitor is still on the floor, and a handoff sent at
+that moment carries an incomplete path — they have not finished walking it.
+Sending only at `session.ended` gives a complete lead that arrives after everyone
+has gone home. So both: one on `identity.resolved` with the path so far, one at
+session end with the whole of it.
+
+What makes that safe is two things pulling in opposite directions. The pair carry
+**the same `dedupe_key`**, which is every adapter's upsert key, so the final
+handoff updates the lead the early one created rather than adding a second. They
+carry **different `event_id`s**, derived with the stage in the key, because the
+bus dedupes on `event_id` and an id derived from the contact alone would make the
+second handoff disappear. Both failure modes are silent: identical ids lose the
+complete path, random ids duplicate every lead in the client's CRM.
+
+**A withdrawn contact produces nothing, including on a replay.** Both triggers
+read the live `IDENTIFIED_AS` edge rather than the log, and the re-anonymiser
+deletes that edge — so somebody who changed their mind is simply absent, the same
+property the identity consumer has for re-reading a capture. The `session.ended`
+fan-out is driven off the graph for exactly this reason; replaying the session's
+`identity.resolved` events instead would rebuild handoffs for people who had
+since been re-anonymised.
+
+**`integrations.md` §2 asked for two numbers and did not say where either comes
+from.** Both were filled in, and both are now pinned in `event-bus-spec.md` §3
+with the reasoning rather than left as a shape.
+
+`attention_score` was illustrated in the doc as `0.82`, which reads as a 0–1
+ratio. `roi-framework.md` §2 defines dwell-weighted attention as
+`Σ(dwell × weight)` — a quantity in seconds — and there is no denominator
+anywhere in the framework that turns one into the other. Normalising it here
+would have meant inventing that denominator, so the value is the definition and
+`attention_basis` names the unit. The doc's example is corrected rather than the
+number bent to fit it.
+
+`lead_score` had no model anywhere in the repo. It is now a stated formula:
+three ratios of what the visitor did to what the activation *offered* — dwell
+against the session's engagement threshold, funnel depth against the deepest
+configured zone, surfaces used against surfaces present — weighted 0.5/0.3/0.2,
+with dwell dominant because it has the least inference in it. Every denominator
+is the operator's own configuration rather than a constant in the file, which
+matters: a booth with one product pod and a booth with six must not be scored
+against the same idea of "engaged". A component nobody configured is **dropped
+and the rest renormalised**, not scored zero — that would punish a visitor for a
+setting their host never filled in. With nothing computable the score is `null`,
+never `0`, because a CRM sorting by score would otherwise rank "we could not
+tell" alongside "not interested". `lead_score_basis: "spatial/v1"` ships beside
+it for the reason `spatial.tagged` carries `method`: a score in a CRM outlives
+the formula that made it, so the version is never redefined in place.
+
+`activation_cost_share` is null at the early stage. Its denominator is how many
+leads the activation produced, which is not knowable while the doors are open —
+a share against a partial count changes every time somebody else scans a badge.
+
+`attribution_window_days` joins the session config, a closed 30/60/90 rather than
+a free integer, defaulting to 90. A window widened after the fact to capture a
+deal that closed late is exactly the argument `roi-framework.md` §3 rules out,
+and an arbitrary 47 is a number somebody chose to make a ratio work.
+
+**The lead is delivered signed, and idempotently.** `consumers/handoff_delivery.py`
+POSTs to `settings.handoff_webhook_url` using `sign()` imported from
+`app/actions/webhook.py` — that file's docstring asked for precisely this ("Phase
+4's adapter should use `sign` from here rather than growing a second one"), and
+two implementations of an HMAC scheme are two chances to disagree about which
+bytes are covered, which a receiver cannot debug.
+
+Idempotency is the Phase 3 claim rather than the receiver's problem. The webhook
+action argues that a receiver can dedupe on `X-Realmspace-Event-Id`, and it can —
+but that is a fallback. A POST that times out after the receiver processed it is
+ambiguous from this side, and the honest resolution is the one `rule_dispatch`
+already implements. Migration 0006 widened that table with a `kind` column rather
+than growing a second table with the same three states and a second copy of the
+reasoning: it always existed for its UNIQUE constraint on *a cause and an
+outbound act*, and a rule firing was only ever the first kind of cause. The claim
+works without `kind`; what it buys is that an operator on `/ops` looking at a
+stranded row whose `rule_id` column holds a session id is told which of the two
+they are looking at, because a stuck Slack post and a stuck lead are different
+urgencies.
+
+**No destination configured is not a failure.** Handoffs are still built and
+still on the log, and a destination added next week reads them from seq 0.
+Parking them instead would fill `/ops` with leads nobody asked to deliver — the
+opposite of `slack_webhook_url`'s unset behaviour, and deliberately, because a
+rule action names Slack explicitly while nothing has asked for this one.
+
+**Not built, and named rather than half-done.** Anonymous handoffs, which
+`integrations.md` §2 allows, need a different trigger — every person, not every
+consent — and a different consent story. The CRM adapters are blocked on a
+per-tenant credential store nothing in the repo has yet, which is why the webhook
+went first: §5 calls it "the contract, raw … also how *we* dogfood new adapters
+before writing them". And `Person.attention_score` is still never written by
+anything; the handoff computes attention from the edges instead, and fixing the
+stale property has a backfill question of its own.
+
+Twenty-six new backend tests (272 total) and one new dashboard test (134).
+
 ### Added — 2026-08-13 — `[neo4j-track]` two things Phase 3 claimed but had not proved, and the beginning of consent
 
 Phase 3's boxes were all ticked yesterday. Two of the things they claimed were

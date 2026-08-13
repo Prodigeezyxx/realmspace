@@ -165,8 +165,21 @@ class Settings(BaseSettings):
 
     # Signs outgoing `webhook` actions, so the receiver can tell a firing from
     # this booth from anything else that finds the URL. Same scheme
-    # integrations.md specifies for Phase 4's bring-your-own delivery.
+    # integrations.md specifies for Phase 4's bring-your-own delivery — and now
+    # literally the same function, shared by consumers/handoff_delivery.py.
     webhook_signing_secret: str | None = None
+
+    # Where a `handoff.lead` is delivered. integrations.md §5's "Generic Webhook
+    # — POST the LeadHandoff JSON to a customer URL (HMAC-signed)", and the
+    # destination every CRM adapter is checked against before it is written.
+    #
+    # None means no destination is configured, which is not a failure: handoffs
+    # are still built and still on the log, and a destination added next week
+    # reads them from seq 0. That is the opposite of `slack_webhook_url`'s
+    # unset behaviour, and deliberately — a rule action names Slack explicitly,
+    # so an unset URL there is a rule that cannot do what it says, whereas
+    # nothing has asked for this one.
+    handoff_webhook_url: str | None = None
 
     # How long a dispatcher waits on an outbound call before treating it as
     # failed. Short, because event-bus-spec.md §4 budgets `< 3s` end to end and

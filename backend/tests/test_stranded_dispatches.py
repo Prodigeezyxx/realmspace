@@ -112,6 +112,9 @@ async def test_a_dispatch_whose_process_died_shows_up_with_its_rule(
     assert len(rows) == 1
     assert rows[0]["id"] == dispatch_id
     assert rows[0]["actionType"] == "slack"
+    # `kind` (migration 0006) is what tells this apart from a stranded lead
+    # handoff, whose `ruleId` holds a session and which has no rule to name.
+    assert rows[0]["kind"] == "rule"
     # The name, not just the id: `r_entry_crowd` does not tell an operator which
     # message to go looking for in the channel.
     assert rows[0]["ruleName"] == "Entrance crowding → ping ops"

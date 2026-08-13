@@ -19,6 +19,7 @@ import { fetchStranded, postVerdict } from "./useStrandedDispatches";
 
 const STRANDED = {
   id: 7,
+  kind: "rule",
   ruleId: "r_entry_crowd",
   ruleName: "Entrance crowding → ping ops",
   actionType: "slack",
@@ -75,6 +76,25 @@ describe("reading the queue", () => {
     expect(state.status).toBe("ready");
     expect(state.items).toHaveLength(1);
     expect(state.items[0].ruleName).toBe("Entrance crowding → ping ops");
+  });
+
+  it("keeps a stranded lead distinguishable from a stranded rule action", async () => {
+    // A handoff's `ruleId` holds a session id and it has no rule name, so `kind`
+    // is the only thing on the row saying which of the two an operator is
+    // looking at — and they are very different urgencies.
+    const lead = {
+      ...STRANDED,
+      id: 8,
+      kind: "handoff",
+      ruleId: "s_pavilion_7",
+      ruleName: null,
+      actionType: "handoff_webhook",
+    };
+    bus(() => ({ ok: true, status: 200, json: async () => [STRANDED, lead] }));
+
+    const state = await fetchStranded();
+
+    expect(state.items.map((i) => i.kind)).toEqual(["rule", "handoff"]);
   });
 
   it("reports an unreachable bus as unreachable, not as an empty queue", async () => {

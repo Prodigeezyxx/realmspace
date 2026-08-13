@@ -476,6 +476,79 @@ capture surface knows only the track it is standing in front of.
 carries `contact_id`, which is PII by §6's own definition — an identifier that
 resolves to a person is not made anonymous by being opaque.
 
+**`handoff.lead`** — producer: the attribution consumer
+(`backend/app/consumers/attribution.py`). The normalized `LeadHandoff/v1` from
+`integrations.md` §2, which specifies the shape; what is pinned here is the
+sourcing of the three fields that spec asks for and does not say where to get.
+
+```jsonc
+{
+  "schema": "realmspace.lead_handoff/v1",
+  "stage":  "identified",              // 'identified' | 'final' — see below
+  "tenant_id": "t_...",
+  "activation":     { "id", "name", "venue", "city", "started_at", "ends_at" },
+  "contact":        { "id", "email", "name", "company", "title", "source" },
+  "spatial_intent": {
+    "zones_visited":        ["Entry", "Pod"],   // order first entered, deduped
+    "top_dwell_zone":       "Pod",              // totalled per zone, not longest stay
+    "dwell_seconds_total":  160.0,
+    "surfaces_engaged":     ["AR Mirror"],
+    "attention_score":      250.0,
+    "attention_basis":      "weighted_dwell_seconds",
+    "funnel_depth_reached": 2,
+    "path_summary":         "Visited Entry 40s, then Pod 2m. Engaged AR Mirror.",
+    "lead_score":           74,                 // or null — never 0 when unknown
+    "lead_score_basis":     "spatial/v1",
+    "lead_score_components": ["dwell", "funnel", "surfaces"],
+    "surfaces_available":   2,
+    "max_funnel_order":     2
+  },
+  "consent":     { "tier", "basis", "copy_version", "captured_at" },
+  "roi_context": { "attribution_model", "attribution_window_days",
+                   "activation_cost_share" },
+  "dedupe_key":  "t_acme:sam@example.com",      // 'tenant:email|anon_id'
+  "anon_id": "P-012", "emitted_at": "...", "event_seq": 84213
+}
+```
+
+**Two stages, one lead.** A handoff is emitted on `identity.resolved` with the
+path so far — a trade-show lead is worth most while the visitor is still on the
+floor — and again on `session.ended` with the complete one. They carry **the
+same `dedupe_key`**, which is every adapter's upsert key, so the second updates
+the lead rather than creating one; and **different `event_id`s**, derived with
+the stage in the key, because the bus dedupes on `event_id` and an id derived
+from the contact alone would silently discard the complete path.
+
+**`attention_score` is in seconds.** `integrations.md` §2 illustrated it as
+`0.82`, which reads as a ratio. `roi-framework.md` §2 defines dwell-weighted
+attention as `Σ(dwell × weight)` — a quantity — and no denominator anywhere in
+the framework turns one into the other. Normalising would mean inventing that
+denominator, so the value is the definition and `attention_basis` names the
+unit. The doc's example was corrected rather than the number bent to fit it.
+
+**`lead_score` is a stated formula, not a model.** Three ratios of what the
+visitor did to what the activation offered — dwell against the session's
+engagement threshold, funnel depth against the deepest configured zone,
+surfaces used against surfaces present — weighted 0.5/0.3/0.2. A component the
+operator never configured is **dropped and the rest renormalised**, not scored
+zero, and `lead_score_components` says which contributed. With nothing
+computable the score is `null`, never `0`: a CRM sorting by score would
+otherwise rank "we could not tell" alongside "not interested".
+`lead_score_basis` travels with it for the same reason `spatial.tagged` carries
+`method` — a stored score whose derivation is unknown cannot be re-judged. The
+version is never redefined in place; a new formula is a new version.
+
+**`activation_cost_share` is null at the `identified` stage.** Its denominator
+is how many leads the activation produced, which is not known while the doors
+are open — a share against a partial count changes every time somebody scans a
+badge. Computed only at `final`.
+
+**This event carries PII** (`contact`) and is in `PII_EVENT_TYPES`. A handoff is
+built only behind a live, non-withdrawn consent: the attribution consumer reads
+the `IDENTIFIED_AS` edge, which the re-anonymiser deletes on withdrawal, so a
+replayed `identity.resolved` for somebody who has since withdrawn builds
+nothing.
+
 **`identity.resolved`** — producer: the identity consumer:
 `{ "anon_id", "contact_id", "consent_id", "tier", "via", "at" }`
 

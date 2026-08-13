@@ -66,10 +66,16 @@ class StrandedDispatchOut(BaseModel):
     model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
 
     id: int
+    #: `rule` or `handoff` (migration 0006). A stuck Slack post and a stuck lead
+    #: are different urgencies, and without this the row's `ruleId` column holds
+    #: a session id for one of them and a rule id for the other with nothing to
+    #: say which.
+    kind: str
     rule_id: str
     #: The rule's name at the time of reading, or None if it has since been
-    #: deleted. Shown because `r_entry_crowd` does not tell an operator which
-    #: message to go looking for, and "Entrance crowding → ping ops" does.
+    #: deleted — and always None for a handoff, which has no rule. Shown because
+    #: `r_entry_crowd` does not tell an operator which message to go looking for,
+    #: and "Entrance crowding → ping ops" does.
     rule_name: str | None
     action_type: str
     attempts: int
@@ -141,12 +147,20 @@ async def list_stranded(
     now = dt.datetime.now(dt.timezone.utc)
     out: list[StrandedDispatchOut] = []
     for row in rows:
-        rule = await repository.get_rule(
-            session, tenant_id=principal.tenant_id, rule_id=row.rule_id
+        # Only a rule dispatch has a rule to name. A handoff's `rule_id` holds
+        # the session it belongs to, and looking that up here would return None
+        # in a way that reads like a deleted rule.
+        rule = (
+            await repository.get_rule(
+                session, tenant_id=principal.tenant_id, rule_id=row.rule_id
+            )
+            if row.kind == "rule"
+            else None
         )
         out.append(
             StrandedDispatchOut(
                 id=row.id,
+                kind=row.kind,
                 rule_id=row.rule_id,
                 rule_name=rule.name if rule else None,
                 action_type=row.action_type,
