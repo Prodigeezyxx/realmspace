@@ -1,8 +1,10 @@
 "use client";
 
 import {
+  AlertTriangle,
   Box,
   FileBarChart,
+  FileSpreadsheet,
   Gauge,
   Layers,
   MessageSquareText,
@@ -21,6 +23,11 @@ const items = [
   { href: "/ask",      label: "Ask",      icon: MessageSquareText },
   { href: "/agents",   label: "Agents",   icon: Zap },
   { href: "/report",   label: "Report",   icon: FileBarChart },
+  { href: "/ledger",   label: "Ledger",   icon: FileSpreadsheet },
+  // `/ops` has existed since the HITL queue shipped and was never reachable
+  // from here — a review queue nobody can navigate to is a review queue nobody
+  // reads, which is the whole failure that screen was built to avoid.
+  { href: "/ops",      label: "Ops",      icon: AlertTriangle },
 ];
 
 export function NavRail() {

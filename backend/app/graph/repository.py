@@ -921,6 +921,87 @@ async def consent_for_contact(
     return dict(record["c"]) if record else None
 
 
+async def upsert_outcome(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    outcome_id: str,
+    dedupe_key: str,
+    stage: str,
+    value: float | None,
+    currency: str,
+    closed_at: str | None,
+    source: str,
+    external_ref: str | None = None,
+) -> dict[str, Any]:
+    """Create or update an Outcome, and link it to the Contact it belongs to.
+
+    The link is drawn by matching `dedupe_key` against the contact's own — the
+    same key `handoff.lead` carried out to the destination, which is what lets an
+    outcome name its lead in the vocabulary the CRM already speaks rather than in
+    an internal id it never saw.
+
+    ## The link is optional, and the node is not
+
+    `OPTIONAL MATCH`: an outcome whose contact has since been re-anonymised, or
+    which arrives before the handoff it refers to, is still recorded. Refusing it
+    would lose a real deal because of an ordering accident, and the ledger reads
+    the log rather than this node anyway — this is the queryable copy, not the
+    record.
+    """
+    result = await session.run(
+        """
+        MERGE (o:Outcome {tenant_id: $tenant_id, id: $outcome_id})
+        SET o.dedupe_key   = $dedupe_key,
+            o.stage        = $stage,
+            o.value        = $value,
+            o.currency     = $currency,
+            o.closed_at    = $closed_at,
+            o.source       = $source,
+            o.external_ref = $external_ref
+        WITH o
+        OPTIONAL MATCH (ct:Contact {tenant_id: $tenant_id})
+        WHERE ct.dedupe_key = $dedupe_key
+        FOREACH (_ IN CASE WHEN ct IS NULL THEN [] ELSE [1] END |
+            MERGE (ct)-[:RESULTED_IN]->(o)
+        )
+        RETURN o
+        """,
+        tenant_id=tenant_id,
+        outcome_id=outcome_id,
+        dedupe_key=dedupe_key,
+        stage=stage,
+        value=value,
+        currency=currency,
+        closed_at=closed_at,
+        source=source,
+        external_ref=external_ref,
+    )
+    record = await result.single()
+    return dict(record["o"])
+
+
+async def set_contact_dedupe_key(
+    session: AsyncSession, *, tenant_id: str, contact_id: str, dedupe_key: str
+) -> None:
+    """Record on the Contact the key its handoffs went out under.
+
+    Written by the attribution consumer when it builds a handoff, so an outcome
+    arriving later can find its contact. Without it the only place the mapping
+    exists is inside handoff payloads on the log, and the graph could not answer
+    "which deals came from this person" at all.
+    """
+    await session.run(
+        """
+        MATCH (ct:Contact {tenant_id: $tenant_id, id: $contact_id})
+        SET ct.dedupe_key = $dedupe_key
+        """,
+        tenant_id=tenant_id,
+        contact_id=contact_id,
+        dedupe_key=dedupe_key,
+    )
+
+
 async def person_exists(
     session: AsyncSession, *, tenant_id: str, session_id: str, anon_id: str
 ) -> bool:

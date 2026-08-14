@@ -19,6 +19,107 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-13
 
+### Added — 2026-08-13 (later still) — `[neo4j-track]` the ledger a CFO asks for, and the outcome nothing had defined
+
+Phase 4's acceptance ends "…and the attribution ledger reconciles booth-touch →
+outcome". Two things stood in the way, and only one of them was known.
+
+**Nothing in this repo defined an outcome.** `data-model.md`'s node list stopped
+at `Frame`. There was no `Deal`, no `Outcome`, no `outcome.` namespace. Every
+attribution claim the docs make — the whole of `roi-framework.md`'s Layer 4, the
+ROI ratio, the 3:1–5:1 benchmark — rested on a thing that did not exist, and the
+CRM adapters would have had to invent it in passing.
+
+So: `(:Outcome)` in graph migration 004, `outcome.recorded` pinned in
+`event-bus-spec.md` §3 and classified PII, and `POST /v1/outcomes` for an
+operator to record one. Keyed per tenant rather than per session, the same
+asymmetry `Contact` has and for the same reason: an `anon_id` is never reused
+across sessions so a `Person` is session-scoped, but a deal belongs to the client
+and not to the activation it started at. Keying it per session would say a deal
+touched by two activations was two deals, which is exactly the double-count
+`roi-framework.md` §3 exists to prevent. `dedupe_key` is indexed rather than
+unique, because one lead can legitimately produce an opportunity, then a close,
+then a renewal, and a unique index would refuse the second while silently keeping
+the first.
+
+`closed_at` is required for `won` and `lost` and refused politely without one:
+the attribution window is measured against it, and an undated close cannot be
+judged inside or outside one. `open` needs none — an opportunity still in play is
+most of a B2B pipeline at any moment, and forcing it to won/lost would make the
+ledger claim resolutions that have not happened. The endpoint is operator-only,
+unlike consent capture: a kiosk on a device credential needs to record a yes, but
+nothing on the floor has business declaring that a deal closed.
+
+**The second obstacle: `revenue_influenced` was still typed in by a human.**
+`upsert_session`'s own docstring said so — "influenced revenue comes from CRM
+attribution, which is Phase 4". This is the change that makes that sentence true.
+The ROI ratio is now computed from recorded outcomes falling inside the agreed
+window, and the client's stated figure is shown *beside* it rather than replaced
+by it, because where the two disagree that difference is the most interesting
+number on the page.
+
+**The ledger is built from the log, not the graph, and that is the whole design.**
+An auditor is asking what was known and when. The graph is current state: a
+withdrawal deletes the `IDENTIFIED_AS` edge and redacts the Contact, so a ledger
+built from it could not show that the touch ever happened — the row would simply
+be missing, which is the one thing an audit trail must never do. The log keeps
+each `handoff.lead` exactly as it went out, consent snapshot included.
+
+Which creates the obligation that shapes the rest of it. The log is append-only,
+so a withdrawn visitor's name is in it forever — and the ledger therefore
+**redacts at read time**. The row survives with its touch, its timestamps, the
+consent basis that was in force and the fact of the retraction; the name and
+email go, and so does the half of the `dedupe_key` that carries the email, since
+leaving that whole would undo the redaction one column to the left. The answer to
+"did you stop using their data" is that row being there and being empty of them.
+
+**Two judgements, stated rather than assumed.** The window is inclusive at its
+boundary — a deal closing on the 90th day of a 90-day window is inside it, and
+anything else means the window a client agreed to is silently a day shorter than
+the number they signed. And an outcome outside the window stays on the ledger,
+marked, excluded from the total: `roi-framework.md` §5's "ages out of active
+attribution but stays in the audit ledger", verbatim.
+
+**And one refusal.** `influenced`, `first_touch` and `last_touch` all reduce to
+the same binary decision here, because a booth is the only touch realmspace
+observes — we cannot know whether it was first, last or seventh in a journey we
+do not see. `linear` and `time_decay` ask for a *share* across that journey, and
+a share computed over one known touch is 100% with arithmetic painted on it. So
+those two produce no attributed value and say why. It is the only place in this
+repo that declines to produce a number a client explicitly asked for, and it
+belongs in the same family as the report's blanks: `roi-framework.md` §3 says we
+never inflate, and this is what that costs.
+
+An outcome naming a lead the activation never produced is kept and flagged rather
+than dropped. That is the discrepancy an audit is looking for, and tidying it
+away would hide it.
+
+**The one-pager and the ledger are one screen** (`/ledger`), because they are the
+same artifact at two zoom levels: cost in, ROI out, versus benchmark, with the
+attribution model stated next to the number it produced — then the evidence
+underneath, exportable as CSV. The ROI ratio and the benchmark verdict were
+inline inside `computeScorecard`; they are now exported from it and shared, so
+the report and the one-pager cannot disagree about the figure a CFO reads first.
+The CSV is fetched with a bearer token rather than linked to, since an `<a href>`
+cannot carry one and a ledger endpoint accepting a token in the query string
+would put PII-bearing credentials into every proxy log between here and the
+backend.
+
+**`/ops` was never in the navigation.** It has been unreachable since the HITL
+queue shipped — a review queue nobody can navigate to is a review queue nobody
+reads, which is the exact failure that screen was built to avoid. Added
+alongside `/ledger`.
+
+**Two things found and not fixed.** `/report`'s "Export PDF" and "Share with
+client" buttons have no `onClick` — decorative, the same class of thing as the
+invented figures removed in Phase 2. And a test in this batch seeded graph nodes
+under `t_floats`, which `conftest.py`'s fixtures only wipe for `t_test*`; the
+stray node was removed from the dev instance and the test re-scoped, but nothing
+stops the next one doing it — the guard lives in a docstring rather than in the
+fixtures.
+
+Twenty-five new backend tests (297 total) and six new dashboard tests (140).
+
 ### Added — 2026-08-13 (later) — `[neo4j-track]` a consented visitor becomes a lead, and the lead leaves the building
 
 The morning's work produced a Contact linked to a spatial path and nothing that

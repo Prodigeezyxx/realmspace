@@ -210,6 +210,19 @@ class AttributionConsumer(Consumer):
         intent["lead_score_components"] = components
 
         email = contact.get("email")
+        dedupe_key = f"{event.tenant_id}:{email or anon_id}"
+
+        # Recorded on the Contact so an outcome arriving later — from an operator
+        # or, eventually, a CRM adapter — can find the person it belongs to.
+        # Without it the mapping exists only inside handoff payloads on the log,
+        # and the graph cannot answer "which deals came from this visitor".
+        await graph_repo.set_contact_dedupe_key(
+            gs,
+            tenant_id=event.tenant_id,
+            contact_id=contact["id"],
+            dedupe_key=dedupe_key,
+        )
+
         return {
             "schema": SCHEMA,
             "stage": stage,
@@ -245,7 +258,7 @@ class AttributionConsumer(Consumer):
                 "attribution_window_days": config.get("attribution_window_days") or 90,
                 "activation_cost_share": self._cost_share(config, lead_count),
             },
-            "dedupe_key": f"{event.tenant_id}:{email or anon_id}",
+            "dedupe_key": dedupe_key,
             "anon_id": anon_id,
             "emitted_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "event_seq": event.seq,

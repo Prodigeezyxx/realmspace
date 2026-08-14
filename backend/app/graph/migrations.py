@@ -45,6 +45,11 @@ MIGRATIONS: dict[str, tuple[str, list[str], list[str]]] = {
         schema.CONSENT_003,
         schema.CONSENT_003_DOWN,
     ),
+    "004": (
+        "Outcome — what a lead turned into (roi-framework.md Layer 4)",
+        schema.OUTCOME_004,
+        schema.OUTCOME_004_DOWN,
+    ),
 }
 
 

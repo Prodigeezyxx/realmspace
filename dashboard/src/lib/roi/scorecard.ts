@@ -70,6 +70,34 @@ export interface PipelineLayer {
   roiRatio: number | null; // (revenue - cost) / cost
 }
 
+/**
+ * `(revenue − cost) / cost` — roi-framework.md §2's ROI ratio.
+ *
+ * Exported because the attribution ledger's one-pager shows the same number
+ * against a *measured* influenced revenue, and two implementations of the
+ * headline figure a CFO reads first is the split-brain ADR-002 exists to end.
+ *
+ * Null rather than zero whenever either side is missing: a ratio computed
+ * against an unknown cost is not a conservative estimate, it is a fabrication.
+ */
+export function roiRatio(
+  revenue: number | null | undefined,
+  cost: number | null | undefined
+): number | null {
+  if (revenue == null || cost == null || !cost) return null;
+  return +((revenue - cost) / cost).toFixed(2);
+}
+
+/** The 3:1–5:1 benchmark in roi-framework.md §2, as a plain verdict. */
+export function benchmarkVerdict(
+  ratio: number | null
+): "below" | "strong" | "exceptional" | "unknown" {
+  if (ratio == null) return "unknown";
+  if (ratio >= 5) return "exceptional";
+  if (ratio >= 3) return "strong";
+  return "below";
+}
+
 export interface Scorecard {
   reach: ReachLayer;
   engagement: EngagementLayer;
@@ -221,15 +249,14 @@ export function computeScorecard(
     costPerEngagedVisit: cost != null && engaged ? +(cost / engaged).toFixed(2) : null,
     costPerQualifiedLead: cost != null && qLeads ? +(cost / qLeads).toFixed(2) : null,
     pipelineMultiple: cost && rev != null ? +(rev / cost).toFixed(2) : null,
-    roiRatio: cost && rev != null ? +(((rev - cost) / cost)).toFixed(2) : null,
+    roiRatio: roiRatio(rev, cost),
   };
 
-  let benchmarkVerdict: Scorecard["benchmarkVerdict"] = "unknown";
-  if (pipeline.roiRatio != null) {
-    if (pipeline.roiRatio >= 5) benchmarkVerdict = "exceptional";
-    else if (pipeline.roiRatio >= 3) benchmarkVerdict = "strong";
-    else benchmarkVerdict = "below";
-  }
-
-  return { reach, engagement, affinity, pipeline, benchmarkVerdict };
+  return {
+    reach,
+    engagement,
+    affinity,
+    pipeline,
+    benchmarkVerdict: benchmarkVerdict(pipeline.roiRatio),
+  };
 }

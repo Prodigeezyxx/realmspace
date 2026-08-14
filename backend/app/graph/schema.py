@@ -191,6 +191,36 @@ CONSENT_003_DOWN: list[str] = [
 ]
 
 
+# ── Migration 004 — Outcome (Phase 4's attribution ledger) ──────────────────
+#
+# What a lead turned into. `data-model.md` never had this node — its list stopped
+# at `Frame` — so every attribution claim in the docs, including
+# `roi-framework.md`'s whole Layer 4, rested on something nothing defined.
+#
+# Tenant-keyed like `Contact`, and for the same reason: a deal belongs to the
+# client, not to the activation it started at. The link back to an activation is
+# the path through `(Contact)-[:IDENTIFIED_AS]-(Person)`, which already carries a
+# session, so keying the deal per session would have said a deal that touched two
+# activations was two deals — which is the double-count `roi-framework.md` §3's
+# design principle exists to prevent.
+#
+# `dedupe_key` is indexed rather than unique. It is the join back to the booth
+# touch, and one lead can legitimately produce several outcomes — an opportunity
+# that opens, then closes, then a renewal a year later. A unique index would
+# refuse the second and silently keep the first.
+OUTCOME_004: list[str] = [
+    "CREATE CONSTRAINT outcome_tenant_id_unique IF NOT EXISTS "
+    "FOR (o:Outcome) REQUIRE (o.tenant_id, o.id) IS UNIQUE",
+    "CREATE INDEX outcome_dedupe_key_idx IF NOT EXISTS "
+    "FOR (o:Outcome) ON (o.tenant_id, o.dedupe_key)",
+]
+
+OUTCOME_004_DOWN: list[str] = [
+    "DROP INDEX outcome_dedupe_key_idx IF EXISTS",
+    "DROP CONSTRAINT outcome_tenant_id_unique IF EXISTS",
+]
+
+
 def statements() -> list[str]:
     """Migration 001 as a list of Cypher statements.
 

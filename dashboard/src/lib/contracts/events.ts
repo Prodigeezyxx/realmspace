@@ -50,6 +50,8 @@ export type RealmEventType =
   | "intent.scored"
   // attribution + outbound
   | "handoff.lead"
+  /** what a lead turned into — the other end of the attribution ledger */
+  | "outcome.recorded"
   /** tell the CRM to undo a push after consent withdrawal — carries PII */
   | "crm.retract"
   // ops
@@ -106,6 +108,12 @@ export const PII_EVENT_TYPES: readonly RealmEventType[] = [
   "consent.withdrawn",
   "identity.resolved",
   "handoff.lead",
+  /**
+   * Its `dedupeKey` embeds an email, so an identifier that resolves to a person
+   * travels in it — PII by §6's own definition, which an opaque-looking string
+   * does not escape.
+   */
+  "outcome.recorded",
   /**
    * Carries `contactId`. It exists *because* consent was withdrawn, which makes
    * it tempting to file as an ops event — but the identifier is still in the
@@ -419,6 +427,24 @@ export interface IntentScoredPayload {
   /** Without it, a rescored replay is indistinguishable from changed data. */
   modelVersion?: string;
 }
+/** What a lead turned into — pinned in docs/event-bus-spec.md §3. */
+export interface OutcomeRecordedPayload {
+  outcomeId: string;
+  /** The join back to the booth touch, and every adapter's upsert key. */
+  dedupeKey: string;
+  /** `open` is a real answer, not a missing one. */
+  stage: "won" | "lost" | "open";
+  /** Null when we were not told. Never 0 — those are different statements. */
+  value: number | null;
+  currency: string;
+  /** Required for won/lost: the attribution window is measured against it. */
+  closedAt: string | null;
+  source: "operator" | "crm";
+  externalRef: string | null;
+  /** Who said so — part of what an auditor reads the ledger to find out. */
+  recordedBy: string | null;
+}
+
 export interface CrmRetractPayload {
   /** PII — see PII_EVENT_TYPES. */
   contactId: string;
@@ -488,6 +514,7 @@ export type RealmEventPayload =
   | InsightGeneratedPayload
   | IntentScoredPayload
   | LeadHandoffPayload
+  | OutcomeRecordedPayload
   | CrmRetractPayload
   | CostMeteredPayload
   | DriftDetectedPayload

@@ -102,6 +102,7 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `rule.screen_swap` | dispatcher | screen_id, content_id | in-room screens |
 | `intent.scored` | intent consumer | anon_id, score, band | rules, report, handoff |
 | `handoff.lead` | attribution | normalized LeadHandoff | CRM adapters |
+| `outcome.recorded` | operator (`POST /v1/outcomes`), later CRM adapters | dedupe_key, stage, value, closed_at | attribution ledger |
 | `crm.retract` | re-anonymiser | contact_id, destination, reason | CRM adapters |
 | `insight.generated` | LLM/agents | text, refs | graph, dashboard |
 | `cost.metered` | consumers | tokens/credits/$ | cost telemetry |
@@ -548,6 +549,45 @@ built only behind a live, non-withdrawn consent: the attribution consumer reads
 the `IDENTIFIED_AS` edge, which the re-anonymiser deletes on withdrawal, so a
 replayed `identity.resolved` for somebody who has since withdrawn builds
 nothing.
+
+**`outcome.recorded`** — producer: an operator via `POST /v1/outcomes`, and
+later the CRM adapters:
+
+```jsonc
+{
+  "outcome_id":  "o_0001",              // caller-supplied; the idempotency key
+  "dedupe_key":  "t_acme:sam@example.com",  // the join back to handoff.lead
+  "stage":       "won",                 // 'won' | 'lost' | 'open'
+  "value":       5000.0,                // null when not told — never 0
+  "currency":    "USD",
+  "closed_at":   "2026-09-01T10:00:00Z",   // required for won/lost
+  "source":      "operator",            // 'operator' | 'crm'
+  "external_ref": "hubspot:deal:4471",
+  "recorded_by": "u_ops"                // who said so
+}
+```
+
+**Nothing in this system had ever defined an outcome.** `data-model.md`'s node
+list stopped at `Frame`, and every attribution claim in `roi-framework.md` — the
+whole of Layer 4 — rested on it. Defined here so the ledger has something to
+reconcile against and the CRM adapters have somewhere to write.
+
+`dedupe_key` is the join, deliberately rather than a contact id: it is the key
+`handoff.lead` carried out to the destination and the one every adapter upserts
+on, so an outcome names its lead in the vocabulary the CRM already speaks.
+
+**`closed_at` is required for `won` and `lost`** because the attribution window
+is measured against it, and an undated close cannot be judged inside or outside
+one. `open` needs none — an opportunity still in play is most of a B2B pipeline
+at any moment, and forcing it to won/lost would make the ledger claim
+resolutions that have not happened.
+
+**These are the client's figures, not measurements**, the same as
+`revenue_influenced` and `qualified_leads` on the session config. `recorded_by`
+and `source` are on the row because who said so is part of what an auditor reads
+the ledger to find out.
+
+**Carries PII**: `dedupe_key` embeds an email. It is in `PII_EVENT_TYPES`.
 
 **`identity.resolved`** — producer: the identity consumer:
 `{ "anon_id", "contact_id", "consent_id", "tier", "via", "at" }`

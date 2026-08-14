@@ -331,7 +331,29 @@ consumers, without touching Phase-1 producers.*
       consent, and a different consent story
 - 🔲 Erasure job (tenant-scoped, GDPR Art. 17) — withdrawal itself is done above
 - 🔲 (opt, T3) enrichment adapter (Apollo/Clearbit), metered
-- 🔲 **Attribution ledger** + **CFO one-pager** (`roi-framework.md`)
+- ✅ **The outcome model, which nothing in the repo had.** `data-model.md`'s node
+      list stopped at `Frame`, so every attribution claim in
+      `roi-framework.md` — the whole of Layer 4 — rested on a thing that did not
+      exist. `(:Outcome)` (graph migration 004, tenant-keyed like `Contact`,
+      because a deal belongs to the client and not to the activation it started
+      at), `outcome.recorded` pinned in `event-bus-spec.md` §3 and classified
+      PII, and `POST /v1/outcomes` for an operator to record one — idempotent on
+      a caller-supplied id, because a duplicated outcome doubles the numerator of
+      the ROI ratio a client is shown. *(2026-08-13)*
+- ✅ **Attribution ledger + CFO one-pager.** `GET /v1/ledger/{session}`, with
+      `?format=csv` because "exportable" is half of what `roi-framework.md` §4
+      asks for, and a `/ledger` page that is the one-pager and the evidence
+      under it at two zoom levels. Built from the **log, not the graph**: an
+      auditor asks what was known and when, and the graph is current state — a
+      withdrawal redacts the Contact, so a graph-built ledger could not show the
+      touch ever happened. Which obliges it to redact at read time, since the log
+      keeps the name forever: a withdrawn lead keeps its row, its timestamps and
+      its consent basis, and loses its name. The window is inclusive at the
+      boundary, out-of-window deals stay listed and uncounted, and `linear` /
+      `time_decay` **refuse with the reason** rather than inventing a share
+      across a journey this system does not observe. `revenue_influenced` is now
+      measured, with the operator's stated figure shown beside it rather than
+      replaced. *(2026-08-13)*
 
 **Acceptance:** a consented badge scan produces a Contact linked to its spatial
 path, a LeadHandoff lands in HubSpot with spatial_intent fields, a withdrawal

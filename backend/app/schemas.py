@@ -64,6 +64,10 @@ EVENT_NAMESPACES = (
     "calibration.",
     #: crm.retract — the re-anonymiser on withdrawal (consent-and-identity.md §5).
     "crm.",
+    #: outcome.recorded — what a lead turned into. Added with the attribution
+    #: ledger; nothing in the repo had ever defined an outcome, which is why
+    #: every attribution claim in the docs rested on a thing that did not exist.
+    "outcome.",
 )
 
 

@@ -121,7 +121,49 @@ there takes `tenant_id` as a required argument.
   timestamp, frame_id, masked_image_url
 })
 // no key — see note below
+
+(:Outcome {                 // what a lead turned into — Phase 4, migration 004
+  tenant_id,
+  id,
+  dedupe_key,               // the join back to the booth touch (handoff.lead)
+  stage,                    // 'won' | 'lost' | 'open'
+  value, currency,
+  closed_at,
+  source,                   // 'operator' | 'crm'
+  external_ref              // the deal's id in the system it really lives in
+})
+// key: (tenant_id, id) — NOT per session; see below
 ```
+
+**`Outcome` is keyed per tenant, not per session, and that asymmetry is the
+point.** A deal belongs to the client, not to the activation it started at. The
+link back to an activation is the path through
+`(Contact)-[:IDENTIFIED_AS]-(Person)`, which already carries a session — so
+keying the deal per session would say that a deal touched by two activations was
+two deals, which is precisely the double-count `roi-framework.md` §3's design
+principle exists to prevent.
+
+`dedupe_key` is **indexed, not unique**. One lead can legitimately produce
+several outcomes — an opportunity that opens, then closes, then a renewal a year
+later — and a unique index would refuse the second while silently keeping the
+first.
+
+**The consent path, added in Phase 4** (`consent-and-identity.md` §3):
+
+```cypher
+(:Contact { tenant_id, id, email, name, company, title, source, dedupe_key })
+(:ConsentEvent { tenant_id, id, tier, basis, copy_version,
+                 captured_at, captured_by, withdrawn_at })
+
+(Person)-[:IDENTIFIED_AS {via, at}]->(Contact)   // deleted on withdrawal
+(Contact)-[:GRANTED]->(ConsentEvent)
+(ConsentEvent)-[:PERMITS]->(Person)
+(Contact)-[:RESULTED_IN]->(Outcome)
+```
+
+Both `Contact` and `ConsentEvent` are tenant-keyed for the same reason `Outcome`
+is: a `Person` is session-scoped because an `anon_id` is never reused, but the
+human behind it is the same person at every activation they attend.
 
 **`Frame` has no uniqueness key and is therefore the one node type with no
 constraint in `backend/app/graph/schema.py`.** It is the only node declared

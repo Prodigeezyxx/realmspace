@@ -24,6 +24,7 @@ from app.consumers.broadcast import BroadcastConsumer
 from app.consumers.dispatch import DispatchConsumer
 from app.consumers.graph_writer import GraphWriterConsumer
 from app.consumers.handoff_delivery import HandoffDeliveryConsumer
+from app.consumers.outcomes import OutcomesConsumer
 from app.consumers.identity import IdentityConsumer
 from app.consumers.reanonymise import ReAnonymiseConsumer
 from app.consumers.rules import RulesConsumer
@@ -56,6 +57,9 @@ CONSUMER_CLASSES: list[type[Consumer]] = [
     # single-pass reason as the rule chain below it.
     AttributionConsumer,
     HandoffDeliveryConsumer,
+    # Off the ledger's critical path — the ledger reads the log. This keeps the
+    # graph's queryable copy of "which deals came from this visitor" current.
+    OutcomesConsumer,
     RulesConsumer,
     DispatchConsumer,
     BroadcastConsumer,

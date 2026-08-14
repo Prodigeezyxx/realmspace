@@ -180,6 +180,8 @@ item in `data-model.md` → "Store decision".
 | `POST /v1/consent` | key or token | Record a consent exactly as given (tier, basis, versioned copy). Appends `consent.captured` and nothing else — the Contact and the link are the identity consumer's job. `consentId` is supplied by the capture surface, so a kiosk's retry is one consent and not two. |
 | `POST /v1/consent/withdraw` | key or token | Record a withdrawal. Names the person by whichever of `consentId` / `contactId` / `anonId` is to hand. |
 | — | — | Lead handoffs have no HTTP surface: `consumers/attribution.py` builds them from the graph and `consumers/handoff_delivery.py` POSTs them, signed, to `handoff_webhook_url`. Read them off the log like any other event. |
+| `POST /v1/outcomes` | token, **admin/operator** | Record what a lead turned into, against the `dedupeKey` its handoff carried. Idempotent on a caller-supplied `outcomeId`, because a duplicated outcome doubles the numerator of the ROI ratio a client is shown. Operator-only for the same reason. |
+| `GET /v1/ledger/{session_id}` | token | The attribution ledger: every booth-touch → outcome link with timestamps and consent basis, plus totals and the attribution model stated plainly. `?format=csv` for the export. Built from the log, so a withdrawn visitor keeps their row and loses their name. |
 | `GET /health` | none | Liveness for **both** stores plus the consumers. |
 
 **Configure a session before running perception against it.** The tracker reads
