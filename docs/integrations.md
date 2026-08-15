@@ -120,6 +120,30 @@ Adapter interface:
   `spatial_intent.lead_score` → their CRM's custom field in the UI.
 - **Capabilities()** lets the UI hide features a CRM can't do (e.g. no retract).
 
+### As built *(added 2026-08-14)*
+
+`backend/app/crm/base.py`. Three things this section left open, decided:
+
+- **`authenticate` is construction** (`CrmAdapter.for_tenant`), not a method you
+  call afterwards. The alternative leaves a window in which an unauthenticated
+  adapter is a live object somebody can call `upsert` on, and that failure
+  surfaces as a 401 from the client's CRM rather than as a mistake caught here.
+- **`upsert` may decline.** §2 allows an anonymous handoff and
+  `consumers/attribution.py` builds `dedupe_key` as `tenant:email|anon_id`, so a
+  handoff with no email is ordinary and reaches an adapter with nothing to key
+  on. `None` means "nothing here to send"; raising would park a lead on `/ops`
+  that no human action could resolve.
+- **Failure is raised, never returned** — §8's 429s included.
+  `consumers/base.Consumer` already owns retry, backoff and dead-lettering, and
+  an adapter that swallowed its own rate limit would be a second policy
+  disagreeing with the first.
+
+Credentials come from `tenant_integration` (migration 0007), encrypted per
+tenant per `multi-tenant.md` §2 and opened in exactly one function,
+`crm.adapter_for`. `PUT /v1/integrations/{provider}` stores one; it is
+admin-only, refuses a provider this build has no adapter for, and never returns
+the secret back.
+
 ---
 
 ## 4. Tier 1 adapters (build order, by market share + client demand)

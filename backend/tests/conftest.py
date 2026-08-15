@@ -19,7 +19,7 @@ before each test. Two consequences worth knowing:
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import pytest
@@ -127,6 +127,10 @@ async def db_session() -> AsyncIterator[AsyncSession]:
     reason and a sharper version of it: a rule left behind fires in the *next*
     test, against events that test wrote for another purpose, so the failure
     surfaces somewhere unrelated to the test that caused it.
+
+    `tenant_integration` (0007) joins them for a third reason: a credential left
+    behind is a destination, and the CRM delivery consumer would push a later
+    test's leads to whatever stub the earlier test registered.
     """
     # Wipe as the owner: TRUNCATE is a privilege the app role deliberately does
     # not have, and it would in any case only be able to see its own tenant.
@@ -135,7 +139,8 @@ async def db_session() -> AsyncIterator[AsyncSession]:
         await cleaner.execute(
             text(
                 "TRUNCATE event_log, consumer_cursor, dead_letter, "
-                "rules, rule_dispatch, auth_user, api_key RESTART IDENTITY;"
+                "rules, rule_dispatch, tenant_integration, auth_user, api_key "
+                "RESTART IDENTITY;"
             )
         )
         await cleaner.commit()
@@ -197,6 +202,25 @@ async def device_key(db_session: AsyncSession) -> str:
     )
     await db_session.commit()
     return plaintext
+
+
+@pytest.fixture
+def encryption_key() -> Iterator[str]:
+    """A real AES key for the duration of one test.
+
+    Set on the cached Settings object rather than in the environment, because
+    `get_settings` is `lru_cache`d and an env var written after the first call
+    would be read by nothing. Restored afterwards so the tests that assert the
+    *unset* behaviour — storing a credential refuses rather than writing
+    plaintext — cannot be poisoned by a neighbour that set one.
+    """
+    from app import secrets as app_secrets
+
+    settings = get_settings()
+    before = settings.credential_encryption_key
+    settings.credential_encryption_key = app_secrets.generate_key()
+    yield settings.credential_encryption_key
+    settings.credential_encryption_key = before
 
 
 @pytest.fixture

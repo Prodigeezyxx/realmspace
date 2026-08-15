@@ -17,7 +17,77 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-13
+## [Unreleased] — last updated 2026-08-14
+
+### Added — 2026-08-14 — `[neo4j-track]` the thing the CRM adapters were blocked on
+
+`roadmap.md` has carried the same parenthesis against the CRM adapters for two
+weeks — *"blocked on a per-tenant credential store, which nothing in the repo has
+yet"* — and `routers/outcomes.py` names it in its own docstring as the reason a
+finance team's numbers are typed in by an operator instead of read from HubSpot.
+`multi-tenant.md` §2 has asked for the store since Phase 1, in one sentence:
+"each tenant's CRM/enrichment credentials are stored encrypted, per-tenant, never
+shared." This is that sentence, and each clause of it is a test.
+
+**An unset encryption key refuses to store the credential rather than storing it
+in the clear.** The same decision `actions/webhook.py` takes about its signing
+secret, with more at stake: a deployment that quietly downgraded here would put a
+client's CRM token in a database column, and nobody would find out until the
+database did. There is no plaintext column for it to fall back to and no shipped
+default key — a default here would be a published key protecting somebody else's
+CRM.
+
+**The ciphertext is bound to the tenant and provider that own it.** AES-GCM
+rather than Fernet for one reason: it takes associated data, so `tenant:provider`
+is authenticated alongside the secret and a row copied sideways — a bad restore,
+a careless fixture, an admin moving rows between tenants — fails to decrypt
+instead of handing tenant A's token to tenant B's delivery consumer. Row-level
+security stops a *query* crossing tenants; it cannot stop a row written into the
+wrong one, and this does.
+
+**The secret goes in and never comes back out.** No endpoint returns a stored
+credential, and that is not a gap for a later "reveal" button to fill. What a UI
+actually needs is the answer to *is this the key I pasted?*, which is
+`secretHint` — the last four characters, and nothing when the secret is short
+enough that four would be most of it. Decryption happens in exactly one function
+(`crm.adapter_for`), which is what makes "the plaintext never leaves this call"
+checkable rather than a convention.
+
+**Admin, not operator, and the line is worth a new dependency.** `require_admin`
+joins `require_reader` and `require_operator`. `multi-tenant.md` §RBAC puts
+integrations with Admin, and it holds up: an operator arms a rule that posts to a
+room and the blast radius is a Slack message, while a credential writes into the
+client's system of record and outlives the activation.
+
+**A provider with no adapter is refused.** The event taxonomy is open by design —
+a rule may name a trigger whose producer has not shipped — and providers are the
+exact opposite: a credential stored for something nothing dispatches is a live
+token sitting in our database achieving nothing, under an admin who believes
+their CRM is connected. Adding a CRM is a module and a line in
+`app/crm/__init__.py`'s registry, the same shape `app/actions` uses.
+
+**Two smaller judgements.** Re-storing a credential clears the previous
+healthcheck rather than carrying it forward, because a new token has not been
+tested and inheriting a verdict — green or red — is a claim about a credential
+nobody has tried. And revoking keeps the row *and* the ciphertext: `DELETE` is
+the verb, revocation the effect, because a withdrawal arriving the day after an
+admin disconnects HubSpot still has to authenticate to HubSpot to retract the
+contact.
+
+`integrations.md` §3's interface is now real (`app/crm/base.py`) with three
+things the doc left open decided: `authenticate` is construction rather than a
+method you can forget to call, an `upsert` that finds nothing to key on returns
+`None` instead of raising — an anonymous handoff is ordinary, not a failure for a
+human to resolve — and every real failure is raised, because `base.Consumer`
+already owns retry, backoff and dead-lettering and a second retry policy inside
+an adapter would disagree with the first.
+
+**Not built, and named rather than implied.** There is no dashboard screen for
+pasting a token. The field-mapping editor `integrations.md` §3 asks for is a
+screen of its own, and shipping the half that only holds a secret invites the
+mapping half to be improvised later. API-only for now.
+
+Seventeen new backend tests (314 total).
 
 ### Added — 2026-08-13 (later still) — `[neo4j-track]` the ledger a CFO asks for, and the outcome nothing had defined
 

@@ -16,7 +16,14 @@ from sqlalchemy import BigInteger, delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.models import ConsumerCursor, DeadLetter, EventLog, Rule, RuleDispatch
+from app.models import (
+    ConsumerCursor,
+    DeadLetter,
+    EventLog,
+    Rule,
+    RuleDispatch,
+    TenantIntegration,
+)
 from app.schemas import EventIn
 
 # A consumer polling in a tight loop should not be able to ask for the whole log
@@ -527,6 +534,146 @@ async def delete_rule(session: AsyncSession, *, tenant_id: str, rule_id: str) ->
         delete(Rule).where(Rule.tenant_id == tenant_id, Rule.rule_id == rule_id)
     )
     return result.rowcount > 0
+
+
+# ── tenant integrations (migration 0007) ──────────────────────────────────────
+
+
+async def list_integrations(
+    session: AsyncSession, *, tenant_id: str, active_only: bool = False
+) -> list[TenantIntegration]:
+    """Every integration this tenant has configured.
+
+    `active_only` is the delivery consumer's question — "where does a lead go?" —
+    and is served by `tenant_integration_active_idx`. The wide form is the admin
+    screen, which needs to see a revoked row precisely because it is revoked.
+    """
+    stmt = (
+        select(TenantIntegration)
+        .where(TenantIntegration.tenant_id == tenant_id)
+        .order_by(TenantIntegration.provider)
+    )
+    if active_only:
+        stmt = stmt.where(TenantIntegration.status == "active")
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def get_integration(
+    session: AsyncSession, *, tenant_id: str, provider: str, active_only: bool = False
+) -> TenantIntegration | None:
+    """One integration, or None."""
+    stmt = select(TenantIntegration).where(
+        TenantIntegration.tenant_id == tenant_id,
+        TenantIntegration.provider == provider,
+    )
+    if active_only:
+        stmt = stmt.where(TenantIntegration.status == "active")
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def upsert_integration(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    provider: str,
+    secret_ct: bytes,
+    secret_hint: str,
+    field_map: dict,
+) -> TenantIntegration:
+    """Store or replace a tenant's credential for one provider.
+
+    The ciphertext arrives already encrypted: this module does not import
+    `app/secrets.py`, so there is no path by which a plaintext token reaches a
+    SQL statement here even by mistake.
+
+    Re-storing a credential clears `revoked_at` and the previous healthcheck.
+    A key that was revoked and is now being replaced is a new credential, and
+    carrying the old check forward would show a red status against a token
+    nobody has tested yet.
+    """
+    values = {
+        "tenant_id": tenant_id,
+        "provider": provider,
+        "secret_ct": secret_ct,
+        "secret_hint": secret_hint,
+        "field_map": field_map,
+        "status": "active",
+    }
+    stmt = (
+        pg_insert(TenantIntegration)
+        .values(**values)
+        .on_conflict_do_update(
+            index_elements=["tenant_id", "provider"],
+            set_={
+                k: v
+                for k, v in values.items()
+                if k not in ("tenant_id", "provider")
+            }
+            | {
+                "updated_at": func.now(),
+                "revoked_at": None,
+                "last_check_at": None,
+                "last_check_ok": None,
+                "last_check_detail": None,
+            },
+        )
+        .returning(TenantIntegration)
+    )
+    return (await session.execute(stmt)).scalar_one()
+
+
+async def revoke_integration(
+    session: AsyncSession, *, tenant_id: str, provider: str
+) -> bool:
+    """Stop using a credential, keeping the row. Returns whether one changed.
+
+    Not a DELETE, and not for symmetry with `delete_rule` — the opposite of it.
+    A rule's durable record is the `rule.fired` events it produced; a
+    credential's is this row, and a `crm_link` naming a provider whose row has
+    vanished cannot answer who we were when we pushed that contact.
+
+    The ciphertext stays. Retracting a contact from a CRM after the credential
+    was revoked still needs to authenticate to it, and a withdrawal arriving the
+    day after an admin disconnects HubSpot is an ordinary sequence.
+    """
+    result = await session.execute(
+        update(TenantIntegration)
+        .where(
+            TenantIntegration.tenant_id == tenant_id,
+            TenantIntegration.provider == provider,
+            TenantIntegration.status == "active",
+        )
+        .values(status="revoked", revoked_at=func.now(), updated_at=func.now())
+    )
+    return result.rowcount > 0
+
+
+async def record_integration_check(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    provider: str,
+    ok: bool,
+    detail: str,
+) -> None:
+    """Remember what `healthcheck()` said.
+
+    Stored rather than only returned, so an admin opening the screen tomorrow
+    sees that the token expired without having to press test — the failure this
+    exists to catch is a credential that goes bad quietly between activations.
+    """
+    await session.execute(
+        update(TenantIntegration)
+        .where(
+            TenantIntegration.tenant_id == tenant_id,
+            TenantIntegration.provider == provider,
+        )
+        .values(
+            last_check_at=func.now(),
+            last_check_ok=ok,
+            last_check_detail=detail[:2000],
+        )
+    )
 
 
 # ── dispatches ────────────────────────────────────────────────────────────────

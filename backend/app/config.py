@@ -181,6 +181,16 @@ class Settings(BaseSettings):
     # nothing has asked for this one.
     handoff_webhook_url: str | None = None
 
+    # ── tenant credentials (multi-tenant.md §2, Phase 4's CRM adapters) ───────
+    # Encrypts what a tenant stores in `tenant_integration` — a HubSpot token, a
+    # Salesforce refresh token, an enrichment key. Urlsafe base64 of 32 bytes:
+    #   python -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+    #
+    # No default, and unset is a refusal rather than plaintext storage — see
+    # app/secrets.py. A shipped default here would be a published key protecting
+    # somebody else's CRM.
+    credential_encryption_key: str | None = None
+
     # How long a dispatcher waits on an outbound call before treating it as
     # failed. Short, because event-bus-spec.md §4 budgets `< 3s` end to end and
     # base.Consumer will retry twice on top of this.

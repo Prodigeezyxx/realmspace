@@ -314,9 +314,25 @@ consumers, without touching Phase-1 producers.*
       also records where `attention_score` and `lead_score` come from —
       `integrations.md` asked for both and said nothing about their source.
       *(2026-08-13)*
+- ✅ **Per-tenant credential store**, which the adapters were blocked on and
+      which `multi-tenant.md` §2 has asked for since Phase 1. `tenant_integration`
+      (migration 0007, forced RLS) holds one credential per `(tenant, provider)`,
+      AES-256-GCM encrypted with the tenant and provider as *associated data* —
+      so a row copied between tenants fails to decrypt rather than handing one
+      client's token to another's delivery. An unset `credential_encryption_key`
+      **refuses to store** rather than writing plaintext; there is no plaintext
+      column to fall back to. `PUT/GET/DELETE /v1/integrations/{provider}` and a
+      `…/test` healthcheck, all behind a new `require_admin` — `multi-tenant.md`
+      §RBAC puts integrations with Admin, and a credential outlives the
+      activation an operator runs. The secret is never returned by any endpoint;
+      `secretHint` (last 4) answers the only question a reveal would.
+      `app/crm/base.py` makes `integrations.md` §3's interface real, with a
+      registry in the shape `app/actions` uses. **No dashboard screen** — the
+      field-mapping editor is a screen of its own and the half that only holds a
+      secret would invite the other half to be improvised. *(2026-08-14)*
 - 🔲 **CRM adapters** in order: HubSpot → Salesforce → Pipedrive → Zoho →
-      Dynamics; each idempotent, retract-capable. *Blocked on a per-tenant
-      credential store, which nothing in the repo has yet.*
+      Dynamics; each idempotent, retract-capable. *No longer blocked — the
+      credential store above is what they were waiting for.*
 - ✅ **Bring-your-own: signed webhook.** `consumers/handoff_delivery.py` POSTs
       the handoff to `settings.handoff_webhook_url`, signed with `sign()` from
       `app/actions/webhook.py` — the same function the rule action uses, as that

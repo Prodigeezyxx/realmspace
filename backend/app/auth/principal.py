@@ -178,6 +178,30 @@ async def require_operator(
     return principal
 
 
+async def require_admin(
+    principal: Principal = Depends(get_principal),
+) -> Principal:
+    """Endpoints that hand us a credential to somebody else's system.
+
+    Narrower again than `require_operator`, and the line is where multi-tenant.md
+    §RBAC draws it: an Operator "runs activations", an Admin "manages org,
+    billing, **integrations**, users".
+
+    The distinction is worth a separate dependency rather than reusing the
+    operator one. An operator arming a rule decides what this booth does in this
+    room, and the blast radius is a Slack message or a screen. Storing a CRM
+    token decides what realmspace writes into the client's system of record, on
+    a credential that outlives the activation and that nobody on the floor
+    should be able to replace.
+    """
+    if principal.kind != "user" or principal.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="managing integrations requires the admin role",
+        )
+    return principal
+
+
 async def principal_for_socket(
     session: AsyncSession, token: str | None, path_tenant_id: str
 ) -> Principal:

@@ -33,6 +33,7 @@ from app.routers import (
     dead_letters,
     dispatches,
     events,
+    integrations,
     ledger,
     live,
     outcomes,
@@ -145,6 +146,7 @@ app.include_router(dead_letters.router)
 app.include_router(dispatches.router)
 app.include_router(consumers.router)
 app.include_router(rules.router)
+app.include_router(integrations.router)
 
 
 @app.get("/health", tags=["meta"])

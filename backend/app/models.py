@@ -15,6 +15,10 @@ Phase 3 adds two more, which are configuration rather than log:
 
   rules            the rule documents of ADR-002, one row per document
   rule_dispatch    the idempotency key for carrying out a rule's action
+
+Phase 4 adds one, which is neither — it is a secret:
+
+  tenant_integration   what this tenant authenticates to a CRM as
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ from sqlalchemy import (
     DateTime,
     Index,
     Integer,
+    LargeBinary,
     Text,
     UniqueConstraint,
     text,
@@ -236,5 +241,74 @@ class RuleDispatch(Base):
     #: person saying they saw the message. Added in migration 0005.
     resolved_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolved_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class TenantIntegration(Base):
+    """What one tenant authenticates to one CRM as. Added in migration 0007.
+
+    `multi-tenant.md` §2: "each tenant's CRM/enrichment credentials are stored
+    encrypted, per-tenant, never shared". `secret_ct` is the whole of that
+    sentence — there is no plaintext column to fall back to, and `app/secrets.py`
+    refuses to produce a value for it when no encryption key is configured.
+
+    One row per `(tenant_id, provider)`. An adapter asks "what am I HubSpot as,
+    for this tenant?" and there is exactly one answer at a time; a surrogate key
+    would permit two, and nothing downstream could choose between them.
+
+    `revoked_at` rather than deleting the row, as `auth/models.ApiKey` does: a
+    credential that appears in a delivery record afterwards should still be
+    identifiable, and "we stopped" should not look like "we never had one".
+    """
+
+    __tablename__ = "tenant_integration"
+    __table_args__ = (
+        Index(
+            "tenant_integration_active_idx",
+            "tenant_id",
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    #: Open string, not an enum — the next adapter should not need a migration
+    #: to exist, and enrichment providers (integrations.md §7) arrive here too.
+    provider: Mapped[str] = mapped_column(Text, primary_key=True)
+
+    #: nonce || AES-256-GCM ciphertext, bound to (tenant_id, provider). Only
+    #: `app/secrets.py` reads it, and only an adapter's authenticate() asks.
+    secret_ct: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    #: Last four characters of the secret. Never enough to use, enough for an
+    #: admin to recognise which credential is stored.
+    secret_hint: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("''")
+    )
+
+    #: integrations.md §3 — "field mapping is per-tenant config, not code".
+    field_map: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+
+    #: active | revoked
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'active'")
+    )
+
+    #: What healthcheck() last said. Kept so a credential that has gone bad is
+    #: visible before a lead strands on it rather than afterwards on /ops.
+    last_check_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_check_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    last_check_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
