@@ -97,6 +97,27 @@ describe("reading the queue", () => {
     expect(state.items.map((i) => i.kind)).toEqual(["rule", "handoff"]);
   });
 
+  it("carries a stranded withdrawal as its own kind", async () => {
+    // The third kind, from Phase 4's CRM retract consumer. It matters most of
+    // the three: a lead that has not arrived is revenue, and a withdrawal that
+    // has not been carried out is somebody's consent decision still unhonoured
+    // in a client's CRM.
+    const retraction = {
+      ...STRANDED,
+      id: 9,
+      kind: "retract",
+      ruleId: "s_pavilion_7",
+      ruleName: null,
+      actionType: "crm_retract:hubspot",
+    };
+    bus(() => ({ ok: true, status: 200, json: async () => [retraction] }));
+
+    const state = await fetchStranded();
+
+    expect(state.items[0].kind).toBe("retract");
+    expect(state.items[0].actionType).toBe("crm_retract:hubspot");
+  });
+
   it("reports an unreachable bus as unreachable, not as an empty queue", async () => {
     bus(() => {
       throw new Error("network down");

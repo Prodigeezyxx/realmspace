@@ -21,6 +21,8 @@ import sys
 from app.consumers.attribution import AttributionConsumer
 from app.consumers.base import Consumer
 from app.consumers.broadcast import BroadcastConsumer
+from app.consumers.crm_delivery import CrmDeliveryConsumer
+from app.consumers.crm_retract import CrmRetractConsumer
 from app.consumers.dispatch import DispatchConsumer
 from app.consumers.graph_writer import GraphWriterConsumer
 from app.consumers.handoff_delivery import HandoffDeliveryConsumer
@@ -57,6 +59,14 @@ CONSUMER_CLASSES: list[type[Consumer]] = [
     # single-pass reason as the rule chain below it.
     AttributionConsumer,
     HandoffDeliveryConsumer,
+    # Both destinations for one handoff, each claiming under its own
+    # `action_type` so a CRM being down cannot hold up the webhook or the other
+    # way round. The retract consumer follows the re-anonymiser's `crm.retract`
+    # and reads the links delivery writes, so it sits after delivery for the
+    # same single-pass reason: a withdrawal in the same batch as the push it
+    # undoes finds the link already there.
+    CrmDeliveryConsumer,
+    CrmRetractConsumer,
     # Off the ledger's critical path — the ledger reads the log. This keeps the
     # graph's queryable copy of "which deals came from this visitor" current.
     OutcomesConsumer,

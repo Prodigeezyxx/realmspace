@@ -19,6 +19,83 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-14
 
+### Added — 2026-08-14 (later) — `[neo4j-track]` the lead lands in HubSpot, and a withdrawal takes it back out
+
+Phase 4's acceptance has four clauses. Three have been true since yesterday.
+This is the fourth: *"a LeadHandoff lands in HubSpot with spatial_intent fields,
+a withdrawal retracts it"*.
+
+**The upsert is HubSpot's own, and that is the whole of the duplication
+argument.** `POST /crm/objects/{version}/contacts/batch/upsert` with
+`idProperty: "email"` creates or updates in one call. The obvious alternative —
+search by email, then create or patch — has a race the trade-show floor would
+find within a day: the two handoff stages of one visitor can be in flight
+together after a retry, both search, both miss, both create.
+`integrations.md` §2 states the requirement and the cost of missing it — "a
+create-only implementation will duplicate every lead in the client's CRM" — and
+a search-then-create is a create-only implementation with extra steps.
+
+**`crm.retract` finally has the reader `event-bus-spec.md` said it had.** The
+re-anonymiser has emitted it since Phase 4 opened and nothing consumed it, so a
+visitor who withdrew had their local record redacted while the copy already
+pushed to a client's CRM sat there untouched. That is the half of
+`consent-and-identity.md` §5 that leaves the building, and it was missing.
+
+Which needed the thing the re-anonymiser's own comment asked for. `destination`
+was `"all"` because *"until the attribution consumer records where a handoff
+actually went, the honest value is 'everywhere' rather than a named CRM this
+deployment may not even use"*. `crm_link` (migration 0008) is that record.
+
+**The link cannot live on the graph Contact, and the reason is the same one the
+ledger has.** A withdrawal redacts the Contact — so a note stored there saying
+"pushed to HubSpot as 51234" would be erased moments before the retract consumer
+needed to read it. Where we sent somebody has to outlive the record of who they
+were. And because the link holds the `dedupe_key`, which is `tenant:email`, a
+successful retraction redacts it — with `attribution/ledger.py`'s own function,
+imported rather than copied, because two redactions are two chances to disagree
+about which half of the key names a person and the disagreement shows up as an
+email surviving a withdrawal. `external_id` stays: it is HubSpot's identifier
+for a record we have just asked HubSpot to remove, and an audit that cannot name
+the record cannot check that it went.
+
+**What HubSpot's delete actually does is what the row says it did.** It moves
+the contact to a recycling bin the client can restore from for 90 days. That is
+a removal, not an erasure, and the dispatch detail says so rather than letting
+"retracted" imply more than happened. A true erasure needs account-level GDPR
+features this adapter does not assume, and it belongs with Phase 4's erasure job
+— where the same question has to be answered for every destination at once
+rather than invented here for one.
+
+**Three judgements about failure, each the opposite of the easy version.**
+
+A handoff with no email is **declined, not invented**: HubSpot has nothing to key
+it on, a contact built from an `anon_id` is a person no salesperson can ever
+contact, and the claim closes as delivered-with-nothing rather than parking a row
+on `/ops` that no human action could resolve. A 429 is **raised, not swallowed** —
+`base.Consumer` already owns retry and bounded backoff, and a second policy
+inside the adapter would disagree with the first. And one CRM failing does not
+stop the others: each destination is attempted, then the handler raises, so the
+retry reaches only the destinations that did not deliver — their claims refuse
+the rest.
+
+**Retraction is retryable from `/ops` where delivery is not**, and it is not
+metered. Retryable because the parked event is a person's withdrawal not yet
+honoured and that should be one click rather than a cursor rewind — and because
+a repeated retraction is the one outbound call whose second attempt is harmless,
+since it finds the record already gone. Unmetered because `crm_delivery` meters a
+push as work a client is buying, and a withdrawal is not: putting it on the cost
+tile would mean a client's unit economics get worse the more withdrawals they
+honour.
+
+**`/ops` grew a third kind, and the screen had to be told.** `kind` was `rule` or
+`handoff`; a retraction is neither, and the panel would have rendered it as a
+rule and then announced that the rule had been deleted — about something that
+never was one. It is now its own pill, with the copy an operator needs: this is
+the most urgent row on that screen, and the only one whose deadline is set
+outside this company.
+
+Seventeen new backend tests (331 total) and one new dashboard test (141).
+
 ### Added — 2026-08-14 — `[neo4j-track]` the thing the CRM adapters were blocked on
 
 `roadmap.md` has carried the same parenthesis against the CRM adapters for two

@@ -220,17 +220,25 @@ function StrandedItem({
   const [note, setNote] = useState("");
   const stuckFor = formatDuration(item.strandedForSeconds);
   const isHandoff = item.kind === "handoff";
+  const isRetract = item.kind === "retract";
+  // Only a rule row has a rule behind it. The other two carry a session id in
+  // `ruleId`, so treating them as rules would show "this rule was deleted"
+  // about something that never was one.
+  const isRule = !isHandoff && !isRetract;
 
   return (
     <Panel
       title={
         <span className="flex items-center gap-2">
-          {/* Which kind, first and unmissable: a lead nobody can account for and
-              a Slack post nobody can account for want different people. */}
-          <Pill variant={isHandoff ? "violet" : "info"}>
-            {isHandoff ? "Lead" : "Rule"}
+          {/* Which kind, first and unmissable: a lead nobody can account for, a
+              withdrawal nobody can account for, and a Slack post nobody can
+              account for want different people and different urgencies. */}
+          <Pill variant={isRetract ? "warn" : isHandoff ? "violet" : "info"}>
+            {isRetract ? "Withdrawal" : isHandoff ? "Lead" : "Rule"}
           </Pill>
-          {isHandoff ? `Lead handoff · ${item.ruleId}` : item.ruleName ?? item.ruleId}
+          {isRule
+            ? item.ruleName ?? item.ruleId
+            : `${isRetract ? "CRM retraction" : "Lead handoff"} · ${item.ruleId}`}
         </span>
       }
       subtitle={`${item.actionType} · claimed ${stuckFor} ago · ${new Date(
@@ -238,7 +246,7 @@ function StrandedItem({
       ).toLocaleString()}`}
     >
       <div className="space-y-3">
-        {!isHandoff && !item.ruleName && (
+        {isRule && !item.ruleName && (
           <p className="text-xs text-text-muted leading-relaxed">
             The rule <code>{item.ruleId}</code> has since been deleted. The
             dispatch still has to be answered for — a deleted rule does not
@@ -247,9 +255,11 @@ function StrandedItem({
         )}
 
         <p className="text-sm text-text-secondary leading-relaxed">
-          {isHandoff
-            ? "Check whether this lead reached its destination, then say what you found. Answering “it arrived” keeps the claim, so a replay cannot send the same lead a second time."
-            : "Check the destination for this action, then say what you found. There is no retry here on purpose: re-sending something that may already have arrived is the duplicate this whole mechanism exists to prevent."}
+          {isRetract
+            ? "Check the CRM for this contact, then say what you found. This is somebody who withdrew their consent and whose record may still be in a client's system — it is the most urgent thing on this screen, and the only one with a deadline outside our control."
+            : isHandoff
+              ? "Check whether this lead reached its destination, then say what you found. Answering “it arrived” keeps the claim, so a replay cannot send the same lead a second time."
+              : "Check the destination for this action, then say what you found. There is no retry here on purpose: re-sending something that may already have arrived is the duplicate this whole mechanism exists to prevent."}
         </p>
 
         <input

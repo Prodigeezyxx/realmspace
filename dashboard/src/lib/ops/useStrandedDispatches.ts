@@ -22,15 +22,16 @@ import { busEmail, busUrl, ensureToken, isRemoteBusEnabled } from "@/lib/bus";
 export interface StrandedDispatch {
   id: number;
   /**
-   * `rule` or `handoff`. A stuck Slack post and a stuck lead are different
-   * urgencies, and `ruleId` holds a rule for one and a session for the other —
-   * without this there is nothing on the row to say which you are looking at.
+   * `rule`, `handoff` or `retract`. A stuck Slack post, a stuck lead and a
+   * withdrawal not yet carried out are three different urgencies, and `ruleId`
+   * holds a rule for the first and a session for the other two — without this
+   * there is nothing on the row to say which you are looking at.
    */
   kind: string;
   ruleId: string;
   /**
-   * Null when the rule has since been deleted, and always null for a handoff,
-   * which has no rule. Shown as absent, not blank.
+   * Null when the rule has since been deleted, and always null for a handoff or
+   * a retraction, neither of which has a rule. Shown as absent, not blank.
    */
   ruleName: string | null;
   actionType: string;

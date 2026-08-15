@@ -269,12 +269,18 @@ def _redact(row: dict[str, Any]) -> None:
     row["withdrawn"] = True
     row["contact_name"] = None
     row["contact_email"] = None
-    row["dedupe_key"] = _redact_key(row["dedupe_key"])
+    row["dedupe_key"] = redact_dedupe_key(row["dedupe_key"])
 
 
-def _redact_key(key: str) -> str:
+def redact_dedupe_key(key: str) -> str:
     """The dedupe key embeds an email. Keep the tenant half so rows stay
-    joinable to what an adapter was told, drop the half that names a person."""
+    joinable to what an adapter was told, drop the half that names a person.
+
+    Public, and imported by `consumers/crm_retract.py` rather than copied: the
+    `crm_link` rows carry the same key and have to lose the same half of it, and
+    two redaction functions are two chances to disagree about which half that
+    is — with the disagreement showing up as an email surviving a withdrawal.
+    """
     tenant, _, _rest = key.partition(":")
     return f"{tenant}:[withdrawn]" if tenant else "[withdrawn]"
 

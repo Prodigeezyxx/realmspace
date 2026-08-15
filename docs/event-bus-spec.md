@@ -418,6 +418,13 @@ what tells the CRM adapters to go and retract it. `reason` is
 `"consent_withdrawn" | "erasure_request"`; `dedupe_key` mirrors `handoff.lead`
 so a retried retraction cannot fire twice.
 
+*Added 2026-08-14:* the consumer is `consumers/crm_retract.py`, and
+`destination: "all"` now resolves to something — `crm_link` (migration 0008)
+records where each contact was actually pushed, so "all" means the destinations
+that received this one rather than every CRM in the world. A contact with no
+link produces no work and no dispatch: nothing was pushed, or a replay is
+finding it already undone.
+
 **This event carries PII** (`contact_id`), the only one of the Phase 3
 additions that does. §6 applies to it in full: it must never ride the anonymised
 cloud-sync path, and `dashboard/src/lib/contracts/events.ts` lists it in

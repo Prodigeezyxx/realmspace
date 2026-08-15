@@ -18,6 +18,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models import (
     ConsumerCursor,
+    CrmLink,
     DeadLetter,
     EventLog,
     Rule,
@@ -672,6 +673,117 @@ async def record_integration_check(
             last_check_at=func.now(),
             last_check_ok=ok,
             last_check_detail=detail[:2000],
+        )
+    )
+
+
+# ── crm links (migration 0008) ────────────────────────────────────────────────
+
+
+async def record_crm_link(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    provider: str,
+    contact_id: str,
+    external_id: str,
+    dedupe_key: str,
+    session_id: str,
+) -> CrmLink:
+    """Remember that this contact now exists in this CRM.
+
+    Upsert on `(tenant, provider, contact)`, because the two handoff stages of
+    one visitor both push the same person — the same claim the shared
+    `dedupe_key` makes at the CRM end, kept on this side too.
+
+    A re-push after a retraction clears `retracted_at`: the contact is in the
+    CRM again, and a row that still read "retracted" would tell the next
+    withdrawal there was nothing to undo.
+    """
+    values = {
+        "tenant_id": tenant_id,
+        "provider": provider,
+        "contact_id": contact_id,
+        "external_id": external_id,
+        "dedupe_key": dedupe_key,
+        "session_id": session_id,
+    }
+    stmt = (
+        pg_insert(CrmLink)
+        .values(**values)
+        .on_conflict_do_update(
+            index_elements=["tenant_id", "provider", "contact_id"],
+            set_={
+                "external_id": external_id,
+                "dedupe_key": dedupe_key,
+                "session_id": session_id,
+                "updated_at": func.now(),
+                "retracted_at": None,
+                "retract_detail": None,
+            },
+        )
+        .returning(CrmLink)
+    )
+    return (await session.execute(stmt)).scalar_one()
+
+
+async def links_for_contact(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    contact_id: str,
+    provider: str | None = None,
+    include_retracted: bool = False,
+) -> list[CrmLink]:
+    """Everywhere this contact was pushed.
+
+    `provider=None` is `crm.retract`'s `destination: "all"` — every destination
+    that actually received something, which is the question that event could not
+    answer until this table existed.
+
+    Retracted links are excluded by default: a replayed withdrawal should find
+    nothing left to do rather than call a CRM again for a record it already
+    removed.
+    """
+    stmt = select(CrmLink).where(
+        CrmLink.tenant_id == tenant_id, CrmLink.contact_id == contact_id
+    )
+    if provider is not None:
+        stmt = stmt.where(CrmLink.provider == provider)
+    if not include_retracted:
+        stmt = stmt.where(CrmLink.retracted_at.is_(None))
+    return list((await session.execute(stmt.order_by(CrmLink.provider))).scalars().all())
+
+
+async def get_crm_link(session: AsyncSession, *, link_id: int) -> CrmLink | None:
+    """One link by id, re-read inside the session that will act on it.
+
+    The retract consumer lists links in one session and claims in another, and
+    a concurrent attempt can retract a row in between. Re-reading is what keeps
+    it from calling a CRM about a record it has already removed.
+    """
+    return (
+        await session.execute(select(CrmLink).where(CrmLink.id == link_id))
+    ).scalar_one_or_none()
+
+
+async def mark_link_retracted(
+    session: AsyncSession, *, link_id: int, dedupe_key: str, detail: str
+) -> None:
+    """Close a link and take the person's name out of it.
+
+    `dedupe_key` arrives already redacted — this module does not decide what
+    redaction means, `attribution/ledger.py` does, and there is exactly one
+    definition of it.
+    """
+    await session.execute(
+        update(CrmLink)
+        .where(CrmLink.id == link_id)
+        .values(
+            retracted_at=func.now(),
+            retract_detail=detail[:2000],
+            dedupe_key=dedupe_key,
+            updated_at=func.now(),
         )
     )
 

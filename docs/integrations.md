@@ -148,7 +148,19 @@ the secret back.
 
 ## 4. Tier 1 adapters (build order, by market share + client demand)
 
-1. **HubSpot** — easiest API, common in mid-market; first adapter (reference impl).
+1. **HubSpot** — easiest API, common in mid-market; first adapter (reference
+   impl). ✅ *built 2026-08-14* — `backend/app/crm/hubspot.py`. Upsert is
+   HubSpot's own `POST /crm/objects/{version}/contacts/batch/upsert` with
+   `idProperty: "email"`, not a search-then-create: two handoff stages in flight
+   together would both search, both miss and both create, which is the
+   duplication §2 warns about with extra steps. The API version is pinned rather
+   than tracking "latest", for the reason `lead_score_basis` carries a version —
+   a client's CRM outlives our assumptions about the API that wrote into it.
+   **Retract is HubSpot's delete, which is a recycling bin restorable for 90
+   days.** That is a removal, not an erasure, and the dispatch row says which; a
+   true erasure needs account-level GDPR features this adapter does not assume,
+   and belongs with the erasure job where the same question has to be answered
+   for every destination at once.
 2. **Salesforce** — enterprise default; highest ASP deals need it.
 3. **Pipedrive** — SMB/agency favourite.
 4. **Zoho CRM** — strong in our SAM (Africa + emerging markets).

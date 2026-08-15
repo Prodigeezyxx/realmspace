@@ -330,9 +330,28 @@ consumers, without touching Phase-1 producers.*
       registry in the shape `app/actions` uses. **No dashboard screen** — the
       field-mapping editor is a screen of its own and the half that only holds a
       secret would invite the other half to be improvised. *(2026-08-14)*
-- 🔲 **CRM adapters** in order: HubSpot → Salesforce → Pipedrive → Zoho →
-      Dynamics; each idempotent, retract-capable. *No longer blocked — the
-      credential store above is what they were waiting for.*
+- ✅ **HubSpot**, the reference adapter (`integrations.md` §4, open decision 3).
+      `consumers/crm_delivery.py` sends every `handoff.lead` to each CRM the
+      tenant has connected, claiming under `crm:{provider}` so one lead can go
+      to several places and each is claimed, retried and stranded on its own.
+      The upsert is HubSpot's own `batch/upsert` with `idProperty: email` — a
+      search-then-create has a race the floor would find, and
+      `integrations.md` §2 says what that costs. A handoff with no email is
+      **declined, not invented**, and closes its claim rather than stranding a
+      row no human could resolve. `crm.retract` finally has the reader
+      `event-bus-spec.md` §3 always said it had (`consumers/crm_retract.py`):
+      it resolves `destination: "all"` through `crm_link` (migration 0008) into
+      the destinations that really received the contact, removes the record, and
+      redacts the link's `dedupe_key` with the ledger's own function — the row
+      stays and stops naming them. Retraction is retryable from `/ops` where
+      delivery is not, and it is **not metered**, because a client's unit
+      economics should not get worse the more withdrawals they honour. What
+      HubSpot's delete actually does — recycling bin, restorable for 90 days —
+      is what the dispatch row says it did; a true erasure belongs with the
+      erasure job below. *(2026-08-14)*
+- 🔲 **The rest of the Tier 1 adapters**: Salesforce → Pipedrive → Zoho →
+      Dynamics; each idempotent, retract-capable. No longer blocked, and each is
+      now a module plus a line in `app/crm/__init__.py`'s registry.
 - ✅ **Bring-your-own: signed webhook.** `consumers/handoff_delivery.py` POSTs
       the handoff to `settings.handoff_webhook_url`, signed with `sign()` from
       `app/actions/webhook.py` — the same function the rule action uses, as that

@@ -139,8 +139,8 @@ async def db_session() -> AsyncIterator[AsyncSession]:
         await cleaner.execute(
             text(
                 "TRUNCATE event_log, consumer_cursor, dead_letter, "
-                "rules, rule_dispatch, tenant_integration, auth_user, api_key "
-                "RESTART IDENTITY;"
+                "rules, rule_dispatch, tenant_integration, crm_link, "
+                "auth_user, api_key RESTART IDENTITY;"
             )
         )
         await cleaner.commit()

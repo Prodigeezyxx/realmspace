@@ -74,3 +74,9 @@ __all__ = [
     "register",
     "registry",
 ]
+
+# Imported for its side effect: each adapter module registers itself with the
+# decorator above, and a registry that only fills up once somebody imports the
+# right module is a registry that is empty in exactly the process that needed
+# it. At the foot of the file because the adapters import `register` from here.
+from app.crm import hubspot as _hubspot  # noqa: E402,F401  isort:skip

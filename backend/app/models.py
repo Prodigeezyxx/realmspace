@@ -16,9 +16,11 @@ Phase 3 adds two more, which are configuration rather than log:
   rules            the rule documents of ADR-002, one row per document
   rule_dispatch    the idempotency key for carrying out a rule's action
 
-Phase 4 adds one, which is neither — it is a secret:
+Phase 4 adds two, which are neither — one is a secret and one is a receipt:
 
   tenant_integration   what this tenant authenticates to a CRM as
+  crm_link             where a contact was actually pushed, so a withdrawal
+                       knows which destinations to go and undo
 """
 
 from __future__ import annotations
@@ -312,3 +314,54 @@ class TenantIntegration(Base):
     revoked_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class CrmLink(Base):
+    """One contact, as one CRM knows it. Added in migration 0008.
+
+    `consumers/reanonymise.py` emits `crm.retract` with `destination: "all"`
+    because nothing recorded where a handoff actually went. This is that record,
+    and it is what resolves "all" into the destinations that received something.
+
+    It cannot live on the graph Contact: a withdrawal redacts the Contact, so a
+    note stored there would be erased moments before the retract consumer needed
+    to read it. Where we sent somebody has to outlive who they were.
+
+    `dedupe_key` is PII (`tenant:email`) and is redacted when the retraction
+    succeeds — by `attribution.ledger.redact_dedupe_key`, the same function the
+    ledger uses, because two redactions are two chances to disagree about which
+    half of the key names a person. `external_id` survives: it is the CRM's
+    identifier for a record we asked the CRM to remove, and an audit that cannot
+    name the record cannot check that it went.
+    """
+
+    __tablename__ = "crm_link"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "provider",
+            "contact_id",
+            name="crm_link_tenant_id_provider_contact_id_key",
+        ),
+        Index("crm_link_tenant_contact_idx", "tenant_id", "contact_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Ours — the Contact the re-anonymiser names in `crm.retract`.
+    contact_id: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Theirs — what `retract()` is called with.
+    external_id: Mapped[str] = mapped_column(Text, nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(Text, nullable=False)
+    session_id: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    retracted_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    retract_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
