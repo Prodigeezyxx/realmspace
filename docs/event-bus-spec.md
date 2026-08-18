@@ -549,9 +549,12 @@ money twice.
 **Off unless the operator turned it on** (`anonymous_handoffs` on the session
 config), which is the opposite of every other setting there. A busy day is several
 hundred of them and they reach the same destinations an identified lead does.
-`consumers/crm_delivery.py` skips them without claiming a dispatch — the claim
-exists to make an outbound call happen exactly once, and no CRM has anything to
-receive.
+They reach the log, the deployment webhook, the pull API and any bring-your-own
+hook the tenant has connected — not the CRMs. `consumers/crm_delivery.py` offers
+one only to destinations whose adapter declares `capabilities()["anonymous"]`,
+which a hook does and a CRM does not: there is no record to create for somebody
+who was never named, and a claim per visitor per CRM recording that nothing was
+sent is noise `/ops` does not need.
 
 **`attention_score` is in seconds.** `integrations.md` §2 illustrated it as
 `0.82`, which reads as a ratio. `roi-framework.md` §2 defines dwell-weighted

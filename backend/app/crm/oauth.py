@@ -20,7 +20,9 @@ exchange for saving one HTTP round trip per lead.
 
 `expires_in` is honoured with a margin because a token that expires between our
 check and the CRM's is a 401 on a lead, and the retry it causes costs far more
-than refreshing a minute early.
+than refreshing a minute early. The margin only ever shortens the window: a
+token whose whole life is less than the margin is exchanged again on the next
+call rather than held past the moment it stops working.
 
 ## A refusal here is not retryable
 
@@ -103,7 +105,13 @@ class OAuthTokenMixin:
                 )
 
         self._token = str(token)
-        self._token_expires_at = now + max(lifetime - EXPIRY_MARGIN, EXPIRY_MARGIN)
+        # Refresh a margin early, but never cache *past* the lifetime we were
+        # given: `max(lifetime - MARGIN, MARGIN)` did the second thing, so a
+        # token good for 45s was held for 60 and the last 15 were guaranteed
+        # 401s. Clamped from above by the lifetime and from below by a floor, so
+        # a short token is simply not cached rather than cached too long.
+        usable = min(lifetime, max(lifetime - EXPIRY_MARGIN, dt.timedelta(0)))
+        self._token_expires_at = now + usable
         self._on_token(body or {})
         return self._token
 

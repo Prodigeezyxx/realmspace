@@ -316,3 +316,36 @@ async def test_an_activation_with_nothing_in_it_reads_as_empty_not_broken(
     assert body["rows"] == []
     assert body["totals"]["leads"] == 0
     assert body["truncated"] is False
+
+
+async def test_a_withdrawal_taken_at_another_activation_still_redacts_this_one(
+    client: AsyncClient, db_session: AsyncSession, graph_session: GraphSession
+):
+    """A Contact id is stable across activations; a withdrawal is filed under one.
+
+    So a visitor who attended two events and withdrew at the second has that
+    withdrawal recorded against the second session alone. The first activation's
+    ledger has to honour it anyway — reading withdrawals scoped to the session
+    being reported would print the name of the one person who had explicitly
+    asked that it not be.
+    """
+    await seed_session(graph_session)
+    await seed_handoff(db_session)
+
+    await client.post(
+        "/v1/consent/withdraw",
+        json={
+            # Somewhere else entirely, months later.
+            "sessionId": "s_a_later_activation",
+            "contactId": "ct_1",
+            "reason": "visitor_request",
+        },
+    )
+
+    row = (await client.get(f"/v1/ledger/{S}")).json()["rows"][0]
+
+    assert row["withdrawn"] is True
+    assert row["contact_email"] is None
+    assert row["contact_name"] is None
+    # The touch and its basis survive, as they do for any withdrawal.
+    assert row["consent_copy_version"] == "consent-en-2026-08"

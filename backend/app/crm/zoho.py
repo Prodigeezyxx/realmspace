@@ -64,6 +64,11 @@ DEFAULT_REGION = "com"
 #: Handoff contact fields that map onto stock Lead fields.
 STANDARD_FIELDS = {"title": "Designation"}
 
+#: Per-record codes that mean "there is no such record", which is a retraction
+#: that has nothing left to do rather than a retraction that failed. Zoho answers
+#: a delete for an id it does not have with one of these inside an HTTP 200.
+GONE_CODES = ("INVALID_DATA", "RESOURCE_NOT_FOUND")
+
 
 @register
 class ZohoAdapter(OAuthTokenMixin, CrmHttp, CrmAdapter):
@@ -157,9 +162,21 @@ class ZohoAdapter(OAuthTokenMixin, CrmHttp, CrmAdapter):
             body = await self._call(
                 "DELETE", f"/crm/{API_VERSION}/Leads/{external_id}"
             )
-            _first_record(body, action="delete")
+            if body is not None:
+                # An empty body is a delete that happened and said nothing.
+                # Zoho's own answer is a `data` array, so this is the tolerant
+                # reading of a proxy or a future version trimming a 204.
+                _first_record(body, action="delete")
         except AdapterError as exc:
-            if getattr(exc, "status", None) == 404:
+            if getattr(exc, "status", None) == 404 or getattr(
+                exc, "code", None
+            ) in GONE_CODES:
+                # Zoho reports a record that is not there in the body of an
+                # HTTP 200, not as a 404 — see `_first_record`. Without this the
+                # 404 arm never fires for Zoho and a replayed withdrawal, which
+                # `repository.links_for_contact` says "should find nothing left
+                # to do", instead retries to exhaustion and parks on `/ops`
+                # claiming a retraction failed that had already succeeded.
                 return f"lead {external_id} was already gone from zoho"
             raise
         return (
@@ -216,9 +233,14 @@ def _first_record(body: dict[str, Any] | None, *, action: str) -> dict[str, Any]
     record = records[0]
     code = record.get("code")
     if code and code != "SUCCESS":
-        raise AdapterError(
+        error = AdapterError(
             f"zoho refused the {action} ({code}): {record.get('message')!r} "
             f"{record.get('details') or {}}",
             retryable=code not in ("INVALID_DATA", "MANDATORY_NOT_FOUND", "DUPLICATE_DATA"),
         )
+        # Carried the way `CrmHttp._error` carries `status`, and for the same
+        # reason: `retract` has to tell "no such record" from "refused", and the
+        # code is the only thing that says which on an HTTP 200.
+        error.code = code  # type: ignore[attr-defined]
+        raise error
     return record

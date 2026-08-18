@@ -17,7 +17,54 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-17
+## [Unreleased] — last updated 2026-08-18
+
+### Fixed — 2026-08-18 — `[neo4j-track]` seven review findings, four of them about identifiers that are not unique
+
+A review over the Phase 4 commits found seven. All seven were real, and the four
+serious ones are the same mistake made four ways: **an identifier treated as
+globally unique when it is not.**
+
+**An erasure could reach into somebody else's activation.** `app/erasure.py`
+refuses to hold a bare `anon_id`, because `P-012` at two events is two people —
+and then took the `dedupe_key`, which is `tenant:email` only when there *is* an
+email. Without one it is `tenant:P-012`, not session-scoped, identical for a
+stranger with the same track id elsewhere. Erasing ours walked their handoff,
+their track, their capture and their contact, redacted a name they had given us
+and deleted their Contact. The existing cross-session test missed it because its
+second visitor had an email. Keys are now taken only from a handoff that carried
+one, which is exactly when the key names a person rather than a track.
+
+**Erasing two people made them one lead.** The redacted key is one value per
+tenant, and that was safe while the collapse happened at read time, after the
+ledger had grouped rows. The erasure writes it into the log, so two erased
+visitors merged onto one row — undercounting leads, keeping one of their contact
+ids, and totalling both their outcomes as one person's revenue. The rewritten key
+now carries a discriminator, chosen per erasure so that a person's handoffs and
+their outcomes still meet.
+
+**Withdrawn people could be exported by name.** The pull API read withdrawals with
+`limit=1000` — which *is* the cap — from seq 0, so it got the oldest thousand and
+dropped the rest. The dropped ones are the recent ones: the people most likely to
+be in the page being exported. And it filtered them by the caller's `sessionId`,
+while a Contact id is stable across activations — so somebody who attended two
+events and withdrew at the second was un-redacted in the first. Both fixed, and
+the session-scoping half was fixed in the ledger too, where it had been since
+before this branch and would have printed the name on a CFO-facing page.
+
+**The anonymous-handoff flag delivered to nothing a client had configured.** The
+delivery consumer skipped any handoff with no contact before claiming, which kept
+several hundred pointless rows a day off `/ops` and also meant an operator who
+turned the flag on and connected a Zap hook got silence. Destinations decide now:
+a CRM declines — there is no record to create for somebody who was never named —
+and a bring-your-own hook accepts, because its receiver is counting reach.
+
+Two smaller ones. Zoho reports a record it cannot find inside an HTTP 200, so the
+`404` arm never fired and a replayed withdrawal for an already-deleted lead
+retried to exhaustion and parked claiming a failure that had succeeded. And the
+OAuth refresh margin used `max(lifetime - margin, margin)`, which for any token
+under two minutes cached it *past* its own expiry.
+
 
 ### Added — 2026-08-17 — `[neo4j-track]` Phase 4 finished: four more CRMs, the leads nobody named, and erasure
 

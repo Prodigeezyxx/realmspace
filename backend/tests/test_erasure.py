@@ -186,6 +186,52 @@ def test_a_track_id_is_only_meaningful_inside_its_session() -> None:
     )
 
 
+def test_a_dedupe_key_that_is_only_a_track_does_not_bridge_sessions() -> None:
+    """The session-scoping guard has to hold through `dedupe_key` too.
+
+    `consumers/attribution.py` builds the key as `tenant:email|anon_id`, so a
+    visitor with no email gets `tenant:P-012` — which is **not** session-scoped,
+    and is identical for a different person with the same track id at another
+    activation. Matching on it walks the closure straight into their session and
+    erases them: exactly what holding `(session_id, anon_id)` exists to prevent,
+    reached by the back door.
+    """
+    events = [
+        ("handoff.lead", "s1", {"anon_id": "P-012", "dedupe_key": "t:P-012"}),
+        # A different person, at a different activation, who happens to have been
+        # the twelfth track through the door there as well.
+        ("handoff.lead", "s2", {"anon_id": "P-012", "dedupe_key": "t:P-012"}),
+        (
+            "consent.captured",
+            "s2",
+            {"consent_id": "c_other", "anon_id": "P-012", "contact": {"email": "other@example.com"}},
+        ),
+    ]
+
+    subject = erasure_policy.resolve(
+        events, erasure_policy.Subject(tracks={("s1", "P-012")})
+    )
+
+    assert subject.tracks == {("s1", "P-012")}
+    assert subject.consent_ids == set()
+    assert subject.contact_ids == set()
+
+
+def test_an_erased_key_does_not_gather_up_everyone_already_erased() -> None:
+    """A replay re-reads rows whose key is already redacted, and that key is the
+    same for every erased person in the tenant."""
+    events = [
+        ("handoff.lead", "s1", {"anon_id": "P-1", "dedupe_key": "t:[withdrawn]"}),
+        ("handoff.lead", "s1", {"anon_id": "P-2", "dedupe_key": "t:[withdrawn]"}),
+    ]
+
+    subject = erasure_policy.resolve(
+        events, erasure_policy.Subject(tracks={("s1", "P-1")})
+    )
+
+    assert subject.tracks == {("s1", "P-1")}
+
+
 def test_the_subject_closes_over_the_log_from_whichever_end_it_starts() -> None:
     """A request names a consent, a contact or a track, and the chain runs both
     ways — the capture knows the consent and the track, the identification joins
@@ -193,7 +239,14 @@ def test_the_subject_closes_over_the_log_from_whichever_end_it_starts() -> None:
     events = [
         ("consent.captured", "s1", {"consent_id": "c1", "anon_id": "P-1"}),
         ("identity.resolved", "s1", {"anon_id": "P-1", "contact_id": "ct_1"}),
-        ("handoff.lead", "s1", {"contact": {"id": "ct_1"}, "dedupe_key": "t:sam@x"}),
+        # The email is on it because the key was built from it — a handoff keyed
+        # `t:sam@x` and carrying no email is not a shape the producer emits, and
+        # the key is only trusted when it came from one.
+        (
+            "handoff.lead",
+            "s1",
+            {"contact": {"id": "ct_1", "email": "sam@x"}, "dedupe_key": "t:sam@x"},
+        ),
         # A different person entirely, sharing nothing.
         ("consent.captured", "s1", {"consent_id": "c2", "anon_id": "P-2"}),
     ]
@@ -462,6 +515,135 @@ async def test_erasing_one_visitor_leaves_the_same_track_at_another_activation(
     remaining = json.dumps([row.payload for row in await raw_log(db_session)])
     assert EMAIL not in remaining
     assert "other@example.com" in remaining
+
+
+async def test_a_visitor_with_no_email_elsewhere_survives_an_erasure_here(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """The end-to-end version of the bridge, and the shape a review found.
+
+    The existing cross-session test gives its second visitor an email, so their
+    `dedupe_key` is `t:their-email` and there is nothing for the two to share.
+    The dangerous case is two visitors who **both** lack one: a badge scanned
+    with a name and no address is ordinary, and both their handoffs are keyed
+    `t:P-012`. The name in their capture is real PII, and erasing ours must not
+    take it.
+    """
+    other = "s_other_activation"
+
+    # Ours: consented, no email, so the handoff is keyed on the track.
+    await seed_activation(graph_session)
+    await seed_person_with_a_path(graph_session)
+    await consent(db_session, email=None)
+
+    # Theirs: another activation, the same track id, also no email — and a name
+    # they gave us, which is the thing that must survive.
+    await graph_repo.upsert_session(
+        graph_session, tenant_id=T, session_id=other, client="Acme"
+    )
+    await graph_repo.upsert_person(
+        graph_session,
+        tenant_id=T,
+        session_id=other,
+        anon_id="P-012",
+        first_seen=BASE.isoformat(),
+        last_seen=BASE.isoformat(),
+    )
+    for type, payload, at in (
+        (
+            "consent.captured",
+            {
+                "consent_id": "c_stranger",
+                "anon_id": "P-012",
+                "tier": "T2",
+                "basis": "explicit_optin",
+                "copy_version": "consent-en-2026-08",
+                "captured_by": "kiosk",
+                "source": "badge",
+                "captured_at": BASE.isoformat(),
+                "contact": {"name": "A Stranger", "company": "Northwind"},
+            },
+            BASE,
+        ),
+        ("session.ended", {"ended_by": "u_test"}, BASE + dt.timedelta(hours=1)),
+    ):
+        await repository.append_event(
+            db_session,
+            EventIn(
+                event_id=uuid.uuid4(),
+                tenant_id=T,
+                session_id=other,
+                type=type,
+                payload=payload,
+                occurred_at=at,
+            ),
+        )
+    await db_session.commit()
+    await end_the_session(db_session)
+    await run_chain()
+
+    # Both leads really are keyed the same — otherwise this test proves nothing.
+    keys = {
+        row.payload["dedupe_key"]
+        for row in await raw_log(db_session)
+        if row.type == "handoff.lead"
+    }
+    assert keys == {f"{T}:P-012"}
+
+    await request_erasure(db_session, consent_id="c_0001")
+    await run_chain()
+
+    stranger_capture = next(
+        row
+        for row in await raw_log(db_session)
+        if row.type == "consent.captured" and row.session_id == other
+    )
+    assert stranger_capture.redacted_at is None
+    assert stranger_capture.payload["contact"]["name"] == "A Stranger"
+
+    # And their Contact is still standing; only ours was erased.
+    result = await graph_session.run(
+        "MATCH (ct:Contact {tenant_id: $t}) RETURN count(ct) AS n", t=T
+    )
+    assert (await result.single())["n"] == 1
+
+
+async def test_two_erased_leads_stay_two_leads(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """Erasing a name must not merge the person with everybody else erased.
+
+    `redact_dedupe_key` returns one value per tenant, and the ledger groups rows
+    by that key. That was safe while the collapse happened at read time, after
+    grouping; the erasure writes it into the log, so two erased people would
+    become one row — undercounting leads, overwriting the contact id, and landing
+    both people's outcomes on a single row's revenue.
+    """
+    from app.attribution import ledger as ledger_builder
+
+    await seed_activation(graph_session)
+    for anon_id, consent_id, email in (
+        ("P-012", "c_0001", "sam@example.com"),
+        ("P-013", "c_0002", "alex@example.com"),
+    ):
+        await seed_person_with_a_path(graph_session, anon_id=anon_id)
+        await consent(db_session, anon_id=anon_id, consent_id=consent_id, email=email)
+    await end_the_session(db_session)
+    await run_chain()
+
+    for consent_id in ("c_0001", "c_0002"):
+        await request_erasure(db_session, consent_id=consent_id)
+        await run_chain()
+
+    handoffs = await repository.read_events(
+        db_session, tenant_id=T, session_id=S, type="handoff.lead", limit=20
+    )
+    assert "sam@example.com" not in json.dumps([h.payload for h in handoffs])
+
+    built = ledger_builder.build([h.payload for h in handoffs], [], [])
+    assert built["totals"]["leads"] == 2
+    assert len({row["contact_id"] for row in built["rows"]}) == 2
+    assert all(row["withdrawn"] for row in built["rows"])
 
 
 async def test_a_replayed_erasure_completes_quietly(

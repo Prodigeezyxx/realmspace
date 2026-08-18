@@ -82,8 +82,11 @@ The different consent story turns out to be no consent at all, and that is the
 point rather than a gap: there is no `contact`, no `consent` and nothing in the
 payload that names anybody, only the zones and dwells `privacy.md` has always had
 running with no consent. **Off unless the operator asks** (`anonymousHandoffs` on
-the session config) — a busy day is several hundred of them and they reach the
-same destinations an identified lead does. Pinned in `event-bus-spec.md` §3.
+the session config) — a busy day is several hundred of them. They go to the
+deployment webhook, the pull API and any bring-your-own hook the tenant has
+connected; the CRM adapters decline them, because there is no record to create
+for somebody who was never named. Which destination takes one is the adapter's
+own `capabilities()["anonymous"]`. Pinned in `event-bus-spec.md` §3.
 
 ### Where the two computed fields come from *(added 2026-08-13)*
 

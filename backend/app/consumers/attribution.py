@@ -51,9 +51,25 @@ used to say it needed: every person, not every contact. That is
 
 It is off unless the operator turned it on, which is the opposite of every other
 setting in a session config. A busy day is several hundred of these, each a lead
-object with nobody in it, and they go to the same destinations an identified lead
-does. A tenant who has not asked for aggregate reach in their own stack should
-not discover it arriving there.
+object with nobody in it, and a tenant who has not asked for aggregate reach
+should not discover several hundred of them on their log.
+
+**Where they go**, which is narrower than "the same destinations an identified
+lead does" — the sentence that stood here and was wrong. They reach the log, the
+deployment's own handoff webhook (`consumers/handoff_delivery.py`, the raw
+contract, which takes every handoff), the pull API, and **the bring-your-own
+hooks a tenant has connected** — but no CRM.
+
+The destinations decide, through `capabilities()["anonymous"]`. A CRM answers no,
+and not as a limitation: there is no record to create for somebody who was never
+named, and its `map` would decline one anyway. A Zapier or Make hook answers yes,
+because its receiver is counting reach rather than keeping contacts, and a client
+who turned this flag on and connected one asked for exactly that.
+
+The first version of this skipped every destination, which read as consistent and
+delivered the flag's whole output to nothing the tenant had configured. See
+`consumers/crm_delivery.py` for the claim-volume problem that produced it and how
+the capability answers both.
 
 The different consent story turns out to be no consent at all, and that is the
 point rather than a gap. There is no `contact`, no `consent` block and nothing

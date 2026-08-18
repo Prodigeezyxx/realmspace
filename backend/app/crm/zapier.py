@@ -105,6 +105,9 @@ class HookAdapter(CrmHttp, CrmAdapter):
             # the module docstring for what that does and does not guarantee.
             "retract": True,
             "activities": False,
+            # The one destination that can take an anonymous handoff. See the
+            # module docstring.
+            "anonymous": True,
         }
 
     # ── mapping ───────────────────────────────────────────────────────────────
@@ -114,14 +117,21 @@ class HookAdapter(CrmHttp, CrmAdapter):
 
         No field mapping and no declining for a missing email: a hook is not a
         CRM with mandatory columns, and the receiver knows what it wants better
-        than we do. What it does need is a contact id to key on, which is the one
-        thing a retraction later has to name.
+        than we do.
+
+        An **anonymous** handoff is taken too, and it is the reason this adapter
+        declares the capability. A CRM has nothing to do with a person who was
+        never named; a receiver counting reach has, and a client who turned the
+        flag on and connected a hook asked for exactly that. It is keyed on the
+        `anon_id` instead, which is all there is — and which is also why no
+        `crm_link` is written for one and why no retraction will ever name it.
+        There is nothing to retract: a person who was never identified never
+        had a record to remove.
         """
-        contact_id = (handoff.get("contact") or {}).get("id")
-        if not contact_id:
+        if not (handoff.get("contact") or {}).get("id") and not handoff.get("anon_id"):
             log.info(
-                "%s: handoff %s names no contact; nothing a retraction could "
-                "later refer to",
+                "%s: handoff %s names neither a contact nor a track; there is "
+                "nothing for a receiver to key on",
                 self.provider,
                 handoff.get("dedupe_key"),
             )
@@ -147,7 +157,10 @@ class HookAdapter(CrmHttp, CrmAdapter):
                 "X-Realmspace-Dedupe-Key": str(payload.get("dedupe_key", "")),
             },
         )
-        return str((payload.get("contact") or {})["id"])
+        # The contact where there is one, the track where there is not. Only the
+        # first is ever written to `crm_link`, which needs a contact id — so an
+        # anonymous handoff leaves no link and no retraction will look for one.
+        return str((payload.get("contact") or {}).get("id") or payload["anon_id"])
 
     async def retract(self, external_id: str) -> str:
         await self._post(

@@ -53,20 +53,31 @@ the old connection would address a record in an org we are no longer talking to.
 delivered with the reason in `detail`. Parking it would put a row on `/ops` that
 no human action could ever resolve: there is no email to add and nothing to retry.
 
-## A handoff that was never about a person is not claimed at all
+## An anonymous handoff is offered only to the destinations that can take one
 
 An anonymous handoff (`integrations.md` §2, no `contact` key) is different in
-kind from the case above, and treating them alike was the wrong instinct. Those
-are one per un-consented visitor at `session.ended`, so a busy day times two
-connected CRMs is a thousand `rule_dispatch` rows all saying the same thing about
-somebody no CRM was ever going to hear about. The claim exists to make an
-outbound call happen exactly once; there is no outbound call here.
+kind from the case above. Those are one per un-consented visitor at
+`session.ended`, so a busy day times two connected CRMs would be a thousand
+`rule_dispatch` rows all recording that nothing was sent about somebody no CRM
+was ever going to hear about.
 
-So it returns before claiming, and logs once for the event rather than once per
-destination. The distinction is the presence of the `contact` key, not whether
-the contact has an email — a handoff *about* somebody the adapter cannot key on
-still gets its row, which is what an operator needs to see when a capture surface
-starts dropping email addresses.
+The first version answered that by returning before claiming, for any handoff
+with no contact. A review found what that cost: the flag then delivered to
+nothing a client had configured — only to the deployment's own webhook — so an
+operator who turned it on and connected a Zap hook got silence and no row saying
+why.
+
+So the destinations decide instead. `capabilities()["anonymous"]` is False for
+every CRM, and not as a limitation — there is no record to create for somebody
+who was never named — and True for a bring-your-own hook, whose receiver is
+counting reach rather than keeping contacts. A tenant with HubSpot alone still
+writes no rows; a tenant with a hook gets one claim per anonymous handoff, which
+is what they asked for by turning the flag on.
+
+The test is the presence of the `contact` key, not whether the contact has an
+email: a handoff *about* somebody the adapter cannot key on still goes to every
+destination and is declined there with a reason, which is what an operator needs
+to see when a capture surface starts dropping email addresses.
 """
 
 from __future__ import annotations
@@ -99,14 +110,6 @@ class CrmDeliveryConsumer(Consumer):
     retryable = False
 
     async def handle(self, event: EventLog) -> None:
-        if "contact" not in event.payload:
-            log.debug(
-                "crm_delivery: %s is an anonymous handoff; no CRM destination "
-                "has anything to receive",
-                event.event_id,
-            )
-            return
-
         async with db.SessionLocal() as session:
             await db.scope_to_tenant(session, event.tenant_id)
             providers = [
@@ -115,6 +118,16 @@ class CrmDeliveryConsumer(Consumer):
                     session, tenant_id=event.tenant_id, active_only=True
                 )
             ]
+
+        if "contact" not in event.payload:
+            providers = [p for p in providers if _takes_anonymous(p)]
+            if not providers:
+                log.debug(
+                    "crm_delivery: %s is an anonymous handoff and no connected "
+                    "destination takes one",
+                    event.event_id,
+                )
+                return
 
         if not providers:
             log.debug(
@@ -259,3 +272,14 @@ class CrmDeliveryConsumer(Consumer):
                 },
             )
             await session.commit()
+
+
+def _takes_anonymous(provider: str) -> bool:
+    """Does this destination accept a handoff with nobody in it?
+
+    A provider with no adapter in this build answers False — the same direction
+    `crm.adapter_for` fails in, and the safe one: a lead nobody can deliver
+    should not first collect a claim saying somebody tried.
+    """
+    adapter = crm.registry.get(provider)
+    return bool(adapter and adapter.capabilities().get("anonymous"))

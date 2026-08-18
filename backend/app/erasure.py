@@ -39,6 +39,25 @@ Getting that wrong would be the worst bug this file could have: an erasure for
 one visitor silently redacting a different visitor's events at another activation,
 which is data loss that looks like compliance.
 
+And `dedupe_key` walks past that guard unless it is stopped here. A review found
+this after the first version shipped: `consumers/attribution.py` builds the key as
+`tenant:email|anon_id`, so a visitor with **no email** — every anonymous handoff,
+and any consented contact captured without one — gets `tenant:P-012`, which is
+not session-scoped and is identical for a different person with the same track id
+somewhere else. So a key is only taken from a handoff whose contact carries an
+email, which is exactly when it names a person rather than a track. Never from an
+`outcome.recorded`: its key was copied from a handoff, and taking it there would
+reintroduce the same hole through the one event type that cannot be checked.
+
+The people that excludes are not lost — they are covered by `(session, anon_id)`
+and by `contact.id`, which is what should have been carrying them. What is lost is
+an outcome recorded against a key that is only a track, and that key names nobody,
+so there was nothing in it to redact.
+
+It closes a second door too. A replayed erasure re-reads rows whose key is already
+`tenant:[withdrawn]` — one value for every erased person in the tenant — and the
+same test keeps that constant out of the set.
+
 ## What is kept, deliberately
 
 The consent record, the withdrawal, the retraction and the identification all
@@ -136,7 +155,11 @@ class Subject:
         contact = payload.get("contact") or {}
         if contact.get("id"):
             self.contact_ids.add(contact["id"])
-        if payload.get("dedupe_key"):
+        if type == HANDOFF and contact.get("email") and payload.get("dedupe_key"):
+            # Only from a handoff, and only when there was an email to build it
+            # from. See the module docstring — a key that is really a track id
+            # bridges two people who share one, and a redacted key is shared by
+            # everybody already erased.
             self.dedupe_keys.add(payload["dedupe_key"])
 
         return before != (
@@ -173,12 +196,20 @@ def resolve(
     return subject
 
 
-def redact(type: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+def redact(
+    type: str, payload: dict[str, Any], *, discriminator: str | None = None
+) -> dict[str, Any] | None:
     """The payload with the person taken out, or `None` if nothing had to change.
 
     `None` matters: it is what keeps `redacted_at` off the rows that were only
     ever ids and timestamps, so "what did this erasure touch" stays an honest
     answer rather than a list of everything it looked at.
+
+    `discriminator` is what keeps two erased visitors two visitors. It goes into
+    the rewritten `dedupe_key`, which `attribution.ledger.build` groups on — one
+    value per erasure, so this person's handoffs and this person's outcomes still
+    meet on one key and nobody else's join them there. `consumers/erasure.py`
+    supplies it; `redact_dedupe_key` has the whole argument.
     """
     if type not in PII_TYPES:
         return None
@@ -199,7 +230,7 @@ def redact(type: str, payload: dict[str, Any]) -> dict[str, Any] | None:
 
     key = redacted.get("dedupe_key")
     if isinstance(key, str) and key:
-        cleaned = redact_dedupe_key(key)
+        cleaned = redact_dedupe_key(key, discriminator=discriminator)
         if cleaned != key:
             changed = True
             redacted["dedupe_key"] = cleaned

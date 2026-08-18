@@ -117,15 +117,9 @@ async def list_handoffs(
         type=HANDOFF,
     )
 
-    withdrawals = await repository.read_events(
-        session,
-        tenant_id=principal.tenant_id,
-        limit=1000,
-        session_id=session_id,
-        type=WITHDRAWN,
-    )
+    withdrawals = await _every_withdrawal(session, tenant_id=principal.tenant_id)
     withdrawn_keys, withdrawn_contacts = withdrawn_subjects(
-        [w.payload for w in withdrawals], [r.payload for r in rows]
+        withdrawals, [r.payload for r in rows]
     )
 
     handoffs = [
@@ -152,6 +146,45 @@ async def list_handoffs(
         # client on a schedule should keep going rather than wait for tomorrow.
         "more": len(rows) == limit,
     }
+
+
+async def _every_withdrawal(session: AsyncSession, *, tenant_id: str) -> list[dict]:
+    """Every `consent.withdrawn` this tenant has, paged to the end.
+
+    Two things this deliberately does not do, both of which it did once and both
+    of which failed in the same direction — a withdrawn person's email going out
+    to a client's own systems.
+
+    **It does not stop at one page.** `repository.read_events` caps at
+    `MAX_LIMIT` and returns the *oldest* rows from the cursor, so a single read
+    hands back the first thousand withdrawals a tenant ever recorded and silently
+    drops the rest. The dropped ones are the recent ones — the people who withdrew
+    most recently are exactly the people most likely to still be in the page being
+    exported. `routers/ledger.py` meets the same cap and answers it with a
+    `truncated` flag, which is honest for a report and useless here: there is no
+    partially-correct redaction, so this reads to the end instead.
+
+    **It does not filter by session.** A withdrawal is filed under whichever
+    session recorded it (`WithdrawalIn.session_id` is required), while a Contact
+    id is stable across activations — so a visitor who attended two and withdrew
+    at the second has their withdrawal filed under the second alone. Scoping this
+    read to the caller's `sessionId` would leave the first activation's handoff
+    un-redacted for the one person who had asked, most explicitly, that it not be.
+    """
+    withdrawals: list[dict] = []
+    since = 0
+    while True:
+        page = await repository.read_events(
+            session,
+            tenant_id=tenant_id,
+            since_seq=since,
+            limit=repository.MAX_LIMIT,
+            type=WITHDRAWN,
+        )
+        withdrawals.extend(row.payload for row in page)
+        if len(page) < repository.MAX_LIMIT:
+            return withdrawals
+        since = page[-1].seq
 
 
 def _shape(row, *, withdrawn_keys: set[str], withdrawn_contacts: set[str]) -> dict:

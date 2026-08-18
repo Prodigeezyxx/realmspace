@@ -83,8 +83,17 @@ CSV_COLUMNS = [
 
 
 async def _payloads(
-    session: AsyncSession, *, tenant_id: str, session_id: str, type: str
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str | None,
+    type: str,
 ) -> tuple[list[dict], bool]:
+    """One event type for this ledger. `session_id=None` reads the tenant.
+
+    Everything the ledger *reports* is scoped to one activation. The withdrawals
+    that judge it are not, and cannot be — see the call site.
+    """
     rows = await repository.read_events(
         session,
         tenant_id=tenant_id,
@@ -126,8 +135,15 @@ async def get_ledger(
     outcomes, o_trunc = await _payloads(
         session, tenant_id=principal.tenant_id, session_id=session_id, type=OUTCOME
     )
+    # Tenant-wide, deliberately, while the two above are scoped to the
+    # activation. A withdrawal is filed under whichever session recorded it —
+    # `WithdrawalIn.session_id` is required — but a Contact id is stable across
+    # activations by design, so a visitor who attended two and withdrew at the
+    # second has that withdrawal filed under the second alone. Scoping this read
+    # the way the others are scoped would print the first activation's ledger
+    # with the name of the one person who had explicitly asked that it not be.
     withdrawals, w_trunc = await _payloads(
-        session, tenant_id=principal.tenant_id, session_id=session_id, type=WITHDRAWN
+        session, tenant_id=principal.tenant_id, session_id=None, type=WITHDRAWN
     )
 
     built = ledger_builder.build(

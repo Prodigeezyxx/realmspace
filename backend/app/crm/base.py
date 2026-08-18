@@ -247,4 +247,16 @@ class CrmAdapter(ABC):
         direction — an adapter that forgets to declare `retract` gets a UI with
         the button hidden, not a withdrawal that silently does nothing.
         """
-        return {"custom_fields": False, "retract": False, "activities": False}
+        return {
+            "custom_fields": False,
+            "retract": False,
+            "activities": False,
+            # Can this destination take a handoff with no `contact` at all —
+            # `integrations.md` §2's anonymous handoff? False for every CRM, and
+            # not as a limitation: there is no record to create for somebody who
+            # was never named, and `map` would decline it anyway. True for a
+            # bring-your-own hook, whose receiver is counting reach rather than
+            # keeping contacts. `consumers/crm_delivery.py` reads it to decide
+            # which destinations an anonymous handoff is even offered to.
+            "anonymous": False,
+        }

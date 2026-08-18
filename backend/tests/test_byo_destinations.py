@@ -38,7 +38,8 @@ from app.consumers.identity import IdentityConsumer
 from app.consumers.reanonymise import ReAnonymiseConsumer
 from app.crm import zapier
 from app.crm.base import AdapterError
-from app.models import CrmLink
+from app.graph import repository as graph_repo
+from app.models import CrmLink, RuleDispatch
 from app.schemas import EventIn
 from tests.crm_transport import stub_transport
 from tests.test_handoff import (
@@ -106,6 +107,20 @@ async def connected(db_session: AsyncSession, encryption_key: str) -> None:
         provider="zapier",
         secret_ct=secrets.encrypt(HOOK, tenant_id=T, provider="zapier"),
         secret_hint="def/",
+        field_map={},
+    )
+    await db_session.commit()
+
+
+@pytest.fixture
+async def hubspot_only(db_session: AsyncSession, encryption_key: str) -> None:
+    """A tenant with a CRM and no hook — the other half of the capability test."""
+    await repository.upsert_integration(
+        db_session,
+        tenant_id=T,
+        provider="hubspot",
+        secret_ct=secrets.encrypt("pat-na1-token", tenant_id=T, provider="hubspot"),
+        secret_hint="oken",
         field_map={},
     )
     await db_session.commit()
@@ -376,3 +391,142 @@ async def test_the_csv_is_one_row_per_handoff(
     assert len(lines) == 3  # header + identified + final
     assert EMAIL in response.text
     assert "Entry > Pod" in response.text
+
+
+async def test_an_anonymous_handoff_reaches_the_hook_and_no_crm(
+    connected: None,
+    hook: FakeHook,
+    db_session: AsyncSession,
+    graph_session: GraphSession,
+) -> None:
+    """The point of the `anonymousHandoffs` flag, from the client's side.
+
+    A review found that the first version delivered these to nothing a tenant had
+    configured — `crm_delivery` returned before claiming for any handoff with no
+    contact — so an operator who turned the flag on and connected a Zap hook got
+    silence and no `/ops` row saying why. Destinations declare whether they take
+    one instead: a hook does, a CRM does not, and a CRM's abstention is not a
+    limitation but the absence of anything to create.
+    """
+    await seed_activation(graph_session)
+    await graph_repo.upsert_session(
+        graph_session,
+        tenant_id=T,
+        session_id=S,
+        client="Acme",
+        anonymous_handoffs=True,
+    )
+    await seed_person_with_a_path(graph_session, anon_id="P-777")
+    await end_the_session(db_session)
+    await run_chain()
+
+    delivered = [b for b in hook.bodies if b.get("action") != "healthcheck"]
+    assert len(delivered) == 1
+    assert delivered[0]["anon_id"] == "P-777"
+    assert "contact" not in delivered[0]
+    assert delivered[0]["spatial_intent"]["zones_visited"] == ["Entry", "Pod"]
+
+    # Claimed like any other delivery, so a hook that is down strands it on /ops.
+    claims = (
+        await db_session.execute(
+            select(RuleDispatch).where(RuleDispatch.action_type == "crm:zapier")
+        )
+    ).scalars().all()
+    assert [c.status for c in claims] == ["delivered"]
+
+    # And no `crm_link`: there is no contact, so there is nothing a retraction
+    # could ever name.
+    links = (
+        await db_session.execute(select(CrmLink).where(CrmLink.provider == "zapier"))
+    ).scalars().all()
+    assert links == []
+
+
+async def test_a_crm_is_offered_no_anonymous_handoff_at_all(
+    hubspot_only: None,
+    db_session: AsyncSession,
+    graph_session: GraphSession,
+) -> None:
+    """A tenant with only a CRM connected writes no dispatch rows for them.
+
+    Several hundred rows a day recording that nothing was sent about somebody no
+    CRM was going to hear about is the noise the capability check exists to keep
+    off `/ops`.
+    """
+    await seed_activation(graph_session)
+    await graph_repo.upsert_session(
+        graph_session,
+        tenant_id=T,
+        session_id=S,
+        client="Acme",
+        anonymous_handoffs=True,
+    )
+    await seed_person_with_a_path(graph_session, anon_id="P-777")
+    await end_the_session(db_session)
+    await run_chain()
+
+    claims = (
+        await db_session.execute(select(RuleDispatch).where(RuleDispatch.kind == "handoff"))
+    ).scalars().all()
+    assert claims == []
+
+
+async def test_a_withdrawal_past_the_first_page_still_redacts(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """`read_events` caps at MAX_LIMIT and returns the *oldest* rows from the
+    cursor, so a single read hands back the first thousand withdrawals a tenant
+    ever recorded and drops the rest.
+
+    The dropped ones are the recent ones — the people most likely to still be in
+    the page being exported. Reading one page would send their name to a client's
+    own systems, which is the one thing this endpoint must not do.
+
+    A thousand withdrawals is slow to seed honestly, so the page size is lowered
+    for the test rather than the volume raised: what is being proved is that the
+    read does not stop at a page boundary.
+    """
+    from app import repository as repo
+    from app.routers import handoffs as handoffs_router
+
+    await seed_two_leads(db_session, graph_session)
+
+    # Two pages' worth at the reduced size, with the one that matters last.
+    for index in range(3):
+        await repository.append_event(
+            db_session,
+            EventIn(
+                event_id=uuid.uuid4(),
+                tenant_id=T,
+                session_id=S,
+                type="consent.withdrawn",
+                payload={"consent_id": f"c_noise_{index}", "reason": "visitor_request"},
+                occurred_at=BASE,
+            ),
+        )
+    await repository.append_event(
+        db_session,
+        EventIn(
+            event_id=uuid.uuid4(),
+            tenant_id=T,
+            session_id=S,
+            type="consent.withdrawn",
+            payload={"anon_id": "P-012", "reason": "visitor_request"},
+            occurred_at=BASE,
+        ),
+    )
+    await db_session.commit()
+
+    original = repo.MAX_LIMIT
+    try:
+        handoffs_router.repository.MAX_LIMIT = 2
+        client = await _client(db_session)
+        async with client:
+            body = (await client.get("/v1/handoffs")).json()
+    finally:
+        handoffs_router.repository.MAX_LIMIT = original
+
+    assert body["count"] >= 1
+    for entry in body["handoffs"]:
+        assert entry["withdrawn"] is True
+        assert EMAIL not in json.dumps(entry)

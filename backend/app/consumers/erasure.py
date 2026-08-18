@@ -184,6 +184,7 @@ class ErasureConsumer(Consumer):
         """Rewrite the payloads that name this person. Returns how many."""
         at = dt.datetime.now(dt.timezone.utc)
         count = 0
+        discriminator = _discriminator(event, subject)
 
         async with db.SessionLocal() as session:
             await db.scope_to_tenant(session, event.tenant_id)
@@ -192,7 +193,9 @@ class ErasureConsumer(Consumer):
                     type=row.type, session_id=row.session_id, payload=row.payload
                 ):
                     continue
-                cleaned = erasure.redact(row.type, row.payload)
+                cleaned = erasure.redact(
+                    row.type, row.payload, discriminator=discriminator
+                )
                 if cleaned is None:
                     # Already redacted, or an event of a type that never carried
                     # a name. Both leave `redacted_at` unset, which keeps "what
@@ -247,3 +250,22 @@ class ErasureConsumer(Consumer):
                 ),
             )
             await session.commit()
+
+
+def _discriminator(event: EventLog, subject: erasure.Subject) -> str:
+    """One stable, anonymous value per erasure, for the rewritten dedupe keys.
+
+    Without it every erased person in a tenant ends up under the single key
+    `tenant:[withdrawn]`, and `attribution.ledger.build` groups on that key — so
+    two people erased from one activation would come back as one ledger row with
+    one of their contact ids and both of their outcomes. `redact_dedupe_key` has
+    the full argument.
+
+    The contact id first, because it is already on the log — `erasure.CONTACT_PII`
+    keeps it deliberately — and it names nobody on its own. Sorted, so a subject
+    that resolved to more than one contact still picks the same one every time.
+    The request's own event id stands in for a subject that never had a contact,
+    and it is derived rather than random (`routers/erasure.py`), so a replay
+    rewrites the same rows to the same values instead of a second set.
+    """
+    return sorted(subject.contact_ids)[0] if subject.contact_ids else str(event.event_id)

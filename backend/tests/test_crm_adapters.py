@@ -838,3 +838,45 @@ async def test_the_access_token_is_fetched_once_per_lead(fake_cls) -> None:
         await adapter.retract(fake.record_id)
 
     assert len(fake.token_calls) == 1
+
+
+async def test_zoho_treats_a_record_it_cannot_find_as_already_gone() -> None:
+    """Zoho reports a missing record in the body of an HTTP 200, not as a 404.
+
+    So the `status == 404` arm every other adapter relies on never fires here,
+    and a replayed withdrawal for a lead already deleted would retry to
+    exhaustion and park on `/ops` claiming a retraction failed that had in fact
+    already succeeded — against what `repository.links_for_contact` says a
+    replayed withdrawal should find.
+    """
+    fake = FakeZoho()
+    fake.record_code = "RESOURCE_NOT_FOUND"
+    adapter = zoho.ZohoAdapter.for_tenant(secret=fake.secret, field_map={})
+
+    with pytest.MonkeyPatch.context() as mp:
+        stub_transport(mp, fake.handle)
+        detail = await adapter.retract(fake.record_id)
+
+    assert "already gone" in detail
+
+
+async def test_a_short_lived_token_is_not_cached_past_its_life() -> None:
+    """The margin exists to refresh *early*; it must never extend the window.
+
+    `max(lifetime - margin, margin)` did the second thing, so a token good for
+    45 seconds was held for 60 and the last 15 were guaranteed 401s on a lead.
+    """
+    fake = FakeZoho()
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/oauth/v2/token"):
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 45})
+        return fake.handle(request)
+
+    adapter = zoho.ZohoAdapter.for_tenant(secret=fake.secret, field_map={})
+    with pytest.MonkeyPatch.context() as mp:
+        stub_transport(mp, handle)
+        await adapter._access_token()
+
+    now = dt.datetime.now(dt.timezone.utc)
+    assert adapter._token_expires_at <= now + dt.timedelta(seconds=45)

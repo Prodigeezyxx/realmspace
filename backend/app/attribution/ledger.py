@@ -316,11 +316,18 @@ def is_redacted_key(key: str | None) -> bool:
     whose key no longer names anybody is a lead whose consent ended, whatever
     identifier the request happened to use, and a ledger row that showed a
     missing name beside "not withdrawn" would be describing a contradiction.
+
+    Matched on the marker leading the key's second half rather than on the whole
+    of it, because a key written into the log carries a discriminator after the
+    marker — see `redact_dedupe_key`.
     """
-    return bool(key) and key.endswith(REDACTED_SUFFIX)
+    if not key:
+        return False
+    _tenant, separator, rest = key.partition(":")
+    return (rest if separator else key).startswith(REDACTED_SUFFIX)
 
 
-def redact_dedupe_key(key: str) -> str:
+def redact_dedupe_key(key: str, *, discriminator: str | None = None) -> str:
     """The dedupe key embeds an email. Keep the tenant half so rows stay
     joinable to what an adapter was told, drop the half that names a person.
 
@@ -328,9 +335,29 @@ def redact_dedupe_key(key: str) -> str:
     `crm_link` rows carry the same key and have to lose the same half of it, and
     two redaction functions are two chances to disagree about which half that
     is — with the disagreement showing up as an email surviving a withdrawal.
+
+    ## `discriminator`, and the one caller that has to pass it
+
+    `tenant:[withdrawn]` is the same string for every erased person in a tenant,
+    which is harmless everywhere it is a value and wrong in the one place it is
+    an **identity**. `build` above groups handoffs with
+    `by_key.setdefault(key, ...)`, so once an erasure has written this into the
+    log itself — which `app/erasure.py` does, and which nothing did before
+    migration 0009 — two people erased from one activation arrive as one row:
+    the lead count drops by one, `_absorb_handoff`'s last-write-wins picks one of
+    their contact ids, and both their outcomes land on whichever row won.
+
+    So the erasure job passes a stable value that names nobody, and its handoffs
+    and its outcomes stay one lead. The callers that only *display* a redacted
+    key — this module's own `_redact`, `routers/handoffs.py`, the `crm_link`
+    rewrite in `consumers/crm_retract.py` — pass nothing, because for them the
+    key is a value and the shortest honest one is right.
     """
+    marker = (
+        REDACTED_SUFFIX if not discriminator else f"{REDACTED_SUFFIX}#{discriminator}"
+    )
     tenant, _, _rest = key.partition(":")
-    return f"{tenant}:{REDACTED_SUFFIX}" if tenant else REDACTED_SUFFIX
+    return f"{tenant}:{marker}" if tenant else marker
 
 
 # ── window and model ──────────────────────────────────────────────────────────
