@@ -34,6 +34,7 @@ from app.routers import (
     dispatches,
     erasure,
     events,
+    handoffs,
     integrations,
     ledger,
     live,
@@ -143,6 +144,7 @@ app.include_router(sessions.router)
 app.include_router(consent.router)
 app.include_router(outcomes.router)
 app.include_router(erasure.router)
+app.include_router(handoffs.router)
 app.include_router(ledger.router)
 app.include_router(dead_letters.router)
 app.include_router(dispatches.router)

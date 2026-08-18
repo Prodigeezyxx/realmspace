@@ -97,7 +97,7 @@ def build(
     `outcome.recorded` and `consent.withdrawn` — in log order.
     """
     supported = attribution_model not in UNSUPPORTED_MODELS
-    withdrawn_keys, withdrawn_contacts = _withdrawn(withdrawals, handoffs)
+    withdrawn_keys, withdrawn_contacts = withdrawn_subjects(withdrawals, handoffs)
 
     by_key: dict[str, dict[str, Any]] = {}
     for handoff in handoffs:
@@ -245,7 +245,7 @@ def _outcome_row(outcome: dict[str, Any]) -> dict[str, Any]:
 # ── withdrawal ────────────────────────────────────────────────────────────────
 
 
-def _withdrawn(
+def withdrawn_subjects(
     withdrawals: list[dict[str, Any]], handoffs: list[dict[str, Any]]
 ) -> tuple[set[str], set[str]]:
     """Which leads have been withdrawn, by dedupe key and by contact id.
@@ -253,6 +253,12 @@ def _withdrawn(
     A withdrawal names whichever identifier the person had to hand — consent id,
     contact id or anon id — so the anon ids are resolved back to their leads
     through the handoffs, which carry both.
+
+    Public, and imported by `routers/handoffs.py` rather than copied, for the
+    reason `redact_dedupe_key` is: the pull API reads the same log this does and
+    has to reach the same verdict about who withdrew. Two implementations would
+    be two chances to disagree, and the disagreement shows up as a withdrawn
+    lead going out to a client's own systems.
     """
     contacts: set[str] = set()
     keys: set[str] = set()

@@ -67,6 +67,7 @@ class CrmHttp:
         *,
         json: dict[str, Any] | list[Any] | None = None,
         data: dict[str, Any] | None = None,
+        content: bytes | None = None,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         base_url: str | None = None,
@@ -80,7 +81,9 @@ class CrmHttp:
         body would have sent them back to writing their own client.
 
         `data` is form-encoded rather than JSON, which is what every OAuth token
-        endpoint here takes. Failures raise (`base.py`: the consumer owns retry)
+        endpoint here takes. `content` is exact bytes, for the one caller whose
+        body is covered by a signature — a second serialisation with different
+        separators or key order produces a body the receiver cannot verify. Failures raise (`base.py`: the consumer owns retry)
         and never return a status for a caller to inspect and forget to check.
         """
         settings = get_settings()
@@ -98,6 +101,7 @@ class CrmHttp:
                     path,
                     json=json,
                     data=data,
+                    content=content,
                     params=params,
                     headers=request_headers,
                 )

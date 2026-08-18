@@ -105,3 +105,9 @@ from app.crm import salesforce as _salesforce  # noqa: E402,F401  isort:skip
 from app.crm import pipedrive as _pipedrive  # noqa: E402,F401  isort:skip
 from app.crm import zoho as _zoho  # noqa: E402,F401  isort:skip
 from app.crm import dynamics as _dynamics  # noqa: E402,F401  isort:skip
+
+# Not CRMs. `integrations.md` §5's bring-your-own hooks, which need a per-tenant
+# credential, a claim, a retry and a row on `/ops` and nothing else — so they are
+# destinations in this registry rather than a parallel path with its own idea of
+# what a stuck delivery looks like.
+from app.crm import zapier as _zapier  # noqa: E402,F401  isort:skip
