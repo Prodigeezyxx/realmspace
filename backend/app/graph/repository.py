@@ -1164,6 +1164,70 @@ async def withdraw_consent(
     return (await result.single()) is not None
 
 
+async def contacts_awaiting_withdrawal(
+    session: AsyncSession, *, tenant_id: str, contact_ids: list[str]
+) -> list[str]:
+    """Of these contacts, the ones the withdrawal has not been carried out on.
+
+    The erasure consumer refuses to run while this is non-empty, and the reason
+    is an ordering hazard rather than tidiness. `consumers/reanonymise.py` is
+    what emits `crm.retract`, and it builds that list by reading the
+    `IDENTIFIED_AS` edge. An erasure that deleted the Contact first would leave
+    the re-anonymiser with nothing to find, no `crm.retract` would ever be
+    emitted, and the copy already sitting in the client's CRM would stay there —
+    an erasure that reported success and left the data where it mattered most.
+
+    "Not carried out" is either of two states: a live link, or a Contact that
+    still has its PII. The re-anonymiser sets `redacted_at` and drops the link in
+    one statement, so both clear together.
+    """
+    result = await session.run(
+        """
+        MATCH (ct:Contact {tenant_id: $tenant_id})
+        WHERE ct.id IN $contact_ids
+          AND (ct.redacted_at IS NULL OR (:Person)-[:IDENTIFIED_AS]->(ct))
+        RETURN ct.id AS id
+        """,
+        tenant_id=tenant_id,
+        contact_ids=contact_ids,
+    )
+    return [record["id"] async for record in result]
+
+
+async def erase_contact(
+    session: AsyncSession, *, tenant_id: str, contact_id: str
+) -> int:
+    """Delete a Contact outright. Returns 1 if there was one, 0 if not.
+
+    Where the withdrawal leaves a tombstone, the erasure removes the node. The
+    tombstone exists so an id in an already-pushed CRM record resolves to
+    something that says "retracted"; once the record has actually been retracted
+    and the request is Article 17 rather than a change of mind, there is nothing
+    left for it to answer.
+
+    `DETACH DELETE` takes the `GRANTED` edge with it and leaves the ConsentEvent
+    standing. That is the point: the consent, its tier, its basis, the copy the
+    person read and the timestamp they withdrew are the evidence this erasure was
+    lawful and asked for, and none of it names anybody. `reanonymise.py` makes
+    the same argument about keeping it through a withdrawal.
+
+    The Person, its zones and its dwells are not touched here either — they were
+    never consent-gated, and deleting them would rewrite reports already
+    delivered about somebody those reports never named.
+    """
+    result = await session.run(
+        """
+        MATCH (ct:Contact {tenant_id: $tenant_id, id: $contact_id})
+        DETACH DELETE ct
+        RETURN count(ct) AS erased
+        """,
+        tenant_id=tenant_id,
+        contact_id=contact_id,
+    )
+    record = await result.single()
+    return record["erased"] if record else 0
+
+
 async def delete_tenant(session: AsyncSession, *, tenant_id: str) -> int:
     """Delete every node for a tenant and its relationships. Returns node count.
 

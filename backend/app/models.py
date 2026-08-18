@@ -48,7 +48,15 @@ from app.db import Base
 class EventLog(Base):
     """One row per event. Nothing ever updates or deletes a row here — that is
     what "append-only" means, and it is why replay works: re-reading the table
-    in seq order reproduces exactly what happened."""
+    in seq order reproduces exactly what happened.
+
+    With exactly one exception, added in migration 0009: an erasure under GDPR
+    Article 17 rewrites the `payload` of the events naming its subject, and
+    stamps `redacted_at`. Nothing else is touched — no row is deleted, no
+    sequence number is reused — so a replay after an erasure reproduces the same
+    events in the same order with a name missing from three of them. See
+    `app/consumers/erasure.py`, which is the only writer that ever does this.
+    """
 
     __tablename__ = "event_log"
 
@@ -77,6 +85,10 @@ class EventLog(Base):
     # When the log accepted it. Differs from occurred_at after an offline replay.
     recorded_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    # Set only by an erasure (migration 0009). NULL on every other row, forever.
+    redacted_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     __table_args__ = (

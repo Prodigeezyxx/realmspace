@@ -105,6 +105,31 @@ async def read_events(
     return list(result.scalars().all())
 
 
+async def redact_event(
+    session: AsyncSession, *, seq: int, payload: dict, at: dt.datetime
+) -> None:
+    """Rewrite one event's payload and stamp it erased. The only UPDATE on this
+    table, anywhere.
+
+    `EventLog`'s docstring says nothing ever updates a row here, and that is the
+    design. GDPR Article 17 is the single thing that outranks it — see
+    `app/erasure.py` for what is removed and `app/consumers/erasure.py` for the
+    conditions under which it may happen at all.
+
+    `seq`, `event_id`, `type`, `occurred_at` and `recorded_at` are untouched, so
+    a replay after an erasure reproduces the same events in the same order with a
+    name missing from a few of them. `at` is passed rather than taken from the
+    clock because every row in one erasure should carry the same timestamp: the
+    question an auditor asks is "what did this request remove", and a spread of
+    timestamps across a long redaction makes that a range query for no reason.
+    """
+    await session.execute(
+        update(EventLog)
+        .where(EventLog.seq == seq)
+        .values(payload=payload, redacted_at=at)
+    )
+
+
 # ── consumer cursors ──────────────────────────────────────────────────────────
 #
 # event-bus-spec.md §4: a consumer "reads from its cursor, processes

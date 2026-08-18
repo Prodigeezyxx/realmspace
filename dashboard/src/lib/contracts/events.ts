@@ -54,6 +54,15 @@ export type RealmEventType =
   | "outcome.recorded"
   /** tell the CRM to undo a push after consent withdrawal — carries PII */
   | "crm.retract"
+  /**
+   * GDPR Art. 17. Its own namespace rather than a `consent.` type, because an
+   * erasure is not a consent decision: it outranks one, it is authorised by an
+   * admin rather than given by the visitor, and it is the only thing in the
+   * system that rewrites the append-only log.
+   */
+  | "erasure.requested"
+  /** the receipt: ids and counts, never what was removed */
+  | "erasure.completed"
   // ops
   | "cost.metered"
   /** the perception model's numbers moved against their baseline */
@@ -121,6 +130,13 @@ export const PII_EVENT_TYPES: readonly RealmEventType[] = [
    * path (event-bus-spec.md §6).
    */
   "crm.retract",
+  /**
+   * Names a contact, and names the person who asked. PII on both counts, and it
+   * is the request rather than the receipt — `erasure.completed` deliberately
+   * carries only ids and counts, because a receipt that quoted what it removed
+   * would put it straight back on the log it just rewrote.
+   */
+  "erasure.requested",
 ] as const;
 
 export function isPiiEventType(t: RealmEventType): boolean {

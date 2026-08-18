@@ -68,6 +68,12 @@ EVENT_NAMESPACES = (
     #: ledger; nothing in the repo had ever defined an outcome, which is why
     #: every attribution claim in the docs rested on a thing that did not exist.
     "outcome.",
+    #: erasure.requested / erasure.completed — GDPR Art. 17, the job
+    #: `consent-and-identity.md` §5 asks for. Its own namespace rather than a
+    #: `consent.` type, because an erasure is not a consent decision: it outranks
+    #: one, it is authorised by an admin rather than given by the visitor, and it
+    #: is the only thing in the system that rewrites the log.
+    "erasure.",
 )
 
 

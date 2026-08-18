@@ -32,6 +32,7 @@ from app.routers import (
     consumers,
     dead_letters,
     dispatches,
+    erasure,
     events,
     integrations,
     ledger,
@@ -141,6 +142,7 @@ app.include_router(live.router)
 app.include_router(sessions.router)
 app.include_router(consent.router)
 app.include_router(outcomes.router)
+app.include_router(erasure.router)
 app.include_router(ledger.router)
 app.include_router(dead_letters.router)
 app.include_router(dispatches.router)

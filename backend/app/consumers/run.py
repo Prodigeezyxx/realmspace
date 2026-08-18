@@ -24,6 +24,7 @@ from app.consumers.broadcast import BroadcastConsumer
 from app.consumers.crm_delivery import CrmDeliveryConsumer
 from app.consumers.crm_retract import CrmRetractConsumer
 from app.consumers.dispatch import DispatchConsumer
+from app.consumers.erasure import ErasureConsumer
 from app.consumers.graph_writer import GraphWriterConsumer
 from app.consumers.handoff_delivery import HandoffDeliveryConsumer
 from app.consumers.outcomes import OutcomesConsumer
@@ -67,6 +68,11 @@ CONSUMER_CLASSES: list[type[Consumer]] = [
     # undoes finds the link already there.
     CrmDeliveryConsumer,
     CrmRetractConsumer,
+    # After the retraction, and that order is a correctness condition rather
+    # than an optimisation: the erasure refuses to run until every crm_link is
+    # retracted, so ahead of it here it would spend a retry backoff on every
+    # request rather than completing in the same pass.
+    ErasureConsumer,
     # Off the ledger's critical path — the ledger reads the log. This keeps the
     # graph's queryable copy of "which deals came from this visitor" current.
     OutcomesConsumer,
