@@ -118,6 +118,9 @@ def build(
             # silently discarding it would hide it.
             orphan = _new_row(key or "")
             orphan["orphan"] = True
+            # An outcome names the dedupe key of a lead somebody sold to, so
+            # whatever else this row is, it is not an anonymous booth touch.
+            orphan["anonymous"] = False
             orphan["outcomes"].append(_outcome_row(outcome))
             by_key[key or f"__orphan_{len(by_key)}"] = orphan
 
@@ -170,6 +173,10 @@ def _new_row(dedupe_key: str) -> dict[str, Any]:
         "consent_captured_at": None,
         "withdrawn": False,
         "orphan": False,
+        #: True until a handoff carrying a `contact` says otherwise. An
+        #: anonymous handoff (`integrations.md` §2) is a booth touch with nobody
+        #: in it, and it must never be counted as a lead — see `_totals`.
+        "anonymous": True,
         "outcomes": [],
         "attributed_value": None,
         "currency": None,
@@ -188,6 +195,13 @@ def _absorb_handoff(row: dict[str, Any], handoff: dict[str, Any]) -> None:
     intent = handoff.get("spatial_intent") or {}
     consent = handoff.get("consent") or {}
     emitted = handoff.get("emitted_at")
+
+    if "contact" in handoff:
+        # One handoff naming somebody is enough for the whole row. The two can
+        # meet on one key: a consented visitor who gave no email is keyed on
+        # their anon id, which is the same key their anonymous handoff would
+        # carry if they later withdrew.
+        row["anonymous"] = False
 
     row["contact_id"] = contact.get("id") or row["contact_id"]
     row["contact_name"] = contact.get("name") or row["contact_name"]
@@ -330,7 +344,14 @@ def _totals(rows: list[dict[str, Any]], *, supported: bool) -> dict[str, Any]:
     currencies = {r["currency"] for r in influenced if r["currency"]}
 
     return {
-        "leads": sum(1 for r in rows if not r["orphan"]),
+        # Leads, not visitors. An anonymous handoff is a booth touch carrying
+        # spatial intent and nobody's name; counting it here would turn the one
+        # number a CFO reads off this page from "people who gave us their
+        # details" into "people who walked in", without the label changing.
+        "leads": sum(1 for r in rows if not r["orphan"] and not r["anonymous"]),
+        "anonymous_touches": sum(
+            1 for r in rows if not r["orphan"] and r["anonymous"]
+        ),
         "withdrawn": sum(1 for r in rows if r["withdrawn"]),
         "orphan_outcomes": sum(1 for r in rows if r["orphan"]),
         "outcomes": sum(len(r["outcomes"]) for r in rows),

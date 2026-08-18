@@ -48,13 +48,21 @@ export interface LedgerRow {
   withdrawn: boolean;
   /** An outcome naming a lead this activation never produced. */
   orphan: boolean;
+  /**
+   * A booth touch with nobody in it — an anonymous handoff, carrying the path
+   * and no contact. Never counted as a lead; see `anonymous_touches`.
+   */
+  anonymous: boolean;
   outcomes: LedgerOutcome[];
   attributed_value: number | null;
   currency: string | null;
 }
 
 export interface LedgerTotals {
+  /** People who gave us their details. Anonymous touches are counted apart. */
   leads: number;
+  /** Visitors measured but never named, when the operator asked for them. */
+  anonymous_touches: number;
   withdrawn: number;
   orphan_outcomes: number;
   outcomes: number;

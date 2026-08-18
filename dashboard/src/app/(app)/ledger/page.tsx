@@ -204,6 +204,16 @@ function OnePager({ ledger }: { ledger: Ledger }) {
           </p>
         )}
 
+        {ledger.totals.anonymous_touches > 0 && (
+          <p className="text-xs text-text-muted leading-relaxed">
+            {ledger.totals.anonymous_touches} rows here are anonymous touches —
+            visitors this activation measured and never named. They carry a path
+            and no contact, and they are deliberately not counted in the lead
+            figure above: that number is people who gave us their details, not
+            people who walked in.
+          </p>
+        )}
+
         {ledger.totals.withdrawn > 0 && (
           <p className="text-xs text-text-muted leading-relaxed">
             {ledger.totals.withdrawn} of these visitors withdrew consent. Their

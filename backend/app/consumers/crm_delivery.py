@@ -49,10 +49,24 @@ the old connection would address a record in an org we are no longer talking to.
 
 ## A handoff the adapter cannot key on is delivered-with-nothing, not failed
 
-`map()` returning `None` (an anonymous handoff, per `integrations.md` §2) closes
-the claim as delivered with the reason in `detail`. Parking it would put a row on
-`/ops` that no human action could ever resolve — there is no email to add and
-nothing to retry.
+`map()` returning `None` — a contact captured with no email — closes the claim as
+delivered with the reason in `detail`. Parking it would put a row on `/ops` that
+no human action could ever resolve: there is no email to add and nothing to retry.
+
+## A handoff that was never about a person is not claimed at all
+
+An anonymous handoff (`integrations.md` §2, no `contact` key) is different in
+kind from the case above, and treating them alike was the wrong instinct. Those
+are one per un-consented visitor at `session.ended`, so a busy day times two
+connected CRMs is a thousand `rule_dispatch` rows all saying the same thing about
+somebody no CRM was ever going to hear about. The claim exists to make an
+outbound call happen exactly once; there is no outbound call here.
+
+So it returns before claiming, and logs once for the event rather than once per
+destination. The distinction is the presence of the `contact` key, not whether
+the contact has an email — a handoff *about* somebody the adapter cannot key on
+still gets its row, which is what an operator needs to see when a capture surface
+starts dropping email addresses.
 """
 
 from __future__ import annotations
@@ -85,6 +99,14 @@ class CrmDeliveryConsumer(Consumer):
     retryable = False
 
     async def handle(self, event: EventLog) -> None:
+        if "contact" not in event.payload:
+            log.debug(
+                "crm_delivery: %s is an anonymous handoff; no CRM destination "
+                "has anything to receive",
+                event.event_id,
+            )
+            return
+
         async with db.SessionLocal() as session:
             await db.scope_to_tenant(session, event.tenant_id)
             providers = [

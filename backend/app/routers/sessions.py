@@ -96,6 +96,7 @@ def _config_out(
         attribution_window_days=props.get("attribution_window_days") or 90,
         revenue_influenced=props.get("revenue_influenced"),
         qualified_leads=props.get("qualified_leads"),
+        anonymous_handoffs=bool(props.get("anonymous_handoffs")),
         zones=[ZoneConfig(**z) for z in zones],
         touchpoints=[TouchpointOut(**s) for s in surfaces],
     )
@@ -145,6 +146,7 @@ async def put_session_config(
         attribution_window_days=config.attribution_window_days,
         revenue_influenced=config.revenue_influenced,
         qualified_leads=config.qualified_leads,
+        anonymous_handoffs=config.anonymous_handoffs,
     )
 
     if config.zones is not None:

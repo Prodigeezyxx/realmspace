@@ -288,6 +288,16 @@ class SessionConfigIn(BaseModel):
     revenue_influenced: float | None = Field(default=None, ge=0)
     qualified_leads: int | None = Field(default=None, ge=0)
 
+    #: Emit a `handoff.lead` for the visitors who never consented, carrying
+    #: spatial intent and no contact — `integrations.md` §2's anonymous handoff.
+    #:
+    #: **Off unless the operator asks for it**, which is the opposite of every
+    #: other flag here. A busy day is several hundred of them, each one a lead
+    #: object with nobody in it; a tenant who has not asked for aggregate reach
+    #: in their own stack should not find their destinations carrying it. Turned
+    #: on, it is one handoff per un-consented person at `session.ended`.
+    anonymous_handoffs: bool = False
+
     #: **Omitted leaves the zone set untouched; a list replaces it entirely**,
     #: including an empty one. The wizard always posts the whole set, so a zone
     #: the operator deleted has to disappear rather than linger and keep

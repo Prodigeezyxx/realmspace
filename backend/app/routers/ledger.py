@@ -56,6 +56,7 @@ CSV_COLUMNS = [
     "contact_name",
     "contact_email",
     "anon_id",
+    "anonymous",
     "withdrawn",
     "first_touch_at",
     "final_touch_at",

@@ -263,6 +263,7 @@ async def upsert_session(
     attribution_window_days: int = 90,
     revenue_influenced: float | None = None,
     qualified_leads: int | None = None,
+    anonymous_handoffs: bool = False,
 ) -> dict[str, Any]:
     """Create or update a Session node (data-model.md → `(:Session {...})`).
 
@@ -309,7 +310,8 @@ async def upsert_session(
             s.attribution_model         = $attribution_model,
             s.attribution_window_days   = $attribution_window_days,
             s.revenue_influenced        = $revenue_influenced,
-            s.qualified_leads           = $qualified_leads
+            s.qualified_leads           = $qualified_leads,
+            s.anonymous_handoffs        = $anonymous_handoffs
         RETURN s
         """,
         tenant_id=tenant_id,
@@ -330,6 +332,7 @@ async def upsert_session(
         attribution_window_days=attribution_window_days,
         revenue_influenced=revenue_influenced,
         qualified_leads=qualified_leads,
+        anonymous_handoffs=anonymous_handoffs,
     )
     record = await result.single()
     return dict(record["s"])
@@ -895,6 +898,36 @@ async def contacts_in_session(
         session_id=session_id,
     )
     return [dict(record) async for record in result]
+
+
+async def unidentified_in_session(
+    session: AsyncSession, *, tenant_id: str, session_id: str
+) -> list[str]:
+    """Everyone in a session who is nobody — the anonymous handoff's population.
+
+    `integrations.md` §2 allows a handoff with no `contact`, "still valid …
+    carrying spatial_intent for aggregate ROI". `contacts_in_session` is the
+    other half of the room; this is the rest of it.
+
+    The match is the absence of a live `IDENTIFIED_AS` edge, which makes two
+    cases one: somebody who never consented, and somebody who consented and then
+    withdrew. That is right rather than convenient — a withdrawal returns a
+    person to the anonymous path, and `reanonymise.py` argues at length that the
+    anonymous path was never consent-gated and survives untouched. A withdrawn
+    visitor's dwell still counts toward reach, exactly as it did before they gave
+    their name.
+    """
+    result = await session.run(
+        """
+        MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id})
+        WHERE NOT (p)-[:IDENTIFIED_AS]->(:Contact)
+        RETURN p.anon_id AS anon_id
+        ORDER BY p.anon_id
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+    )
+    return [record["anon_id"] async for record in result]
 
 
 async def consent_for_contact(

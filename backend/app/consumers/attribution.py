@@ -42,12 +42,31 @@ capture re-identifies nobody.
 `crm.retract` handles anything already pushed. This consumer's job is only to
 stop adding to it.
 
-## Anonymous handoffs are deferred
+## Anonymous handoffs, and why they are opt-in
 
-`integrations.md` §2 allows a handoff with no `contact`, carrying spatial_intent
-for aggregate ROI. It needs a different trigger — every person, not every
-contact — and a different consent story, so it is not built here rather than
-half-built. Noted in the roadmap.
+`integrations.md` §2 allows a handoff with no `contact`, "still valid … carrying
+spatial_intent for aggregate ROI". It needed the different trigger this file
+used to say it needed: every person, not every contact. That is
+`unidentified_in_session` at `session.ended`, and it is the third trigger below.
+
+It is off unless the operator turned it on, which is the opposite of every other
+setting in a session config. A busy day is several hundred of these, each a lead
+object with nobody in it, and they go to the same destinations an identified lead
+does. A tenant who has not asked for aggregate reach in their own stack should
+not discover it arriving there.
+
+The different consent story turns out to be no consent at all, and that is the
+point rather than a gap. There is no `contact`, no `consent` block and nothing
+in the payload that names anybody — it carries the same zones and dwells the
+report has always carried about that person, which `privacy.md` has running with
+no consent from the beginning. What would need a consent story is attaching a
+name to one later, and nothing here does that.
+
+Only `session.ended` emits them. At the moment somebody walks past a zone we do
+not know whether they are about to scan a badge, and a handoff built then would
+be an anonymous lead for a person who is identified ten seconds later — two
+records for one visitor, keyed differently, which is the duplication the whole
+`dedupe_key` argument above exists to prevent.
 """
 
 from __future__ import annotations
@@ -79,6 +98,8 @@ SCHEMA = "realmspace.lead_handoff/v1"
 #: dedupe_key and differ in their event id.
 IDENTIFIED = "identified"
 FINAL = "final"
+#: The third: one per person nobody ever named. See the module docstring.
+ANONYMOUS = "anonymous"
 
 
 class AttributionConsumer(Consumer):
@@ -159,6 +180,32 @@ class AttributionConsumer(Consumer):
                     )
                 )
 
+            config = (
+                await graph_repo.session_config(
+                    gs, tenant_id=event.tenant_id, session_id=event.session_id
+                )
+                or {}
+            )
+            if config.get("anonymous_handoffs"):
+                for anon_id in await graph_repo.unidentified_in_session(
+                    gs, tenant_id=event.tenant_id, session_id=event.session_id
+                ):
+                    handoffs.append(
+                        await self._build(
+                            gs,
+                            event=event,
+                            anon_id=anon_id,
+                            contact=None,
+                            stage=ANONYMOUS,
+                            # Deliberately not `len(identified)`: an anonymous
+                            # handoff carries no cost share at all. Dividing the
+                            # activation's cost by the people who consented and
+                            # then handing a slice of it to somebody who did not
+                            # would double-count the same money.
+                            lead_count=None,
+                        )
+                    )
+
         await self._emit(event, handoffs)
 
     # ── assembly ──────────────────────────────────────────────────────────────
@@ -169,7 +216,7 @@ class AttributionConsumer(Consumer):
         *,
         event: EventLog,
         anon_id: str,
-        contact: dict[str, Any],
+        contact: dict[str, Any] | None,
         stage: str,
         lead_count: int | None = None,
     ) -> dict[str, Any]:
@@ -188,8 +235,12 @@ class AttributionConsumer(Consumer):
         surfaces = await graph_repo.surfaces_for_session(
             gs, tenant_id=event.tenant_id, session_id=event.session_id
         )
-        consent = await graph_repo.consent_for_contact(
-            gs, tenant_id=event.tenant_id, contact_id=contact["id"]
+        consent = (
+            await graph_repo.consent_for_contact(
+                gs, tenant_id=event.tenant_id, contact_id=contact["id"]
+            )
+            if contact
+            else None
         )
 
         intent = spatial_intent.build(
@@ -209,21 +260,23 @@ class AttributionConsumer(Consumer):
         intent["lead_score_basis"] = basis
         intent["lead_score_components"] = components
 
-        email = contact.get("email")
+        email = contact.get("email") if contact else None
         dedupe_key = f"{event.tenant_id}:{email or anon_id}"
 
-        # Recorded on the Contact so an outcome arriving later — from an operator
-        # or, eventually, a CRM adapter — can find the person it belongs to.
-        # Without it the mapping exists only inside handoff payloads on the log,
-        # and the graph cannot answer "which deals came from this visitor".
-        await graph_repo.set_contact_dedupe_key(
-            gs,
-            tenant_id=event.tenant_id,
-            contact_id=contact["id"],
-            dedupe_key=dedupe_key,
-        )
+        if contact:
+            # Recorded on the Contact so an outcome arriving later — from an
+            # operator or, eventually, a CRM adapter — can find the person it
+            # belongs to. Without it the mapping exists only inside handoff
+            # payloads on the log, and the graph cannot answer "which deals came
+            # from this visitor".
+            await graph_repo.set_contact_dedupe_key(
+                gs,
+                tenant_id=event.tenant_id,
+                contact_id=contact["id"],
+                dedupe_key=dedupe_key,
+            )
 
-        return {
+        handoff: dict[str, Any] = {
             "schema": SCHEMA,
             "stage": stage,
             "tenant_id": event.tenant_id,
@@ -235,24 +288,7 @@ class AttributionConsumer(Consumer):
                 "started_at": config.get("started_at"),
                 "ends_at": config.get("ends_at"),
             },
-            # Present only because a live consent was found above. A contact whose
-            # consent has been withdrawn never reaches here, and one whose PII was
-            # redacted carries nothing to send.
-            "contact": {
-                "id": contact["id"],
-                "email": email,
-                "name": contact.get("name"),
-                "company": contact.get("company"),
-                "title": contact.get("title"),
-                "source": contact.get("source"),
-            },
             "spatial_intent": intent,
-            "consent": {
-                "tier": consent.get("tier") if consent else None,
-                "basis": consent.get("basis") if consent else None,
-                "copy_version": consent.get("copy_version") if consent else None,
-                "captured_at": consent.get("captured_at") if consent else None,
-            },
             "roi_context": {
                 "attribution_model": config.get("attribution_model") or "influenced",
                 "attribution_window_days": config.get("attribution_window_days") or 90,
@@ -263,6 +299,33 @@ class AttributionConsumer(Consumer):
             "emitted_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "event_seq": event.seq,
         }
+
+        if contact:
+            # Present only because a live consent was found above. A contact
+            # whose consent has been withdrawn never reaches here, and one whose
+            # PII was redacted carries nothing to send.
+            #
+            # Both keys are **omitted** on an anonymous handoff rather than set
+            # to an object of nulls — the argument `routers/consent.py` makes
+            # about a capture with no details. "Nobody was named here" and
+            # "these details are blank" are different statements, and a
+            # destination reading the second would create an empty contact.
+            handoff["contact"] = {
+                "id": contact["id"],
+                "email": email,
+                "name": contact.get("name"),
+                "company": contact.get("company"),
+                "title": contact.get("title"),
+                "source": contact.get("source"),
+            }
+            handoff["consent"] = {
+                "tier": consent.get("tier") if consent else None,
+                "basis": consent.get("basis") if consent else None,
+                "copy_version": consent.get("copy_version") if consent else None,
+                "captured_at": consent.get("captured_at") if consent else None,
+            }
+
+        return handoff
 
     @staticmethod
     def _cost_share(config: dict[str, Any], lead_count: int | None) -> float | None:
@@ -302,7 +365,12 @@ class AttributionConsumer(Consumer):
                             "handoff",
                             event.tenant_id,
                             event.session_id,
-                            handoff["contact"]["id"],
+                            # The contact where there is one, the track where
+                            # there is not — an anonymous handoff has no contact
+                            # id to key on, and `anon_id` is what identifies the
+                            # person it is about within this session.
+                            (handoff.get("contact") or {}).get("id")
+                            or handoff["anon_id"],
                             handoff["stage"],
                         ),
                         tenant_id=event.tenant_id,

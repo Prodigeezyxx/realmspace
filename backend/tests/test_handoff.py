@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import repository
 from app.actions.webhook import sign
 from app.config import get_settings
+from app.attribution import ledger as ledger_builder
 from app.consumers.attribution import AttributionConsumer
 from app.consumers.handoff_delivery import HandoffDeliveryConsumer
 from app.consumers.identity import IdentityConsumer
@@ -532,3 +533,146 @@ async def test_delivering_a_lead_meters_an_action(
     )
     assert len(costs) == 1
     assert costs[0].payload["kind"] == "action_unit"
+
+
+# ── anonymous handoffs ────────────────────────────────────────────────────────
+
+
+async def turn_on_anonymous_handoffs(graph_session: GraphSession) -> None:
+    """What an operator ticking the box in the wizard does to the session."""
+    await graph_repo.upsert_session(
+        graph_session,
+        tenant_id=T,
+        session_id=S,
+        client="Acme",
+        campaign="Pavilion No.7",
+        anonymous_handoffs=True,
+    )
+
+
+async def test_nobody_gets_an_anonymous_handoff_unless_it_was_asked_for(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """Off by default, unlike every other setting in a session config.
+
+    A busy day is several hundred of these, and they go to the same destinations
+    an identified lead does. A tenant who has not asked for aggregate reach in
+    their own stack should not discover it arriving there.
+    """
+    await seed_activation(graph_session)
+    await seed_person_with_a_path(graph_session, anon_id="P-777")
+    await end_the_session(db_session)
+    await run_chain()
+
+    assert await handoffs(db_session) == []
+
+
+async def test_every_un_consented_visitor_gets_exactly_one(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """`integrations.md` §2's anonymous handoff: spatial intent, and nobody in it."""
+    await seed_activation(graph_session)
+    await turn_on_anonymous_handoffs(graph_session)
+    for anon_id in ("P-777", "P-778"):
+        await seed_person_with_a_path(graph_session, anon_id=anon_id)
+    await end_the_session(db_session)
+    await run_chain()
+
+    built = [row.payload for row in await handoffs(db_session)]
+    assert sorted(h["anon_id"] for h in built) == ["P-777", "P-778"]
+    assert {h["stage"] for h in built} == {"anonymous"}
+
+    one = built[0]
+    # Omitted, not blanked: "nobody was named here" and "these details are
+    # blank" are different statements about what a person handed over.
+    assert "contact" not in one
+    assert "consent" not in one
+    assert one["dedupe_key"] == f"{T}:{one['anon_id']}"
+    # The whole reason it exists — the path is there.
+    assert one["spatial_intent"]["zones_visited"] == ["Entry", "Pod"]
+    # And no share of the activation's cost, which belongs to the leads that
+    # divided it; handing a slice to somebody who never consented would count
+    # the same money twice.
+    assert one["roi_context"]["activation_cost_share"] is None
+
+
+async def test_a_consented_visitor_gets_a_lead_and_not_an_anonymous_touch(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """The two populations are the room, split in one place."""
+    await seed_activation(graph_session)
+    await turn_on_anonymous_handoffs(graph_session)
+    await seed_person_with_a_path(graph_session, anon_id="P-012")
+    await seed_person_with_a_path(graph_session, anon_id="P-777")
+    await consent(db_session)
+    await end_the_session(db_session)
+    await run_chain()
+
+    by_anon = {}
+    for row in await handoffs(db_session):
+        by_anon.setdefault(row.payload["anon_id"], []).append(row.payload["stage"])
+
+    assert sorted(by_anon["P-012"]) == ["final", "identified"]
+    assert by_anon["P-777"] == ["anonymous"]
+
+
+async def test_a_withdrawn_visitor_becomes_an_anonymous_touch(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """A withdrawal returns somebody to the anonymous path, and the anonymous
+    path was never consent-gated — their dwell still counts toward reach.
+
+    What must not survive is anything that names them.
+    """
+    await seed_activation(graph_session)
+    await turn_on_anonymous_handoffs(graph_session)
+    await seed_person_with_a_path(graph_session, anon_id="P-012")
+    await consent(db_session)
+    await run_chain()
+
+    await repository.append_event(
+        db_session,
+        EventIn(
+            event_id=uuid.uuid4(),
+            tenant_id=T,
+            session_id=S,
+            type="consent.withdrawn",
+            payload={
+                "consent_id": "c_0001",
+                "anon_id": "P-012",
+                "reason": "visitor_request",
+                "withdrawn_at": (BASE + dt.timedelta(minutes=10)).isoformat(),
+            },
+            occurred_at=BASE + dt.timedelta(minutes=10),
+        ),
+    )
+    await db_session.commit()
+    await end_the_session(db_session)
+    await run_chain()
+
+    built = [row.payload for row in await handoffs(db_session)]
+    stages = sorted(h["stage"] for h in built)
+    assert stages == ["anonymous", "identified"]
+
+    anonymous = next(h for h in built if h["stage"] == "anonymous")
+    assert "contact" not in anonymous
+    assert "sam@example.com" not in json.dumps(anonymous)
+
+
+async def test_an_anonymous_touch_is_not_counted_as_a_lead(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """The one number a CFO reads off the ledger must stay "people who gave us
+    their details", not "people who walked in"."""
+    await seed_activation(graph_session)
+    await turn_on_anonymous_handoffs(graph_session)
+    await seed_person_with_a_path(graph_session, anon_id="P-012")
+    await seed_person_with_a_path(graph_session, anon_id="P-777")
+    await consent(db_session)
+    await end_the_session(db_session)
+    await run_chain()
+
+    built = [row.payload for row in await handoffs(db_session)]
+    totals = ledger_builder.build(built, [], [])["totals"]
+    assert totals["leads"] == 1
+    assert totals["anonymous_touches"] == 1
