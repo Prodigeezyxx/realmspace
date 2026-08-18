@@ -46,7 +46,11 @@ from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import repository
-from app.attribution.ledger import redact_dedupe_key, withdrawn_subjects
+from app.attribution.ledger import (
+    is_redacted_key,
+    redact_dedupe_key,
+    withdrawn_subjects,
+)
 from app.auth.principal import Principal, require_reader
 from app.db import get_session
 
@@ -156,8 +160,13 @@ def _shape(row, *, withdrawn_keys: set[str], withdrawn_contacts: set[str]) -> di
     contact = payload.get("contact")
     key = payload.get("dedupe_key") or ""
 
-    withdrawn = key in withdrawn_keys or (
-        isinstance(contact, dict) and contact.get("id") in withdrawn_contacts
+    withdrawn = (
+        key in withdrawn_keys
+        or (isinstance(contact, dict) and contact.get("id") in withdrawn_contacts)
+        # An erasure has already rewritten this row, and the request that caused
+        # it may have named only a consent id — which neither of the two checks
+        # above can see. See `ledger.is_redacted_key`.
+        or is_redacted_key(key)
     )
     if withdrawn:
         # The touch, its timestamps and its consent basis survive; the name does

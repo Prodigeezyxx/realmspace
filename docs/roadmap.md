@@ -349,9 +349,28 @@ consumers, without touching Phase-1 producers.*
       HubSpot's delete actually does — recycling bin, restorable for 90 days —
       is what the dispatch row says it did; a true erasure belongs with the
       erasure job below. *(2026-08-14)*
-- 🔲 **The rest of the Tier 1 adapters**: Salesforce → Pipedrive → Zoho →
-      Dynamics; each idempotent, retract-capable. No longer blocked, and each is
-      now a module plus a line in `app/crm/__init__.py`'s registry.
+- ✅ **The rest of the Tier 1 adapters**: Salesforce → Pipedrive → Zoho →
+      Dynamics. Each is a module plus a line in the registry, as
+      `app/crm/__init__.py` said it would be; three things had to be decided
+      first. **A credential is not always one string** — three of the four are
+      OAuth2 and need four or five fields, so the secret stays one opaque string
+      and theirs is a JSON document, parsed at `PUT` so an admin who pastes a
+      HubSpot token into the Salesforce slot is told which fields are missing
+      there and then rather than on the first lead of a three-day activation.
+      **Three of them have no upsert we can use unaided** — Salesforce and
+      Dynamics upsert only against a key the client created in their own org,
+      Pipedrive not at all — so `upsert` is now handed the id `crm_link` already
+      recorded, and the search-then-create `hubspot.py` argues against is the last
+      resort behind it rather than the only thing deciding. **Zoho refuses records
+      inside an HTTP 200**, in the `data` array where SUCCESS would be, so every
+      call checks the body: a destination reporting success because the transport
+      succeeded would put leads on the delivered pile the CRM had refused. The
+      error vocabulary, the mapped-field key set and the HTTP client moved out of
+      `hubspot.py` and are shared — five copies of the 429/401 mapping is five
+      things `/ops` could say about one failure. Tests are transport-stubbed:
+      they prove the request we send is the request the vendor documents, not
+      that a live account accepts it, and no credentials exist to prove more.
+      *(2026-08-17)*
 - ✅ **Bring-your-own: signed webhook.** `consumers/handoff_delivery.py` POSTs
       the handoff to `settings.handoff_webhook_url`, signed with `sign()` from
       `app/actions/webhook.py` — the same function the rule action uses, as that
@@ -360,12 +379,59 @@ consumers, without touching Phase-1 producers.*
       `/ops` beside a stranded Slack post. No destination configured is not a
       failure — the handoffs are on the log, and a destination added later reads
       them from seq 0. *(2026-08-13)*
-- 🔲 Bring-your-own, the rest: Zapier/Make + CSV export + inbound REST
-- 🔲 **Anonymous handoffs** (`integrations.md` §2 allows a handoff with no
-      `contact`) — needs a different trigger, every person rather than every
-      consent, and a different consent story
-- 🔲 Erasure job (tenant-scoped, GDPR Art. 17) — withdrawal itself is done above
-- 🔲 (opt, T3) enrichment adapter (Apollo/Clearbit), metered
+- ✅ **Bring-your-own, the rest: Zapier/Make + CSV export + inbound REST.**
+      The hooks are providers in the destination registry rather than a parallel
+      path — they need a per-tenant credential, a claim, a retry and a row on
+      `/ops`, all of which `crm_delivery` and `tenant_integration` already give
+      them, and a second delivery path would have its own idea of what a stuck
+      delivery looks like. Their `external_id` is our contact id and **not** the
+      dedupe key: `crm_link.external_id` is deliberately never redacted, so a
+      dedupe key there would leave a live email in our database after an erasure
+      had removed every other copy. `GET /v1/handoffs` is the pull half, cursored
+      on the log's own `seq` so a client that stops and comes back gets every lead
+      since with no gap and no duplicate, with `?format=csv` for the offline
+      clients. No scheduler: a job runner emailing a file on Tuesdays would be a
+      second place a client's leads leave the building. Withdrawn leads are
+      redacted at read time, because a withdrawal does not rewrite the log.
+      *(2026-08-17)*
+- ✅ **Anonymous handoffs** (`integrations.md` §2 allows a handoff with no
+      `contact`). The different trigger is `session.ended` over everyone with no
+      live `IDENTIFIED_AS` edge — which makes two cases one, somebody who never
+      consented and somebody who consented and then withdrew, because a
+      withdrawal returns a person to the anonymous path. The different consent
+      story turns out to be no consent at all, and that is the point rather than
+      a gap: nothing in the payload names anybody, and it carries the zones and
+      dwells `privacy.md` has always had running with no consent. `contact` and
+      `consent` are **omitted**, not blanked. **Off unless the operator asks**,
+      the opposite of every other session setting, because a busy day is several
+      hundred of them reaching the same destinations an identified lead does.
+      Two things it broke on the way: `totals.leads` would have quietly changed
+      from "people who gave us their details" to "people who walked in", and
+      `/ops` would have filled with a dispatch row per visitor per CRM recording
+      that nothing was sent. *(2026-08-17)*
+- ✅ **Erasure job (tenant-scoped, GDPR Art. 17)** — `POST /v1/erasure` (admin),
+      `consumers/erasure.py`, migration 0009. Withdrawal was already doing
+      everything `consent-and-identity.md` §5 literally asks for and one thing it
+      does not mention: the email is also in `consent.captured`'s contact object
+      and in every `handoff.lead` built from it, and an erasure that leaves those
+      is not an erasure. So the endpoint appends the ordinary
+      `consent.withdrawn` — the existing path runs first, not reimplemented — plus
+      `erasure.requested` for the part it cannot reach. **It is the one thing that
+      updates an `event_log` row**, and only `payload`, and only where a name is:
+      no row deleted, no seq reused, so a replay reproduces the same events with a
+      name missing from a few of them. **It refuses until the retraction has
+      landed**, because erasing the Contact first would delete the record the
+      re-anonymiser reads to build `crm.retract` — an erasure that reports success
+      and leaves the data in the client's CRM. And a track id is held as
+      `(session_id, anon_id)`, never bare: `P-012` at two activations is two
+      people, and erasing the wrong one is data loss that looks like compliance.
+      *(2026-08-17)*
+- 🔲 (opt, T3) enrichment adapter (Apollo/Clearbit), metered — **the one item
+      of Phase 4 deliberately left open.** Marked optional from the start, and it
+      needs a provider key that does not exist in this repo, which is the same
+      block Ask the Room sits behind (open decision 2). `app/crm/base.py`'s
+      interface is the shape an `EnrichmentAdapter` would take, and
+      `tenant_integration` already holds the per-tenant key it would need.
 - ✅ **The outcome model, which nothing in the repo had.** `data-model.md`'s node
       list stopped at `Frame`, so every attribution claim in
       `roi-framework.md` — the whole of Layer 4 — rested on a thing that did not
@@ -390,9 +456,18 @@ consumers, without touching Phase-1 producers.*
       measured, with the operator's stated figure shown beside it rather than
       replaced. *(2026-08-13)*
 
-**Acceptance:** a consented badge scan produces a Contact linked to its spatial
-path, a LeadHandoff lands in HubSpot with spatial_intent fields, a withdrawal
-retracts it, and the attribution ledger reconciles booth-touch → outcome.
+**Acceptance:** ✅ a consented badge scan produces a Contact linked to its
+spatial path, a LeadHandoff lands in HubSpot with spatial_intent fields, a
+withdrawal retracts it, and the attribution ledger reconciles booth-touch →
+outcome. All four clauses held from 2026-08-14; what landed after that is the
+width the phase promised — four more Tier 1 CRMs, the remaining bring-your-own
+destinations, the anonymous handoff and the erasure job.
+
+**One caveat on the CRMs, stated rather than left to be discovered.** No live
+account exists for any of the five, so each adapter is proven against the API its
+vendor documents and against nothing else. The first real portal will find
+something; what it should not find is a duplicated lead or a withdrawal that did
+not go, which is what the tests are pointed at.
 
 ---
 
@@ -472,5 +547,9 @@ From the founder architecture dump; each is designed-for, not hoped-for:
    **last** in P2 rather than blocking it — nothing else in the phase needs a
    provider, so the report, scorecard, ROI tile and twin replay proceed without
    one. Ask stays on its regex mocks until this is decided.
-3. **First CRM confirmed:** HubSpot as reference adapter (P4).
+3. **First CRM confirmed:** HubSpot as reference adapter (P4). *Closed
+   2026-08-17:* all five Tier 1 adapters plus the Zapier/Make hooks are built and
+   registered. What is still open is not a decision but an absence — no live
+   account exists for any of them, so every adapter is proven against the API its
+   vendor documents and none against a real portal.
 4. **Repo:** continue on `genspark_ai_developer` in the main `realmspace` repo.

@@ -104,6 +104,8 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `handoff.lead` | attribution | normalized LeadHandoff | CRM adapters |
 | `outcome.recorded` | operator (`POST /v1/outcomes`), later CRM adapters | dedupe_key, stage, value, closed_at | attribution ledger |
 | `crm.retract` | re-anonymiser | contact_id, destination, reason | CRM adapters |
+| `erasure.requested` | admin (`POST /v1/erasure`) | subject ids, requested_by | erasure consumer |
+| `erasure.completed` | erasure consumer | contact_ids, counts | audit |
 | `insight.generated` | LLM/agents | text, refs | graph, dashboard |
 | `cost.metered` | consumers | tokens/credits/$ | cost telemetry |
 | `drift.detected` | perception telemetry | camera_id, metric, observed vs baseline | ops, calibration UI |
@@ -492,10 +494,11 @@ sourcing of the three fields that spec asks for and does not say where to get.
 ```jsonc
 {
   "schema": "realmspace.lead_handoff/v1",
-  "stage":  "identified",              // 'identified' | 'final' — see below
+  "stage":  "identified",              // 'identified' | 'final' | 'anonymous'
   "tenant_id": "t_...",
   "activation":     { "id", "name", "venue", "city", "started_at", "ends_at" },
   "contact":        { "id", "email", "name", "company", "title", "source" },
+                     // omitted entirely on an anonymous handoff — see below
   "spatial_intent": {
     "zones_visited":        ["Entry", "Pod"],   // order first entered, deduped
     "top_dwell_zone":       "Pod",              // totalled per zone, not longest stay
@@ -526,6 +529,29 @@ same `dedupe_key`**, which is every adapter's upsert key, so the second updates
 the lead rather than creating one; and **different `event_id`s**, derived with
 the stage in the key, because the bus dedupes on `event_id` and an id derived
 from the contact alone would silently discard the complete path.
+
+**A third stage: `anonymous`** *(added 2026-08-17)*. `integrations.md` §2 always
+allowed a handoff with no `contact`, "carrying spatial_intent for aggregate ROI".
+It is emitted at `session.ended` only, one per person with no live
+`IDENTIFIED_AS` edge — which covers both somebody who never consented and
+somebody who consented and then withdrew, since a withdrawal returns a person to
+the anonymous path. `dedupe_key` is the `anon_id` half of `tenant:email|anon_id`,
+and the event id is derived from the track rather than from a contact that does
+not exist.
+
+`contact` and `consent` are **omitted**, not set to objects of nulls. "Nobody was
+named here" and "these details are blank" are different statements, and a
+destination reading the second would create an empty contact.
+`activation_cost_share` is null: the denominator is the leads that divided the
+cost, and giving a slice to somebody who never consented would count the same
+money twice.
+
+**Off unless the operator turned it on** (`anonymous_handoffs` on the session
+config), which is the opposite of every other setting there. A busy day is several
+hundred of them and they reach the same destinations an identified lead does.
+`consumers/crm_delivery.py` skips them without claiming a dispatch — the claim
+exists to make an outbound call happen exactly once, and no CRM has anything to
+receive.
 
 **`attention_score` is in seconds.** `integrations.md` §2 illustrated it as
 `0.82`, which reads as a ratio. `roi-framework.md` §2 defines dwell-weighted
@@ -595,6 +621,64 @@ and `source` are on the row because who said so is part of what an auditor reads
 the ledger to find out.
 
 **Carries PII**: `dedupe_key` embeds an email. It is in `PII_EVENT_TYPES`.
+
+**`erasure.requested`** — producer: an admin via `POST /v1/erasure`
+*(added 2026-08-17)*:
+
+```jsonc
+{
+  "contact_id":   "ct_...",   // whichever the person asking can be named by;
+  "consent_id":   "c_0001",   // at least one is required, all three allowed
+  "anon_id":      "P-012",
+  "requested_by": "dpo@acme.example",  // a person, and accountable for it
+  "note":         "ticket GDPR-41",    // never the subject's own details
+  "requested_at": "2026-08-17T09:00:00Z"
+}
+```
+
+`POST /v1/erasure` appends a `consent.withdrawn` with
+`reason: "erasure_request"` beside it, so the whole existing withdrawal path runs
+first — the link is dropped, the graph Contact redacted, and the record retracted
+from every CRM that received it. This event asks for the part that path cannot
+reach: **the log itself**.
+
+The consumer (`consumers/erasure.py`) refuses to act until the retraction has
+actually landed, and both refusals are ordering conditions rather than
+politeness. Erasing the Contact first would delete the record the re-anonymiser
+reads to build `crm.retract`, so no retraction would ever be emitted and the copy
+in the client's CRM would stay — an erasure that reports success and leaves the
+data where it matters most.
+
+**Carries PII**: it names a contact and it names the person who asked. It is in
+`PII_EVENT_TYPES`.
+
+**`erasure.completed`** — producer: the erasure consumer:
+`{ "request_event_id", "contact_ids", "events_redacted", "contacts_erased", "completed_at" }`
+
+The receipt, and deliberately ids and counts only. It is appended to the same log
+the erasure has just rewritten, so a receipt quoting what it removed would put it
+straight back. **Not PII.**
+
+#### What an erasure does to the log
+
+This is the one thing in the system that updates an `event_log` row, and §2's
+append-only guarantee has to be restated around it rather than quietly bent.
+
+Only `payload` is rewritten, on the events that actually carry a name —
+`consent.captured`'s `contact` object, and `handoff.lead`'s `contact` and
+`dedupe_key`. `seq`, `event_id`, `type`, `occurred_at` and `recorded_at` are
+untouched; no row is deleted and no sequence number is reused. **A replay after an
+erasure reproduces the same events in the same order, with a name missing from a
+few of them.** That is weaker than "the log never changes", and it is the
+guarantee Article 17 leaves us.
+
+`redacted_at` (migration 0009) is a column rather than a payload key, because the
+payload is the thing being rewritten and "what did this erasure touch" should not
+be a JSON scan.
+
+What survives is the evidence: the consent with its tier, basis and copy version,
+the withdrawal, the identification and the retraction. None of it names anybody,
+and together they are what a disputed erasure would be settled by.
 
 **`identity.resolved`** — producer: the identity consumer:
 `{ "anon_id", "contact_id", "consent_id", "tier", "via", "at" }`

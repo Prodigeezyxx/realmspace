@@ -71,10 +71,19 @@ Every adapter receives this shape. It is versioned and additive-only.
 ```
 
 **Anonymous handoffs** (no `contact`) are still valid — they carry spatial_intent
-for aggregate ROI and can be attached to a lead later if consent arrives. *Not
-built yet:* the attribution consumer emits only for identified contacts, because
-an anonymous handoff needs a different trigger (every person, not every consent)
-and a different consent story. Tracked in `roadmap.md` Phase 4.
+for aggregate ROI and can be attached to a lead later if consent arrives. ✅
+*built 2026-08-17*, with the different trigger this paragraph asked for: every
+person rather than every consent, at `session.ended`, over everyone with no live
+`IDENTIFIED_AS` edge. That covers somebody who never consented and somebody who
+consented and then withdrew, because a withdrawal returns a person to the
+anonymous path.
+
+The different consent story turns out to be no consent at all, and that is the
+point rather than a gap: there is no `contact`, no `consent` and nothing in the
+payload that names anybody, only the zones and dwells `privacy.md` has always had
+running with no consent. **Off unless the operator asks** (`anonymousHandoffs` on
+the session config) — a busy day is several hundred of them and they reach the
+same destinations an identified lead does. Pinned in `event-bus-spec.md` §3.
 
 ### Where the two computed fields come from *(added 2026-08-13)*
 
@@ -138,6 +147,24 @@ Adapter interface:
   an adapter that swallowed its own rate limit would be a second policy
   disagreeing with the first.
 
+### Two more, decided by the adapters after the first *(added 2026-08-17)*
+
+- **`parse_secret` — a credential is not always one string.** HubSpot's is a
+  bearer token; Salesforce, Zoho and Dynamics are OAuth2 and need four or five
+  fields. Rather than widen `tenant_integration` and redo `secrets.py`'s binding
+  of a ciphertext to its `(tenant, provider)`, the secret stays one opaque string
+  and an OAuth adapter's string is a JSON document. `PUT` parses it *before*
+  encrypting, so an admin pasting a HubSpot token into the Salesforce slot is
+  told which fields are missing there and then — the alternative stores cleanly,
+  tests green if nobody presses test, and fails on the first lead of a three-day
+  activation.
+- **`upsert(payload, external_id=…)` — the id we recorded last time.** Only
+  HubSpot and Zoho have an upsert we can use unaided. Salesforce and Dynamics
+  upsert against a key the client had to create in their own org, and Pipedrive
+  has none at all. `crm_link` (migration 0008) already holds the CRM's own id
+  from the last push, so the delivery consumer passes it in and the search is the
+  last resort behind it rather than the only thing deciding.
+
 Credentials come from `tenant_integration` (migration 0007), encrypted per
 tenant per `multi-tenant.md` §2 and opened in exactly one function,
 `crm.adapter_for`. `PUT /v1/integrations/{provider}` stores one; it is
@@ -161,19 +188,77 @@ the secret back.
    true erasure needs account-level GDPR features this adapter does not assume,
    and belongs with the erasure job where the same question has to be answered
    for every destination at once.
-2. **Salesforce** — enterprise default; highest ASP deals need it.
-3. **Pipedrive** — SMB/agency favourite.
-4. **Zoho CRM** — strong in our SAM (Africa + emerging markets).
-5. **Microsoft Dynamics 365** — enterprise/regulated.
+2. **Salesforce** — enterprise default; highest ASP deals need it. ✅ *built
+   2026-08-17*. OAuth2 refresh token. The upsert is
+   `PATCH /sobjects/Lead/{externalIdField}/{dedupe_key}`, which only works
+   against a field the org marked as an External ID — there is no stock one, so
+   the client creates it and names it in the credential, and `healthcheck` checks
+   it exists rather than letting the first lead of an activation discover it. The
+   object is `Lead`, not `Contact`: a Contact belongs to an Account, and creating
+   accounts for booth visitors would put fictitious companies in a client's CRM.
+   An update answers 204 with no body, so the id is fetched — a `crm_link` with no
+   `external_id` is a withdrawal that cannot be carried out. Retract is a delete
+   into the Recycle Bin, restorable for 15 days, and the dispatch row says so.
+3. **Pipedrive** — SMB/agency favourite. ✅ *built 2026-08-17*. API token, and the
+   only adapter here with no upsert at all. What stands in for it is the id from
+   `crm_link` (§3), with a search by email behind that on a genuine first push —
+   which is the right answer anyway, since creating a second Person for an email
+   their CRM already knows is the duplication §2 warns about. The residual window
+   is both stages of a brand-new contact in flight at the same instant; it is
+   stated in the adapter rather than hidden, because the recovery is a client
+   merging two Persons. No Organization is created for `company`: inventing one
+   per booth visitor would litter a CRM with companies nobody agreed to.
+4. **Zoho CRM** — strong in our SAM (Africa + emerging markets). ✅ *built
+   2026-08-17*. OAuth2 refresh token, and a real upsert
+   (`POST /crm/v6/Leads/upsert`, `duplicate_check_fields: ["Email"]`). Two Zoho
+   specifics: the **datacentre is part of the credential**, because `.com`, `.eu`,
+   `.in` and `.com.au` are separate accounts and the wrong one authenticates as a
+   bad token — which sends an admin off to rotate a credential that was fine; and
+   a **refused record arrives inside an HTTP 200**, in the `data` array with the
+   code where SUCCESS would be, so every call checks the body and raises. A
+   destination that reported success because the transport succeeded would put
+   leads on the delivered pile that Zoho had refused.
+5. **Microsoft Dynamics 365** — enterprise/regulated. ✅ *built 2026-08-17*. OAuth2
+   client credentials against the client's Azure AD — an application user, not a
+   person's session, which is the shape enterprises actually approve. The upsert
+   is OData against an alternate key on `emailaddress1`, registered in the org;
+   `healthcheck` checks for it, same as Salesforce's External ID field. Retract is
+   a real delete with no recycle bin, and the dispatch row says that too.
+
+**Salesforce, Zoho and Dynamics all refuse a lead with no surname and no
+company.** The answer is a placeholder that says nobody gave us one, never a
+surname derived from an email address — that would be a guess wearing a real
+name's clothes, and the CRM would never show it as one
+(`backend/app/crm/lead_fields.py`).
 
 ## 5. Bring-Your-Own connectors (no adapter needed)
 
 For any stack we don't natively support, or customers who want control:
 
 - **Generic Webhook** — POST the `LeadHandoff` JSON to a customer URL (HMAC-signed).
-- **Zapier / Make** — publish to their webhook so non-technical users route it anywhere.
-- **CSV / scheduled export** — for offline or air-gapped clients.
-- **Inbound REST API** — customers pull handoffs from realmspace on their schedule.
+  ✅ `consumers/handoff_delivery.py`. A **deployment** setting: one endpoint for
+  the whole install.
+- **Zapier / Make** — publish to their webhook so non-technical users route it
+  anywhere. ✅ *built 2026-08-17*, `app/crm/zapier.py`, as providers in the
+  destination registry rather than a parallel path. They need a per-tenant
+  credential, a claim, a retry and a row on `/ops` — all of which `crm_delivery`
+  and `tenant_integration` already provide, and a second delivery path would have
+  its own idea of what a stuck delivery looks like. The credential is the hook
+  URL (https only); the body is signed with the same `sign()` the rule action
+  uses, over the exact bytes sent. `external_id` is our contact id and **not** the
+  dedupe key, because `crm_link.external_id` is deliberately never redacted and a
+  dedupe key there would leave a live email in our database after an erasure.
+- **CSV / scheduled export** — for offline or air-gapped clients. ✅
+  `GET /v1/handoffs?format=csv`. The scheduled half is a cron calling it; there is
+  deliberately no scheduler, because a job runner emailing a file on Tuesdays
+  would be a second place a client's leads leave the building with its own retry
+  story and its own way of failing quietly.
+- **Inbound REST API** — customers pull handoffs from realmspace on their
+  schedule. ✅ `GET /v1/handoffs`, cursored on the log's own `seq` — the same
+  cursor the WebSocket uses, so a client that stops at 4,180 and comes back
+  tomorrow gets every lead since with no gap and no duplicate. Withdrawn leads are
+  redacted at read time, because a withdrawal does not rewrite the log; only an
+  erasure does.
 - **Native SDK later** — thin client libs once demand is proven.
 
 The webhook adapter is effectively "the contract, raw" — it's also how *we*

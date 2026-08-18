@@ -17,7 +17,99 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-14
+## [Unreleased] — last updated 2026-08-17
+
+### Added — 2026-08-17 — `[neo4j-track]` Phase 4 finished: four more CRMs, the leads nobody named, and erasure
+
+Phase 4's acceptance has held since 14 August. What was left was the width the
+phase promised and had not delivered: the four Tier 1 CRMs after HubSpot, the
+remaining bring-your-own destinations, the anonymous handoff `integrations.md`
+has allowed since it was written, and the GDPR Article 17 erasure job that
+`consent-and-identity.md` §5 names and nothing implemented.
+
+**Four more CRMs, and what each one refuses to do.** Salesforce, Pipedrive, Zoho
+and Dynamics. Three decisions had to come first. A credential is not always one
+string — three of the four are OAuth2 and need four or five fields — so the
+secret stays one opaque column and theirs is a JSON document, checked at `PUT`
+rather than at the first lead of a three-day activation. Three of them have no
+upsert we can use unaided, so `upsert` is now handed the id `crm_link` already
+recorded and the search-then-create `hubspot.py` argues against became the last
+resort rather than the only thing deciding. And Zoho refuses records inside an
+HTTP 200, in the `data` array where SUCCESS would be, so every call reads the
+body — a destination that reported success because the transport succeeded would
+put leads on the delivered pile the CRM had thrown away.
+
+Also: Zoho's datacentres are separate accounts and the wrong one authenticates as
+a bad token, sending an admin off to rotate a credential that was fine, so the
+region is declared and checked. And three of these CRMs will not create a lead
+without a surname and a company. The answer is a placeholder that says nobody
+gave us one, never "Smith" derived from smith@acme.com — that is a guess wearing
+a real name's clothes, and the CRM would never show it as one.
+
+**The visitors nobody named get a handoff too, if you ask for one.** One per
+person with no live identification, at session close. It covers somebody who
+never consented and somebody who consented and then withdrew, because a
+withdrawal returns a person to the anonymous path. It is off unless the operator
+turns it on, which is the opposite of every other session setting: a busy day is
+several hundred of them and they reach the same destinations a real lead does.
+
+Two things it broke that were worth finding. `totals.leads` counts every row, so
+switching this on would have turned the one number a CFO reads off the ledger
+from "people who gave us their details" into "people who walked in", without the
+label changing. And `/ops` would have filled with a dispatch row per visitor per
+connected CRM, each recording that nothing was sent.
+
+**Erasure, and the one column that admits the log is not quite append-only.**
+Withdrawal was already doing everything §5 literally asks for. The visitor's
+email was still sitting in `consent.captured` and in every handoff built from it,
+and an erasure that leaves those is not an erasure. So `POST /v1/erasure` appends
+the ordinary withdrawal — the whole existing path runs first, unchanged, because
+an erasure taking its own route to the CRMs would be a second implementation of
+the thing a person's rights depend on — plus a request for the part it cannot
+reach.
+
+It rewrites `payload` and nothing else. No row deleted, no sequence number
+reused, so a replay reproduces the same events in the same order with a name
+missing from a few of them. That is weaker than "the log never changes" and it is
+the guarantee the law leaves us.
+
+It refuses to run until the retraction has actually landed, and that ordering is
+a correctness condition. Erasing the Contact first would delete the record the
+re-anonymiser reads to build `crm.retract`, so no retraction would ever be
+emitted and the copy in the client's CRM would stay there — an erasure reporting
+success while leaving the data where it mattered most.
+
+The trap inside it was anon ids. `P-012` at two activations is two different
+people, and `privacy.md`'s whole no-cross-session-re-identification claim rests
+on that, so a track is held as `(session, anon_id)` and never bare. Erasing one
+visitor's events at somebody else's activation would be data loss that looks like
+compliance.
+
+**The rest of bring-your-own.** Zapier and Make are destinations in the same
+registry the CRMs are in, because a hook needs a per-tenant credential, a claim,
+a retry and a row on `/ops` and nothing else. `GET /v1/handoffs` is the pull
+half — no inbound port, nothing to sign-verify, cursored on the log's own seq so
+a client that stops and comes back gets every lead since with no gap and no
+duplicate — with `?format=csv` for the offline clients. There is deliberately no
+scheduler: a job runner emailing a file on Tuesdays would be a second place a
+client's leads leave the building, with its own retry story and its own way of
+failing quietly.
+
+**One bug found by running it rather than by testing it.** An erasure that named
+only a consent id left the ledger row showing a missing name beside "not
+withdrawn" — the withdrawal matchers look for contact ids and tracks, and a kiosk
+receipt has neither. The evidence was already in the row: a dedupe key that no
+longer names anybody. Both the ledger and the pull API now read it.
+
+**Left open on purpose:** the T3 enrichment adapter. Optional from the start, and
+it needs a provider key that does not exist in this repo — the same block Ask the
+Room sits behind.
+
+**Caveat worth stating plainly:** no live account exists for any of the five
+CRMs. Each adapter is proven against the API its vendor documents and against
+nothing else. The first real portal will find something; what it should not find
+is a duplicated lead or a withdrawal that did not go.
+
 
 ### Added — 2026-08-14 (later) — `[neo4j-track]` the lead lands in HubSpot, and a withdrawal takes it back out
 

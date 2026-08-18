@@ -609,3 +609,47 @@ async def test_an_operator_cannot_erase(db_session: AsyncSession) -> None:
             },
         )
     assert response.status_code == 403
+
+
+async def test_an_erased_lead_reads_as_withdrawn_everywhere(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """Found by running it: an erasure naming only a consent id left the ledger
+    row showing a missing name beside "not withdrawn".
+
+    A withdrawal is matched by contact id and by track, and an erasure request
+    names whichever identifier the person had to hand — for a kiosk receipt that
+    is the consent id, which neither match can see. The row's own redacted key is
+    the evidence that closes it (`ledger.is_redacted_key`).
+    """
+    from app.attribution import ledger as ledger_builder
+    from app.routers.handoffs import _shape
+
+    await seed_activation(graph_session)
+    await seed_person_with_a_path(graph_session)
+    await consent(db_session)
+    await end_the_session(db_session)
+    await run_chain()
+    await request_erasure(db_session, consent_id="c_0001")
+    await run_chain()
+
+    handoffs = await repository.read_events(
+        db_session, tenant_id=T, session_id=S, type="handoff.lead", limit=10
+    )
+    withdrawals = await repository.read_events(
+        db_session, tenant_id=T, session_id=S, type="consent.withdrawn", limit=10
+    )
+
+    built = ledger_builder.build(
+        [row.payload for row in handoffs], [], [w.payload for w in withdrawals]
+    )
+    lead = next(row for row in built["rows"] if not row["anonymous"])
+    assert lead["withdrawn"] is True
+    assert lead["contact_email"] is None
+    # The touch still happened, and the row is the record of that.
+    assert lead["first_touch_at"] is not None
+
+    # And the pull API reaches the same verdict about the same row.
+    shaped = _shape(handoffs[0], withdrawn_keys=set(), withdrawn_contacts=set())
+    assert shaped["withdrawn"] is True
+    assert shaped["redactedAt"] is not None

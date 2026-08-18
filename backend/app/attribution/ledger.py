@@ -83,6 +83,12 @@ def _parse(value: Any) -> dt.datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.timezone.utc)
 
 
+#: What a redacted dedupe key ends in. One constant, because
+#: `redact_dedupe_key` writes it and `is_redacted_key` reads it, and the two
+#: drifting apart would show up as an erased lead reading as a live one.
+REDACTED_SUFFIX = "[withdrawn]"
+
+
 def build(
     handoffs: list[dict[str, Any]],
     outcomes: list[dict[str, Any]],
@@ -126,7 +132,11 @@ def build(
 
     rows = []
     for row in by_key.values():
-        if row["dedupe_key"] in withdrawn_keys or row["contact_id"] in withdrawn_contacts:
+        if (
+            row["dedupe_key"] in withdrawn_keys
+            or row["contact_id"] in withdrawn_contacts
+            or is_redacted_key(row["dedupe_key"])
+        ):
             _redact(row)
         _judge(
             row,
@@ -292,6 +302,24 @@ def _redact(row: dict[str, Any]) -> None:
     row["dedupe_key"] = redact_dedupe_key(row["dedupe_key"])
 
 
+def is_redacted_key(key: str | None) -> bool:
+    """Has this dedupe key already had the person taken out of it?
+
+    A third way of knowing somebody's consent ended, beside the two
+    `withdrawn_subjects` finds. A withdrawal names whichever identifier the
+    person had to hand, and a request that named only a **consent id** — which
+    an erasure typically does, because that is what a kiosk receipt shows — is
+    invisible to a match on contact ids and tracks.
+
+    But by the time it reaches here the evidence is in the row itself: an
+    erasure has rewritten the handoff's key to `tenant:[withdrawn]`. A lead
+    whose key no longer names anybody is a lead whose consent ended, whatever
+    identifier the request happened to use, and a ledger row that showed a
+    missing name beside "not withdrawn" would be describing a contradiction.
+    """
+    return bool(key) and key.endswith(REDACTED_SUFFIX)
+
+
 def redact_dedupe_key(key: str) -> str:
     """The dedupe key embeds an email. Keep the tenant half so rows stay
     joinable to what an adapter was told, drop the half that names a person.
@@ -302,7 +330,7 @@ def redact_dedupe_key(key: str) -> str:
     is — with the disagreement showing up as an email surviving a withdrawal.
     """
     tenant, _, _rest = key.partition(":")
-    return f"{tenant}:[withdrawn]" if tenant else "[withdrawn]"
+    return f"{tenant}:{REDACTED_SUFFIX}" if tenant else REDACTED_SUFFIX
 
 
 # ── window and model ──────────────────────────────────────────────────────────
