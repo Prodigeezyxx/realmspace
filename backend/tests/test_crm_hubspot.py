@@ -42,6 +42,7 @@ from app.crm import hubspot
 from app.crm.base import AdapterError
 from app.models import CrmLink, RuleDispatch
 from app.schemas import EventIn
+from tests.crm_transport import stub_transport
 from tests.test_handoff import (
     BASE,
     S,
@@ -106,23 +107,9 @@ class FakeHubSpot:
 
 @pytest.fixture
 def hubspot_api(monkeypatch) -> FakeHubSpot:
-    """Swap the module's `httpx` for one whose clients talk to the stub.
-
-    Patched at the module rather than at `httpx.AsyncClient`, so nothing else in
-    the suite — the webhook delivery, the rule actions — sees a changed httpx.
-    """
+    """Every HubSpot call answered by the stub, with no network and no token."""
     fake = FakeHubSpot()
-
-    class _Httpx:
-        HTTPError = httpx.HTTPError
-
-        @staticmethod
-        def AsyncClient(**kwargs):  # noqa: N802 — mirrors httpx's own name
-            return httpx.AsyncClient(
-                transport=httpx.MockTransport(fake.handle), **kwargs
-            )
-
-    monkeypatch.setattr(hubspot, "httpx", _Httpx)
+    stub_transport(monkeypatch, fake.handle)
     return fake
 
 

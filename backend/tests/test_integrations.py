@@ -242,10 +242,65 @@ async def test_a_provider_with_no_adapter_is_refused(
     client = await _client(db_session)
     async with client:
         put = await client.put(
-            "/v1/integrations/salesforce", json={"secret": "whatever"}
+            "/v1/integrations/sugarcrm", json={"secret": "whatever"}
         )
     assert put.status_code == 422
     assert "no adapter" in put.json()["detail"]
+
+
+async def test_a_credential_of_the_wrong_shape_is_refused_at_the_door(
+    db_session: AsyncSession, encryption_key: str
+) -> None:
+    """An admin pasting a bearer token into the Salesforce slot finds out now.
+
+    The alternative is a credential that stores cleanly, tests green if nobody
+    presses test, and fails on the first lead of a three-day activation. The
+    message names the fields, because "invalid credential" tells an admin
+    nothing they can act on.
+    """
+    client = await _client(db_session)
+    async with client:
+        put = await client.put(
+            "/v1/integrations/salesforce", json={"secret": "pat-na1-token"}
+        )
+        assert put.status_code == 422
+        assert "refresh_token" in put.json()["detail"]
+
+        missing = await client.put(
+            "/v1/integrations/salesforce",
+            json={"secret": '{"instance_url": "https://x.my.salesforce.com"}'},
+        )
+        assert missing.status_code == 422
+        assert "client_id" in missing.json()["detail"]
+
+    # And nothing was stored — a refused credential must not leave a row an
+    # admin can see and believe in.
+    assert (
+        await repository.get_integration(
+            db_session, tenant_id=TENANT, provider="salesforce"
+        )
+        is None
+    )
+
+
+async def test_a_zoho_credential_in_the_wrong_datacentre_is_refused(
+    db_session: AsyncSession, encryption_key: str
+) -> None:
+    """Zoho's regions are separate accounts, and the wrong one reads as a bad
+    token rather than as a wrong region — so it is caught here instead."""
+    client = await _client(db_session)
+    async with client:
+        put = await client.put(
+            "/v1/integrations/zoho",
+            json={
+                "secret": (
+                    '{"client_id": "c", "client_secret": "s", '
+                    '"refresh_token": "r", "region": "co.uk"}'
+                )
+            },
+        )
+    assert put.status_code == 422
+    assert "co.uk" in put.json()["detail"]
 
 
 async def test_replacing_a_credential_clears_the_old_verdict(

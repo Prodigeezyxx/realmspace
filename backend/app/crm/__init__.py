@@ -43,6 +43,23 @@ def known(provider: str) -> bool:
     return provider in registry
 
 
+def parse_secret(provider: str, raw: str) -> None:
+    """Check a credential is the shape this provider needs, before storing it.
+
+    Called by `PUT /v1/integrations/{provider}` so a malformed credential is a
+    422 naming the missing fields, rather than a token that stores cleanly and
+    fails on the first lead of a three-day activation. Raises `AdapterError`;
+    the parsed value is deliberately thrown away, because the only place that
+    should hold an open credential is `adapter_for`.
+    """
+    cls = registry.get(provider)
+    if cls is None:
+        raise AdapterError(
+            f"no adapter for provider {provider!r} in this build", retryable=False
+        )
+    cls.parse_secret(raw)
+
+
 def adapter_for(integration: TenantIntegration) -> CrmAdapter:
     """Open a stored credential and hand back a usable adapter.
 
@@ -71,12 +88,20 @@ __all__ = [
     "CrmAdapter",
     "adapter_for",
     "known",
+    "parse_secret",
     "register",
     "registry",
 ]
 
-# Imported for its side effect: each adapter module registers itself with the
+# Imported for their side effect: each adapter module registers itself with the
 # decorator above, and a registry that only fills up once somebody imports the
 # right module is a registry that is empty in exactly the process that needed
 # it. At the foot of the file because the adapters import `register` from here.
+#
+# In `integrations.md` §4's build order, which is also roughly the order a
+# client is likely to be on one of them.
 from app.crm import hubspot as _hubspot  # noqa: E402,F401  isort:skip
+from app.crm import salesforce as _salesforce  # noqa: E402,F401  isort:skip
+from app.crm import pipedrive as _pipedrive  # noqa: E402,F401  isort:skip
+from app.crm import zoho as _zoho  # noqa: E402,F401  isort:skip
+from app.crm import dynamics as _dynamics  # noqa: E402,F401  isort:skip

@@ -35,6 +35,18 @@ Same as the webhook's unset URL: the handoff is on the log, and a CRM connected
 next week reads it from seq 0. A tenant that has connected nothing has not asked
 for anything to be delivered.
 
+## The adapter is told what the CRM called this contact last time
+
+`crm_link` already records it, for the withdrawal path. Handing it to `upsert`
+as well is what lets the three adapters with no native upsert — Salesforce and
+Dynamics upsert only against a key the client configured, Pipedrive not at all —
+update rather than search. See `app/crm/base.py`, which states the whole
+argument; here it is one read before the call.
+
+The link is looked up live rather than carried on the event, because an admin
+can revoke and reconnect a CRM between two stages of one lead, and the id from
+the old connection would address a record in an org we are no longer talking to.
+
 ## A handoff the adapter cannot key on is delivered-with-nothing, not failed
 
 `map()` returning `None` (an anonymous handoff, per `integrations.md` §2) closes
@@ -148,6 +160,18 @@ class CrmDeliveryConsumer(Consumer):
                 await session.commit()
                 return
 
+            contact_id = (event.payload.get("contact") or {}).get("id")
+            known_links = (
+                await repository.links_for_contact(
+                    session,
+                    tenant_id=event.tenant_id,
+                    contact_id=contact_id,
+                    provider=provider,
+                )
+                if contact_id
+                else []
+            )
+
             try:
                 adapter = crm.adapter_for(integration)
                 payload = adapter.map(event.payload)
@@ -163,7 +187,10 @@ class CrmDeliveryConsumer(Consumer):
                     )
                     await session.commit()
                     return
-                external_id = await adapter.upsert(payload)
+                external_id = await adapter.upsert(
+                    payload,
+                    external_id=known_links[0].external_id if known_links else None,
+                )
             except Exception as exc:  # noqa: BLE001 — recorded, then re-raised
                 await repository.complete_dispatch(
                     session,
@@ -174,7 +201,6 @@ class CrmDeliveryConsumer(Consumer):
                 await session.commit()
                 raise
 
-            contact_id = (event.payload.get("contact") or {}).get("id")
             if external_id and contact_id:
                 # The receipt a withdrawal will read. Written before the dispatch
                 # is closed, in the same transaction: a link missing for a

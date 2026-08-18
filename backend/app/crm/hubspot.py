@@ -55,11 +55,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import httpx
-
-from app.config import get_settings
 from app.crm import register
 from app.crm.base import AdapterError, CrmAdapter
+from app.crm.http import CrmHttp
+from app.crm.lead_fields import flatten, mappable_fields
 
 log = logging.getLogger(__name__)
 
@@ -81,7 +80,7 @@ STANDARD_PROPERTIES = {
 
 
 @register
-class HubSpotAdapter(CrmAdapter):
+class HubSpotAdapter(CrmHttp, CrmAdapter):
     provider = "hubspot"
 
     @classmethod
@@ -113,24 +112,10 @@ class HubSpotAdapter(CrmAdapter):
             if value:
                 properties[hubspot_property] = value
 
-        intent = handoff.get("spatial_intent") or {}
-        roi = handoff.get("roi_context") or {}
-        consent = handoff.get("consent") or {}
-        activation = handoff.get("activation") or {}
-
         # Everything a booth knows that a CRM does not. Only what the tenant has
-        # mapped is sent — see the module docstring.
-        mappable = {
-            **{f"spatial_intent.{k}": v for k, v in intent.items()},
-            "activation.id": activation.get("id"),
-            "activation.name": activation.get("name"),
-            "activation.venue": activation.get("venue"),
-            "consent.tier": consent.get("tier"),
-            "consent.basis": consent.get("basis"),
-            "consent.captured_at": consent.get("captured_at"),
-            "roi_context.attribution_window_days": roi.get("attribution_window_days"),
-            "dedupe_key": handoff.get("dedupe_key"),
-        }
+        # mapped is sent — see the module docstring. The key set is shared with
+        # every other adapter, so a client who changes CRM keeps their mapping.
+        mappable = mappable_fields(handoff)
         for field, hubspot_property in self._field_map.items():
             value = mappable.get(field)
             if value is None:
@@ -141,19 +126,21 @@ class HubSpotAdapter(CrmAdapter):
                     hubspot_property,
                 )
                 continue
-            # HubSpot properties are strings, numbers or enumerations; a list
-            # (`spatial_intent.zones`) has to be flattened or it is rejected
-            # wholesale, taking the rest of the contact with it.
-            properties[hubspot_property] = (
-                ";".join(str(v) for v in value) if isinstance(value, list) else value
-            )
+            properties[hubspot_property] = flatten(value)
 
         return {"id": email, "idProperty": "email", "properties": properties}
 
     # ── the calls ─────────────────────────────────────────────────────────────
 
-    async def upsert(self, payload: dict[str, Any]) -> str | None:
-        """One contact, created or updated, returning HubSpot's own id."""
+    async def upsert(
+        self, payload: dict[str, Any], *, external_id: str | None = None
+    ) -> str | None:
+        """One contact, created or updated, returning HubSpot's own id.
+
+        `external_id` is ignored: the upsert is HubSpot's own and keyed on the
+        email, so knowing what it called the record last time adds nothing. The
+        adapters that need it are the ones with no native upsert.
+        """
         if payload is None:
             return None
 
@@ -199,73 +186,8 @@ class HubSpotAdapter(CrmAdapter):
             return False, str(exc)
         return True, "hubspot reachable, token accepted"
 
-    # ── one place that talks to HubSpot ───────────────────────────────────────
+    # ── where ─────────────────────────────────────────────────────────────────
 
-    async def _call(
-        self,
-        method: str,
-        path: str,
-        *,
-        json: dict[str, Any] | None = None,
-        params: dict[str, Any] | None = None,
-    ) -> dict[str, Any] | None:
-        """Every request goes through here, so the error vocabulary is one thing.
-
-        Failures raise (`base.py`: the consumer owns retry), and `retryable`
-        carries the difference an operator on `/ops` needs — 429 and 5xx clear
-        by themselves, a 401 needs somebody to go and reconnect the account.
-        """
-        settings = get_settings()
-        try:
-            async with httpx.AsyncClient(
-                base_url=BASE_URL, timeout=settings.action_timeout_seconds
-            ) as client:
-                response = await client.request(
-                    method,
-                    path,
-                    json=json,
-                    params=params,
-                    headers={"Authorization": f"Bearer {self._secret}"},
-                )
-        except httpx.HTTPError as exc:
-            raise AdapterError(f"hubspot unreachable: {exc}", retryable=True) from exc
-
-        if response.status_code >= 400:
-            raise self._error(response)
-
-        if response.status_code == 204 or not response.content:
-            return None
-        return response.json()
-
-    @staticmethod
-    def _error(response: httpx.Response) -> AdapterError:
-        detail = response.text[:500]
-        status = response.status_code
-
-        if status == 429:
-            # `integrations.md` §8's first named failure. Retryable, and
-            # `base.Consumer`'s bounded backoff is the only retry policy — a
-            # second one here would disagree with it.
-            message = f"hubspot rate-limited this request (429): {detail}"
-            retryable = True
-        elif status in (401, 403):
-            message = (
-                f"hubspot rejected the credential ({status}) — the token is "
-                f"expired, revoked, or missing a scope: {detail}"
-            )
-            retryable = False
-        elif status == 404:
-            message = f"hubspot has no such record (404): {detail}"
-            retryable = False
-        elif status >= 500:
-            message = f"hubspot returned {status}: {detail}"
-            retryable = True
-        else:
-            # A 400 is usually a property the portal does not have, which is a
-            # field map to fix rather than a call to repeat.
-            message = f"hubspot refused the request ({status}): {detail}"
-            retryable = False
-
-        error = AdapterError(message, retryable=retryable)
-        error.status = status  # type: ignore[attr-defined]
-        return error
+    def _base_url(self) -> str:
+        """One host for every portal — the exception among the five adapters."""
+        return BASE_URL

@@ -30,6 +30,19 @@ with no adapter. A credential stored for something nothing dispatches is a
 client's live token sitting in our database achieving nothing, under an admin
 who believes their CRM is connected.
 
+## The credential is checked before it is encrypted
+
+HubSpot's credential is a bearer token and any non-empty string is plausibly
+one. Salesforce, Zoho and Dynamics need four or five fields, and they arrive as
+a JSON document in the same one encrypted column — so `PUT` asks the adapter
+whether the document is the shape it needs (`crm.parse_secret`) and answers 422
+with the missing fields if not.
+
+The alternative is a credential that stores cleanly, tests green if nobody
+presses test, and fails on the first lead of a three-day activation. The parsed
+value is thrown away here: the only place that holds an open credential is
+`crm.adapter_for`.
+
 ## `test` writes what it found
 
 The healthcheck result is stored on the row, not only returned, so a token that
@@ -60,8 +73,10 @@ class IntegrationIn(BaseModel):
 
     model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
 
-    #: The token, API key or refresh token. Write-only, in the strict sense: no
-    #: response model in this file contains it.
+    #: The token, API key, or — for the OAuth providers — a JSON credential
+    #: document. Each adapter says which it needs and `PUT` checks before
+    #: storing. Write-only, in the strict sense: no response model in this file
+    #: contains it.
     secret: str = Field(min_length=1, max_length=4096)
 
     #: `integrations.md` §3 — "field mapping is per-tenant config, not code".
@@ -185,6 +200,13 @@ async def put_integration(
     else.
     """
     _require_known(provider)
+
+    try:
+        crm.parse_secret(provider, body.secret)
+    except AdapterError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
 
     try:
         ciphertext = secrets.encrypt(
