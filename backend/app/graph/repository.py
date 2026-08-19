@@ -264,6 +264,7 @@ async def upsert_session(
     revenue_influenced: float | None = None,
     qualified_leads: int | None = None,
     anonymous_handoffs: bool = False,
+    insight_interval_minutes: int = 10,
 ) -> dict[str, Any]:
     """Create or update a Session node (data-model.md → `(:Session {...})`).
 
@@ -311,7 +312,8 @@ async def upsert_session(
             s.attribution_window_days   = $attribution_window_days,
             s.revenue_influenced        = $revenue_influenced,
             s.qualified_leads           = $qualified_leads,
-            s.anonymous_handoffs        = $anonymous_handoffs
+            s.anonymous_handoffs        = $anonymous_handoffs,
+            s.insight_interval_minutes  = $insight_interval_minutes
         RETURN s
         """,
         tenant_id=tenant_id,
@@ -333,6 +335,7 @@ async def upsert_session(
         revenue_influenced=revenue_influenced,
         qualified_leads=qualified_leads,
         anonymous_handoffs=anonymous_handoffs,
+        insight_interval_minutes=insight_interval_minutes,
     )
     record = await result.single()
     return dict(record["s"])
@@ -1162,6 +1165,76 @@ async def withdraw_consent(
         withdrawn_at=withdrawn_at,
     )
     return (await result.single()) is not None
+
+
+async def upsert_insight(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str,
+    insight_id: str,
+    text: str,
+    generated_by: str,
+    timestamp: str,
+    confidence: float | None = None,
+    about_zone_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    """Create or update an Insight (data-model.md → `(:Insight {...})`).
+
+    `data-model.md`'s opening line is that "every LLM-generated insight is
+    persisted as a first-class node in the same graph", and `graph/schema.py` has
+    carried the key constraint since Phase 1 — "Insight and Frame get keys now so
+    Phase 2/5 add writers without a migration". This is that writer.
+
+    ## Why there is no `DERIVED_FROM` edge
+
+    `data-model.md` §relationships has `(Insight)-[:DERIVED_FROM]->(Event)`, and
+    there is a `(:Event)` constraint in the schema — but **nothing in this system
+    writes an `(:Event)` node**. Events live on the append-only log, which is the
+    record of what happened and the thing a replay reads; copying them into the
+    graph to give this edge somewhere to point would duplicate the log into a
+    store that holds current state, and the copy would drift.
+
+    So the supporting event ids travel in the `insight.generated` payload
+    instead, where a reader can resolve them against the log itself. The graph
+    keeps `ABOUT`, which points at zones that really are nodes here.
+
+    ## The node is a copy, not the record
+
+    The event on the log is the record; this is the queryable copy, the same
+    relationship every other node in this store has to the events that produced
+    it. `MERGE` on the derived id makes a replay re-write the same node rather
+    than a second one.
+    """
+    result = await session.run(
+        """
+        MERGE (i:Insight {tenant_id: $tenant_id, id: $insight_id})
+        SET i.session_id   = $session_id,
+            i.text         = $text,
+            i.generated_by = $generated_by,
+            i.timestamp    = $timestamp,
+            i.confidence   = $confidence
+        WITH i
+        UNWIND CASE WHEN $about_zone_ids = [] THEN [null] ELSE $about_zone_ids END
+               AS zone_id
+        OPTIONAL MATCH (z:Zone {tenant_id: $tenant_id, session_id: $session_id,
+                                id: zone_id})
+        FOREACH (_ IN CASE WHEN z IS NULL THEN [] ELSE [1] END |
+            MERGE (i)-[:ABOUT]->(z)
+        )
+        RETURN i
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        insight_id=insight_id,
+        text=text,
+        generated_by=generated_by,
+        timestamp=timestamp,
+        confidence=confidence,
+        about_zone_ids=about_zone_ids or [],
+    )
+    record = await result.single()
+    return dict(record["i"]) if record else {}
 
 
 async def contacts_awaiting_withdrawal(

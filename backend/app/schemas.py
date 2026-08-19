@@ -309,6 +309,14 @@ class SessionConfigIn(BaseModel):
     #: on, it is one handoff per un-consented person at `session.ended`.
     anonymous_handoffs: bool = False
 
+    #: How often the insight agent summarises the room, in minutes of **event
+    #: time**. 10 matches `PRD.md`'s "LLM-generated insights every 10 minutes".
+    #:
+    #: Bounded below at 1 because the window is what an insight is computed from
+    #: — a sub-minute window on a busy floor says "two people entered a zone",
+    #: which is a reading rather than an insight.
+    insight_interval_minutes: int = Field(default=10, ge=1, le=240)
+
     #: **Omitted leaves the zone set untouched; a list replaces it entirely**,
     #: including an empty one. The wizard always posts the whole set, so a zone
     #: the operator deleted has to disappear rather than linger and keep

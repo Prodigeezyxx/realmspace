@@ -29,6 +29,7 @@ from app.consumers.graph_writer import GraphWriterConsumer
 from app.consumers.handoff_delivery import HandoffDeliveryConsumer
 from app.consumers.outcomes import OutcomesConsumer
 from app.consumers.identity import IdentityConsumer
+from app.consumers.insights import InsightsConsumer
 from app.consumers.reanonymise import ReAnonymiseConsumer
 from app.consumers.rules import RulesConsumer
 from app.consumers.sdr import SdrConsumer
@@ -80,6 +81,10 @@ CONSUMER_CLASSES: list[type[Consumer]] = [
     # retracted, so ahead of it here it would spend a retry backoff on every
     # request rather than completing in the same pass.
     ErasureConsumer,
+    # Watches the spatial stream for the passage of event time. Ordered after
+    # the graph writer so a window it summarises has already been written to the
+    # graph, and away from the lead chain, which it shares nothing with.
+    InsightsConsumer,
     # Off the ledger's critical path — the ledger reads the log. This keeps the
     # graph's queryable copy of "which deals came from this visitor" current.
     OutcomesConsumer,

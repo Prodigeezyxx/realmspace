@@ -37,6 +37,7 @@ from app.routers import (
     events,
     followups,
     handoffs,
+    insights,
     integrations,
     ledger,
     live,
@@ -149,6 +150,7 @@ app.include_router(outcomes.router)
 app.include_router(erasure.router)
 app.include_router(followups.router)
 app.include_router(handoffs.router)
+app.include_router(insights.router)
 app.include_router(ledger.router)
 app.include_router(dead_letters.router)
 app.include_router(dispatches.router)

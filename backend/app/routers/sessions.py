@@ -97,6 +97,7 @@ def _config_out(
         revenue_influenced=props.get("revenue_influenced"),
         qualified_leads=props.get("qualified_leads"),
         anonymous_handoffs=bool(props.get("anonymous_handoffs")),
+        insight_interval_minutes=props.get("insight_interval_minutes") or 10,
         zones=[ZoneConfig(**z) for z in zones],
         touchpoints=[TouchpointOut(**s) for s in surfaces],
     )
@@ -147,6 +148,7 @@ async def put_session_config(
         revenue_influenced=config.revenue_influenced,
         qualified_leads=config.qualified_leads,
         anonymous_handoffs=config.anonymous_handoffs,
+        insight_interval_minutes=config.insight_interval_minutes,
     )
 
     if config.zones is not None:

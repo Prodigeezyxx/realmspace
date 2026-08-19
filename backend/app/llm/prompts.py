@@ -192,3 +192,77 @@ def deterministic_draft(
         f"Following up from {activation}" if activation else "Following up from our stand"
     )
     return subject, "\n".join(lines)
+
+
+INSIGHT = """You are writing one short observation for an operator running a \
+retail activation, about the last {minutes} minutes on their floor.
+
+What was measured in that window, and the only thing you may use:
+
+{measurements}
+
+Rules, and they matter more than the prose:
+- Use only the numbers above. Never add one, never round to a rounder-sounding \
+figure, and never compare to a period you were not given.
+- No recommendations and no causes. "Product Pod held attention longest" is an \
+observation; "because the lighting draws people in" is a story we did not measure.
+- One or two sentences. No preamble.
+- If the numbers are unremarkable, say something unremarkable. An operator \
+learns more from a quiet hour reported quietly than from a flat one dressed up.
+
+QUESTION:
+Write the observation."""
+
+
+def insight_prompt(*, measurements: dict[str, Any], minutes: int) -> str:
+    return INSIGHT.format(
+        minutes=minutes,
+        measurements=json.dumps(measurements, indent=2, default=str),
+    )
+
+
+def deterministic_insight(*, measurements: dict[str, Any], minutes: int) -> str:
+    """The observation composed from the measurements, with no model.
+
+    The floor, in the same sense `catalogue.Entry.phrase` is Ask's and
+    `deterministic_draft` is the SDR's: with open decision 2 open this *is* the
+    insight, so it has to be worth an operator's glance rather than a placeholder.
+
+    It states what happened and stops. Everything a model might add — a cause, a
+    comparison, a recommendation — is exactly what was not measured.
+    """
+    people = measurements.get("people") or 0
+    entries = measurements.get("zone_entries") or 0
+    top = measurements.get("top_zone")
+    top_seconds = measurements.get("top_zone_seconds") or 0
+    surfaces = measurements.get("surfaces") or []
+    passbys = measurements.get("passbys") or 0
+
+    if not people and not entries:
+        return f"Nothing was recorded on the floor in the last {minutes} minutes."
+
+    parts = [
+        f"{people} {'person' if people == 1 else 'people'} moved through "
+        f"{entries} zone {'entry' if entries == 1 else 'entries'} in the last "
+        f"{minutes} minutes."
+    ]
+
+    if top and top_seconds:
+        parts.append(
+            f"{top} held attention longest, at {round(top_seconds)}s of dwell."
+        )
+
+    if surfaces:
+        best = surfaces[0]
+        parts.append(
+            f"{best['surface']} was used {best['interactions']} "
+            f"{'time' if best['interactions'] == 1 else 'times'}."
+        )
+
+    if passbys:
+        parts.append(
+            f"{passbys} {'person' if passbys == 1 else 'people'} came close to a "
+            "zone without entering it."
+        )
+
+    return " ".join(parts)

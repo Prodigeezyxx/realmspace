@@ -337,8 +337,29 @@ async def read_window(
     until: dt.datetime,
     before_seq: int,
     limit: int = MAX_LIMIT,
+    start_inclusive: bool = False,
+    end_inclusive: bool = True,
 ) -> list[EventLog]:
     """Events of one type inside a window of **event time**, up to a seq bound.
+
+    ## Two window shapes, and why the default is the exclusive one
+
+    The rules evaluator asks for a **sliding** window ending at the event it is
+    evaluating: "the last 30 seconds before this". There, an exclusive start is
+    right — consecutive evaluations overlap, and an event sitting exactly on a
+    boundary would otherwise be counted in both, which is how a threshold of
+    five fires on four people.
+
+    The insight agent asks for **fixed, contiguous** windows: `[10:00, 10:10)`,
+    then `[10:10, 10:20)`. Both ends move for it. An exclusive start silently
+    drops any event landing exactly on a boundary — including, every time, the
+    session's very first event, which is where its first window starts. And an
+    inclusive end counts an event sitting exactly on `10:10` in *both* windows,
+    which is the same double-count from the other direction.
+
+    So the two flags together: `start_inclusive=True, end_inclusive=False` gives
+    `[since, until)`, and every event belongs to exactly one window — none lost
+    between two, none counted in two.
 
     This is ADR-002 §1 in one query — the sliding window the rules evaluator uses,
     read from the log rather than held in a dictionary that a restart empties.
@@ -365,8 +386,12 @@ async def read_window(
             EventLog.tenant_id == tenant_id,
             EventLog.session_id == session_id,
             EventLog.type == type,
-            EventLog.occurred_at > since,
-            EventLog.occurred_at <= until,
+            EventLog.occurred_at >= since
+            if start_inclusive
+            else EventLog.occurred_at > since,
+            EventLog.occurred_at <= until
+            if end_inclusive
+            else EventLog.occurred_at < until,
             EventLog.seq <= before_seq,
         )
         .order_by(EventLog.seq.asc())
@@ -382,14 +407,30 @@ async def last_event_of_type(
     tenant_id: str,
     session_id: str,
     type: str,
-    before_seq: int,
+    before_seq: int | None = None,
 ) -> EventLog | None:
-    """The most recent event of a type strictly before a seq.
+    """The most recent event of a type, optionally strictly before a seq.
 
     The evaluator's `none` condition asks this: "when did anything of this type
     last happen here?" The seq bound is exclusive — the event being evaluated is
     not part of its own history — and it is what keeps a replay from seeing
     events that, at the point being replayed, had not arrived yet.
+
+    ## `None` means no bound, and there is one caller that needs that
+
+    A bound is wrong when the thing being looked for is **always written after
+    its own cause**. `consumers/insights.py` asks "what was the last insight for
+    this session?" while processing an event the insight was derived from — and
+    an insight is appended at a higher seq than every event it summarises, so a
+    bound of that event's seq can never see it. The lookup would return None
+    forever and the consumer would recompute the first window on every event.
+
+    This is the same trap ADR-002 records for rule cooldowns: *"a cooldown
+    ordered on the firing's own seq never applies at all, because a firing is
+    always appended after its cause."* There the fix was to order on the carried
+    `triggerSeq`; here it is to drop the bound, which is safe because the
+    unbounded read only suppresses duplicate work — what an insight *contains*
+    is still computed under a seq bound, so a replay reproduces it exactly.
     """
     stmt = (
         select(EventLog)
@@ -397,9 +438,12 @@ async def last_event_of_type(
             EventLog.tenant_id == tenant_id,
             EventLog.session_id == session_id,
             EventLog.type == type,
-            EventLog.seq < before_seq,
         )
-        .order_by(EventLog.seq.desc())
+    )
+    if before_seq is not None:
+        stmt = stmt.where(EventLog.seq < before_seq)
+    stmt = (
+        stmt.order_by(EventLog.seq.desc())
         .limit(1)
     )
     return (await session.execute(stmt)).scalar_one_or_none()
