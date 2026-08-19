@@ -289,6 +289,13 @@ class TenantIntegration(Base):
     #: Open string, not an enum — the next adapter should not need a migration
     #: to exist, and enrichment providers (integrations.md §7) arrive here too.
     provider: Mapped[str] = mapped_column(Text, primary_key=True)
+    #: What the provider is *for* (migration 0010). `crm` is a destination a
+    #: lead can be delivered to; `llm` is a model Ask and the SDR call. The
+    #: delivery consumer asks for `crm` explicitly, so an AI key can never be
+    #: enrolled as a place to send somebody's contact details.
+    kind: Mapped[str] = mapped_column(
+        Text, nullable=False, default="crm", server_default="crm"
+    )
 
     #: nonce || AES-256-GCM ciphertext, bound to (tenant_id, provider). Only
     #: `app/secrets.py` reads it, and only an adapter's authenticate() asks.

@@ -27,6 +27,7 @@ from app.consumers.run import build_all
 from app.db import engine
 from app.graph import driver as graph_driver
 from app.routers import (
+    ask,
     auth,
     consent,
     consumers,
@@ -137,6 +138,7 @@ app.add_middleware(
 
 
 app.include_router(auth.router)
+app.include_router(ask.router)
 app.include_router(events.router)
 app.include_router(events.alias_router)
 app.include_router(live.router)

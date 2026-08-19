@@ -138,7 +138,12 @@ class CrmDeliveryConsumer(Consumer):
             providers = [
                 row.provider
                 for row in await repository.list_integrations(
-                    session, tenant_id=event.tenant_id, active_only=True
+                    session,
+                    tenant_id=event.tenant_id,
+                    active_only=True,
+                    # Destinations only. An AI provider lives in the same table
+                    # (migration 0010) and is not somewhere a lead goes.
+                    kind="crm",
                 )
             ]
 

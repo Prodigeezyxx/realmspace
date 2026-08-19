@@ -566,13 +566,22 @@ async def delete_rule(session: AsyncSession, *, tenant_id: str, rule_id: str) ->
 
 
 async def list_integrations(
-    session: AsyncSession, *, tenant_id: str, active_only: bool = False
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    active_only: bool = False,
+    kind: str | None = None,
 ) -> list[TenantIntegration]:
     """Every integration this tenant has configured.
 
     `active_only` is the delivery consumer's question — "where does a lead go?" —
     and is served by `tenant_integration_active_idx`. The wide form is the admin
     screen, which needs to see a revoked row precisely because it is revoked.
+
+    `kind` (migration 0010) is the other half of that question. The delivery
+    consumer asks for `crm` and means it: without the filter, an AI provider key
+    stored by an admin would be enrolled as a destination and a lead would be
+    offered to it. `None` is the admin screen again, which shows both.
     """
     stmt = (
         select(TenantIntegration)
@@ -581,6 +590,8 @@ async def list_integrations(
     )
     if active_only:
         stmt = stmt.where(TenantIntegration.status == "active")
+    if kind is not None:
+        stmt = stmt.where(TenantIntegration.kind == kind)
     return list((await session.execute(stmt)).scalars().all())
 
 
@@ -597,6 +608,31 @@ async def get_integration(
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
+async def get_integration_of_kind(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    kind: str,
+    active_only: bool = True,
+) -> TenantIntegration | None:
+    """The one credential of a kind this tenant has, or None.
+
+    `get_integration` asks by provider name, which is the admin screen's
+    question. This is the consumer's: *"is there an AI provider configured?"* —
+    asked without knowing which, because the caller does not care and must not
+    have to keep a list.
+
+    The primary key is `(tenant, provider)`, so a tenant could in principle store
+    two of a kind. The first by name wins, deterministically, rather than an
+    arbitrary row — an activation whose answers changed provider between two
+    questions would be very hard to explain.
+    """
+    rows = await list_integrations(
+        session, tenant_id=tenant_id, active_only=active_only, kind=kind
+    )
+    return rows[0] if rows else None
+
+
 async def upsert_integration(
     session: AsyncSession,
     *,
@@ -605,6 +641,7 @@ async def upsert_integration(
     secret_ct: bytes,
     secret_hint: str,
     field_map: dict,
+    kind: str = "crm",
 ) -> TenantIntegration:
     """Store or replace a tenant's credential for one provider.
 
@@ -623,6 +660,7 @@ async def upsert_integration(
         "secret_ct": secret_ct,
         "secret_hint": secret_hint,
         "field_map": field_map,
+        "kind": kind,
         "status": "active",
     }
     stmt = (
