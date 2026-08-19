@@ -63,6 +63,13 @@ export type RealmEventType =
   | "erasure.requested"
   /** the receipt: ids and counts, never what was removed */
   | "erasure.completed"
+  /**
+   * A path-aware follow-up the contextual SDR wrote and nobody has sent. Its own
+   * namespace rather than an `insight.` type: an insight is about the room, a
+   * draft is about one person who agreed to be contacted, and the two want
+   * different handling everywhere PII is handled.
+   */
+  | "followup.drafted"
   // ops
   | "cost.metered"
   /** the perception model's numbers moved against their baseline */
@@ -137,6 +144,12 @@ export const PII_EVENT_TYPES: readonly RealmEventType[] = [
    * would put it straight back on the log it just rewrote.
    */
   "erasure.requested",
+  /**
+   * It names the contact and then quotes them: the body says "Hi Sam". Redacting
+   * the contact object and leaving the letter would not be redaction, which is
+   * why the backend's erasure clears the body too.
+   */
+  "followup.drafted",
 ] as const;
 
 export function isPiiEventType(t: RealmEventType): boolean {
