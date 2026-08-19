@@ -31,6 +31,7 @@ from app.consumers.outcomes import OutcomesConsumer
 from app.consumers.identity import IdentityConsumer
 from app.consumers.reanonymise import ReAnonymiseConsumer
 from app.consumers.rules import RulesConsumer
+from app.consumers.sdr import SdrConsumer
 from app.consumers.tracker import TrackerConsumer
 from app.graph.driver import connect, disconnect
 
@@ -68,6 +69,12 @@ CONSUMER_CLASSES: list[type[Consumer]] = [
     # undoes finds the link already there.
     CrmDeliveryConsumer,
     CrmRetractConsumer,
+    # Reads the same `handoff.lead` the deliveries do and writes only to the
+    # log — no outbound call, nothing to claim. After them, because a lead
+    # reaching the client's CRM is time-sensitive on a floor and a draft is read
+    # after close; before the erasure, so a withdrawal and a draft arriving in
+    # one batch end with the draft redacted rather than written afterwards.
+    SdrConsumer,
     # After the retraction, and that order is a correctness condition rather
     # than an optimisation: the erasure refuses to run until every crm_link is
     # retracted, so ahead of it here it would spend a retry backoff on every

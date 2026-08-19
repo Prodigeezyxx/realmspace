@@ -138,3 +138,57 @@ def sdr_prompt(*, contact: dict[str, Any], intent: dict[str, Any], activation: s
         surfaces=", ".join(str(s) for s in surfaces) if surfaces else "none recorded",
         total_seconds=int(intent.get("dwell_seconds_total") or 0),
     )
+
+
+def deterministic_draft(
+    *, contact: dict[str, Any], intent: dict[str, Any], activation: str
+) -> tuple[str, str]:
+    """`(subject, body)` composed from the measurements, with no model.
+
+    The same relationship `catalogue.Entry.phrase` has to a model's prose: this
+    is the floor, and a provider that can reason improves on it. With open
+    decision 2 still open it *is* the draft, so it has to be something an
+    operator could actually send after reading it — not a placeholder.
+
+    It states only what was measured, and it says where the detail came from.
+    A follow-up that implied a conversation nobody had would be worse than no
+    follow-up: the visitor knows whether they spoke to anybody.
+    """
+    name = (contact.get("name") or "").split(" ")[0]
+    greeting = f"Hi {name}," if name else "Hello,"
+
+    zones = [str(z) for z in (intent.get("zones_visited") or [])]
+    surfaces = [str(s) for s in (intent.get("surfaces_engaged") or [])]
+    top = intent.get("top_dwell_zone")
+    total = int(intent.get("dwell_seconds_total") or 0)
+
+    lines = [greeting, ""]
+    if activation:
+        lines.append(f"Thank you for visiting us at {activation}.")
+    else:
+        lines.append("Thank you for visiting our stand.")
+
+    if top:
+        lines.append(
+            f"We noticed you spent time at {top}"
+            + (f", across about {total // 60} minutes with us" if total >= 60 else "")
+            + "."
+        )
+    elif zones:
+        lines.append("We noticed you looked around " + ", ".join(zones) + ".")
+
+    if surfaces:
+        lines.append("You also tried " + ", ".join(surfaces) + ".")
+
+    lines += [
+        "",
+        "If you would like to know more about what you saw, just reply to this "
+        "message and we will pick it up from there.",
+        "",
+        "Best regards",
+    ]
+
+    subject = (
+        f"Following up from {activation}" if activation else "Following up from our stand"
+    )
+    return subject, "\n".join(lines)

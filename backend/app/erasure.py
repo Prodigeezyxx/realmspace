@@ -83,14 +83,23 @@ CAPTURED = "consent.captured"
 RESOLVED = "identity.resolved"
 HANDOFF = "handoff.lead"
 OUTCOME = "outcome.recorded"
+FOLLOWUP = "followup.drafted"
 
 #: The types that join one identifier to another. Read to resolve the subject.
-LINKING_TYPES = (CAPTURED, RESOLVED, HANDOFF)
+LINKING_TYPES = (CAPTURED, RESOLVED, HANDOFF, FOLLOWUP)
 
 #: The types whose payloads actually carry a name or an email. Everything else
 #: on the log about this person is ids and timestamps, and stays — see the
 #: module docstring.
-PII_TYPES = (CAPTURED, HANDOFF, OUTCOME)
+PII_TYPES = (CAPTURED, HANDOFF, OUTCOME, FOLLOWUP)
+
+#: Fields on a `followup.drafted` that quote the person rather than name them.
+#: The draft says "Hi Sam" in its body and "Following up from …" in its subject,
+#: so redacting the contact object and leaving the letter would be redacting the
+#: envelope. What survives is `grounded_in` — zones and dwell, the anonymous path
+#: that was never consent-gated — which is what makes the row still evidence that
+#: a draft existed and was never sent.
+DRAFT_TEXT = ("subject", "body")
 
 #: Contact fields consent grants us and erasure takes back. `id` is not among
 #: them: it is ours, it names no one on its own, and the ledger row, the
@@ -126,7 +135,12 @@ class Subject:
                 or payload.get("consent_id") in self.consent_ids
                 or (session_id, payload.get("anon_id")) in self.tracks
             )
-        if type == HANDOFF:
+        if type in (HANDOFF, FOLLOWUP):
+            # A draft is shaped like the handoff it was built from — same
+            # contact, same dedupe key, same track — so it is matched the same
+            # way. Listing it in `PII_TYPES` without listing it here would leave
+            # the letter on the log after the lead it quotes had been erased,
+            # which is how the test for this failed.
             return (
                 (payload.get("contact") or {}).get("id") in self.contact_ids
                 or payload.get("dedupe_key") in self.dedupe_keys
@@ -155,7 +169,11 @@ class Subject:
         contact = payload.get("contact") or {}
         if contact.get("id"):
             self.contact_ids.add(contact["id"])
-        if type == HANDOFF and contact.get("email") and payload.get("dedupe_key"):
+        if (
+            type in (HANDOFF, FOLLOWUP)
+            and contact.get("email")
+            and payload.get("dedupe_key")
+        ):
             # Only from a handoff, and only when there was an email to build it
             # from. See the module docstring — a key that is really a track id
             # bridges two people who share one, and a redacted key is shared by
@@ -227,6 +245,12 @@ def redact(
             # anonymous handoff says, and an erased lead is not that — it is a
             # person who was named and then asked not to be.
             redacted["contact"] = kept
+
+    if type == FOLLOWUP:
+        for field in DRAFT_TEXT:
+            if redacted.get(field):
+                changed = True
+                redacted[field] = "[erased]"
 
     key = redacted.get("dedupe_key")
     if isinstance(key, str) and key:

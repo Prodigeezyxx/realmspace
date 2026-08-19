@@ -68,6 +68,11 @@ EVENT_NAMESPACES = (
     #: ledger; nothing in the repo had ever defined an outcome, which is why
     #: every attribution claim in the docs rested on a thing that did not exist.
     "outcome.",
+    #: followup.drafted — the contextual SDR (roadmap.md Phase 5). Its own
+    #: namespace rather than an `insight.` type: an insight is about the room, a
+    #: draft is about one person who agreed to be contacted, and the two want
+    #: different handling everywhere PII is handled.
+    "followup.",
     #: erasure.requested / erasure.completed — GDPR Art. 17, the job
     #: `consent-and-identity.md` §5 asks for. Its own namespace rather than a
     #: `consent.` type, because an erasure is not a consent decision: it outranks
