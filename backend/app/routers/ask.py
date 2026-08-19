@@ -28,6 +28,16 @@ is the ordinary case while open decision 2 stands. An operator who cannot tell a
 model's answer from a keyword match cannot judge either, so the surface renders
 it and this endpoint always sends it.
 
+## Who may ask
+
+`require_ask`, not `require_reader`. `multi-tenant.md` §3 puts "query Ask" with
+Analyst and gives Operator "run activations, see live dashboard" — and this
+codebase reads that table as a deny-list, because a permission matrix where
+omission grants nothing is the only kind that means anything. So an operator on
+the floor cannot ask the room a question, which is the most surprising line in
+the matrix and is recorded in §3 as a decision rather than left to look like an
+oversight.
+
 ## A refusal is a 200
 
 "I cannot answer that yet" is an answer, and the request succeeded. A 4xx would
@@ -47,7 +57,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import llm, repository
-from app.auth.principal import Principal, require_reader
+from app.auth.principal import Principal, require_ask
 from app.cost import meter
 from app.db import get_session
 from app.graph.driver import get_graph_session
@@ -89,7 +99,7 @@ class AskOut(BaseModel):
 @router.post("", response_model=AskOut, summary="Ask a question about a session")
 async def ask(
     body: AskIn,
-    principal: Principal = Depends(require_reader),
+    principal: Principal = Depends(require_ask),
     session: AsyncSession = Depends(get_session),
     graph=Depends(get_graph_session),
 ) -> AskOut:
@@ -182,7 +192,7 @@ async def ask(
 
 @router.get("/catalogue", summary="What this system can be asked")
 async def get_catalogue(
-    principal: Principal = Depends(require_reader),
+    principal: Principal = Depends(require_ask),
 ) -> dict[str, Any]:
     """The menu, for a UI that should suggest real questions.
 

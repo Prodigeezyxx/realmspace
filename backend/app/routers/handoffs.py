@@ -31,10 +31,13 @@ verdict comes from `attribution.ledger.withdrawn_subjects`, imported rather than
 re-derived: the ledger reads the same log and has to reach the same answer, and
 two implementations would disagree exactly once, in the direction that matters.
 
-## Reader, not operator
+## `leads`, not plain `read`
 
-`require_reader`: this is the client's own data going to the client's own
-systems, and the role that may read a report may read the leads in it.
+This returns contact emails. `multi-tenant.md` §3 gives "own follow-up
+sequences" to Analyst and describes Viewer as "the sponsor/brand stakeholder" —
+somebody who reads the report about an activation, not the list of people who
+attended it. A capability rather than a role name, so the answer to "who may
+pull our leads" is one line in `CAPABILITIES` and not a condition repeated here.
 """
 
 from __future__ import annotations
@@ -51,7 +54,7 @@ from app.attribution.ledger import (
     redact_dedupe_key,
     withdrawn_subjects,
 )
-from app.auth.principal import Principal, require_reader
+from app.auth.principal import Principal, require_leads
 from app.db import get_session
 
 router = APIRouter(prefix="/v1/handoffs", tags=["handoffs"])
@@ -99,7 +102,7 @@ async def list_handoffs(
     since: int = Query(default=0, ge=0, description="Last seq you handled"),
     limit: int = Query(default=DEFAULT_LIMIT, ge=1, le=1000),
     format: str = Query("json", pattern="^(json|csv)$"),
-    principal: Principal = Depends(require_reader),
+    principal: Principal = Depends(require_leads),
     session: AsyncSession = Depends(get_session),
 ):
     """Every `handoff.lead` after `since`, oldest first, withdrawn ones redacted.

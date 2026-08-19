@@ -73,7 +73,9 @@ async def drafts(db_session: AsyncSession) -> list[dict]:
     return [row.payload for row in rows]
 
 
-async def _client(db_session: AsyncSession, role: str = "operator") -> AsyncClient:
+# `multi-tenant.md` §3 gives "own follow-up sequences" to Analyst — the person
+# whose job the drafts are — rather than to the operator running the room.
+async def _client(db_session: AsyncSession, role: str = "analyst") -> AsyncClient:
     from collections.abc import AsyncIterator
 
     from app.auth.models import AuthUser
@@ -275,14 +277,23 @@ async def test_the_drafts_are_readable_and_nothing_can_send_them(
     assert "Pod" in body["followups"][0]["draft"]["body"]
 
 
-async def test_a_reader_cannot_see_somebody_elses_letter(
-    db_session: AsyncSession, graph_session: GraphSession
+@pytest.mark.parametrize("role", ["viewer", "operator"])
+async def test_the_wrong_role_cannot_see_somebody_elses_letter(
+    role: str, db_session: AsyncSession, graph_session: GraphSession
 ) -> None:
-    """A reader may see the activation's numbers. These are a name beside a
-    letter written about that person."""
-    client = await _client(db_session, role="reader")
+    """These are a name beside a letter written about that person.
+
+    A **viewer** is the client's own stakeholder, who reads the report about an
+    activation rather than the list of people who attended it. An **operator**
+    runs the room; `multi-tenant.md` §3 gives follow-up sequences to Analyst, and
+    this codebase reads that table as a deny-list. Both refusals are deliberate,
+    so a future change to either has to be one too.
+    """
+    client = await _client(db_session, role=role)
     async with client:
-        assert (await client.get("/v1/followups")).status_code == 403
+        response = await client.get("/v1/followups")
+    assert response.status_code == 403
+    assert "leads" in response.json()["detail"]
 
 
 async def test_a_withdrawal_strips_the_letter_and_not_just_the_envelope(

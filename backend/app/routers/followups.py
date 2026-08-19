@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import repository
 from app.attribution.ledger import is_redacted_key, withdrawn_subjects
-from app.auth.principal import Principal, require_operator
+from app.auth.principal import Principal, require_leads
 from app.db import get_session
 from app.routers.handoffs import _every_withdrawal
 
@@ -47,15 +47,15 @@ async def list_followups(
     session_id: str | None = Query(default=None, alias="sessionId"),
     since: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=1000),
-    principal: Principal = Depends(require_operator),
+    principal: Principal = Depends(require_leads),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Every draft, newest cursor last, withdrawn ones stripped of their person.
 
-    `require_operator` rather than `require_reader`: a reader may see the
-    activation's numbers, and these are somebody's name beside a letter written
-    about them. That is the operator running the floor, not everyone with a
-    dashboard login.
+    `require_leads`: these are somebody's name beside a letter written about
+    them, which is not something everyone with a dashboard login should see.
+    `multi-tenant.md` §3 puts "own follow-up sequences" with Analyst — the person
+    whose job the drafts are — rather than with the operator running the room.
     """
     rows = await repository.read_events(
         session,

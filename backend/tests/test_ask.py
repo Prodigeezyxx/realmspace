@@ -48,7 +48,10 @@ async def _scope_to_test_tenant(db_session: AsyncSession):
     yield
 
 
-async def _client(db_session: AsyncSession, role: str = "reader") -> AsyncClient:
+# §3 puts "query Ask" with Analyst. "reader" was never in `USER_ROLES` — the old gate admitted any
+# human role by name, so an invalid one passed silently until the
+# capability map made a role mean something.
+async def _client(db_session: AsyncSession, role: str = "analyst") -> AsyncClient:
     from collections.abc import AsyncIterator
 
     from app.auth.models import AuthUser

@@ -32,6 +32,7 @@
  * a verified tenant, and we adopt it rather than asserting one.
  */
 
+import { getFirebaseAuth } from "@/lib/firebase/client";
 import { append, read, getCursor, setCursor, headSeq } from "./log";
 import { eventFromWire, eventToWire, type WireEvent } from "./wire";
 import { setTenantId } from "@/lib/tenant/context";
@@ -102,6 +103,25 @@ export function isRemoteBusEnabled(): boolean {
  * email it is handed, which its own README flags as still open. Once a signed-in
  * user exists, their email is used instead.
  */
+/**
+ * The signed-in user's Firebase ID token, or null if nobody is signed in.
+ *
+ * `getIdToken()` returns a cached token and refreshes it only when it is close
+ * to expiring, so this is not a network round trip per call.
+ */
+async function currentIdToken(): Promise<string | null> {
+  try {
+    const auth = getFirebaseAuth();
+    const user = auth?.currentUser;
+    return user ? await user.getIdToken() : null;
+  } catch {
+    // Firebase not configured, or the refresh failed. Either way the backend
+    // decides what to do about a request with no ID token — it is the only
+    // place that knows whether one is required here.
+    return null;
+  }
+}
+
 export function busEmail(): string {
   return process.env.NEXT_PUBLIC_BUS_EMAIL || "admin@floats.demo";
 }
@@ -113,20 +133,27 @@ let tokenExpiresAt = 0;
 let inFlightToken: Promise<string | null> | null = null;
 
 /**
- * Exchange an email for a backend token.
+ * Exchange a verified Firebase sign-in for a backend token.
  *
- * The backend's `POST /v1/auth/token` currently trusts the email it is given
- * rather than verifying a Firebase login — its own README says so. So this is
- * not yet authentication in any meaningful sense; it is how a local dev run gets
- * a signed token whose *tenant claim* is real, which is what the rest of the
- * request path depends on. Verifying the Firebase credential is the backend's
- * job and is still open.
+ * The backend used to trust whatever email it was given, which meant anyone who
+ * knew an address could get that user's token. It now verifies a Firebase ID
+ * token against Google's published keys, so this sends the real credential the
+ * user already signed in with — the identity existed all along and was simply
+ * never carried across.
+ *
+ * The email fallback survives for **local development only**, and the backend
+ * refuses it in every other environment (`app/routers/auth.py`). A dev stack
+ * with no Firebase project configured would otherwise be unrunnable.
  */
 async function fetchToken(email: string): Promise<string | null> {
+  const idToken = await currentIdToken();
   const res = await fetch(`${busUrl()}/v1/auth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email }),
+    // Both are sent; the backend picks. Which one is *required* is a property of
+    // the deployment, not of this browser, and asking here would mean shipping a
+    // second copy of that rule to disagree with the first.
+    body: JSON.stringify(idToken ? { idToken, email } : { email }),
   });
   if (!res.ok) {
     publish({ status: "error", detail: `auth failed (${res.status})` });

@@ -8,10 +8,16 @@ and store." This is where it gets stored.
 
 ## Who may write one
 
-Reading is `require_reader`; writing is `require_operator`. A rule is not a
+Reading is `require_reader`; writing is `require_rule_author`. A rule is not a
 report — saving one arms an action that will post to Slack or change what a
-screen in the room is showing, without anybody in the loop afterwards. That is
-an operator's decision.
+screen in the room is showing, without anybody in the loop afterwards.
+
+That was an operator's decision until the roles were made to mean something.
+`multi-tenant.md` §3 puts "build agents" with Analyst/Marketer, and an agent *is*
+a rule (ADR-002: the browser's `AgentDefinition`s compile to the same document).
+Reading stays open to every role, because seeing what is armed is part of
+watching the floor — it is arming it that belongs to the person whose job the
+agents are.
 
 ## Tenant isolation
 
@@ -35,7 +41,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import repository
-from app.auth.principal import Principal, require_operator, require_reader
+from app.auth.principal import Principal, require_reader, require_rule_author
 from app.db import get_session
 from app.schemas import RuleIn, RuleOut
 
@@ -80,7 +86,7 @@ async def get_rule(
 async def put_rule(
     rule_id: str,
     body: RuleIn,
-    principal: Principal = Depends(require_operator),
+    principal: Principal = Depends(require_rule_author),
     session: AsyncSession = Depends(get_session),
 ) -> RuleOut:
     """Create or replace one rule.
@@ -121,7 +127,7 @@ async def put_rule(
 @router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_rule(
     rule_id: str,
-    principal: Principal = Depends(require_operator),
+    principal: Principal = Depends(require_rule_author),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     removed = await repository.delete_rule(

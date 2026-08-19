@@ -266,7 +266,10 @@ async def test_a_lead_reaches_the_hook_and_a_withdrawal_retracts_it(
 # ── the pull API ──────────────────────────────────────────────────────────────
 
 
-async def _client(db_session: AsyncSession, role: str = "reader") -> httpx.AsyncClient:
+# the pull API returns contact emails. "reader" was never in `USER_ROLES` — the old gate admitted any
+# human role by name, so an invalid one passed silently until the
+# capability map made a role mean something.
+async def _client(db_session: AsyncSession, role: str = "analyst") -> httpx.AsyncClient:
     from collections.abc import AsyncIterator
 
     from app.auth.models import AuthUser

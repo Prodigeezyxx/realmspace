@@ -146,6 +146,18 @@ class Settings(BaseSettings):
     #
     # No default. A blank secret would sign tokens anyone could forge, and a
     # shipped default is worse than none — the app refuses to start without it.
+    #: The Firebase project whose ID tokens `POST /v1/auth/token` will accept.
+    #:
+    #: Not a secret — a project id is public by design — which is why real
+    #: authentication could be built while the AI provider and Stripe still wait
+    #: on keys nobody has. Verification needs this and Google's published keys,
+    #: nothing else (`app/auth/firebase.py`).
+    #:
+    #: **Unset outside `local` means the token endpoint refuses to issue
+    #: anything.** See `routers/auth.py`: a deployment that forgets this fails
+    #: closed at the door rather than shipping the email-trust hole.
+    firebase_project_id: str | None = None
+
     jwt_secret: str
     jwt_ttl_seconds: int = 3600  # short: WS tokens travel in the query string
 

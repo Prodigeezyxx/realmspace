@@ -24,9 +24,14 @@ from app.auth import models as auth_models  # noqa: E402,F401
 config = context.config
 
 # Interpret the config file for Python logging.
-# This line sets up loggers basically.
+#
+# `disable_existing_loggers=False` is not the default and matters here: the test
+# suite runs migrations inside a fixture, and the default would silence every
+# logger configured before that point — including pytest's own capture. That
+# made `caplog` return nothing for the whole suite, which reads as "the code did
+# not log" rather than "the log was turned off underneath you".
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # The DB URL comes from backend/.env, never from alembic.ini — one source of
 # truth, so migrations can't be applied to a different database than the app
