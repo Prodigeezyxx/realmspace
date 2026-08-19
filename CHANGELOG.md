@@ -19,6 +19,55 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-18
 
+### Changed — 2026-08-18 (later still) — `[neo4j-track]` Phase 6 opens: real authentication, and four roles that finally differ
+
+Phase 5 is closed, so this starts Phase 6 with the two things in its first bullet
+that made "a third-party operator self-serves signup" unsellable.
+
+**The one open door in the system is shut.** `POST /v1/auth/token` took an email
+address and issued that user's token. Its own docstring was candid about it —
+"anyone who knows an address can get that user's token" — and it was the only
+place that did not verify: every other endpoint checked our own signed token
+correctly. It now verifies a Firebase ID token against Google's published keys.
+
+No key was needed for this, which is the reason it could be done now while the AI
+provider and Stripe still wait on ones nobody has. A Firebase ID token is an
+RS256 JWT signed by Google; verifying one takes the project id — public by
+design — and Google's public keys. Nothing to leak.
+
+A deployment that forgets to configure it **refuses**, rather than falling back:
+`local` still issues on an email and warns on every one, and every other
+environment answers 503. And an unverified email address gets nothing, because
+Firebase hands out a working token before an address is proven and `auth_user`
+maps an address to a tenant and a role — accept one and signing up as somebody
+else's address gets you their organisation.
+
+**Two of the four roles did not exist.** `multi-tenant.md` §3 has specified
+Owner/Admin, Operator, Analyst/Marketer and Viewer/Client since Phase 1, and all
+four have been in `USER_ROLES` — but only `admin` and `operator` were ever
+checked, so `analyst` and `viewer` were both "neither of those" and behaved
+identically. A role that changes no behaviour is a label.
+
+The reason they collapsed is that §3 is a **matrix** and the code was a ladder.
+An Operator runs activations and does not build agents; an Analyst builds agents
+and does not run activations. "reader < operator < admin" cannot say that. It is
+a capability map now, and the map reads like the doc's own table.
+
+Read as a deny-list, deliberately, with the two surprising consequences pinned by
+tests that name themselves: an **operator cannot query Ask**, and a **viewer
+cannot read leads**. Both are one line to reverse, and reversing either now has
+to be a decision.
+
+Three things found by doing it. Three test suites had been running against a role
+called `"reader"` **that was never in `USER_ROLES`** — the old gate admitted any
+human role by name. `caplog` had been returning nothing for the entire suite,
+because Alembic's `fileConfig` runs inside a fixture and defaults to disabling
+every logger configured before it. And running the verifier on a host with no CA
+bundle showed it handing the raw TLS error — URL and all — back to the caller; it
+refuses either way, which is right, but the reason belongs in the log rather than
+in a reply to whoever is probing.
+
+
 ### Added — 2026-08-18 (later still) — `[neo4j-track]` Phase 5 closed: the insight agent, and the orchestrator explained rather than built
 
 The last two lines of Phase 5. One is built; the other is deliberately not, and

@@ -575,7 +575,41 @@ this codebase deletes from reports.
 
 *Goal: the things required to sell to the public at scale.*
 
-- 🔲 **Multi-tenant** isolation hardened + RBAC complete (`multi-tenant.md`)
+- 🟡 **Multi-tenant** isolation hardened + RBAC complete (`multi-tenant.md`) —
+      **RBAC is done; isolation is as hard as this store allows** *(2026-08-18)*.
+
+      **Real authentication.** `POST /v1/auth/token` took an email and trusted
+      it — its own docstring said "anyone who knows an address can get that
+      user's token" — and it was the only authentication hole in the system:
+      every other endpoint verified our own signed token correctly. It now
+      verifies a Firebase ID token against Google's published keys
+      (`app/auth/firebase.py`). No external key was needed for this, which is
+      why it could be built while the AI provider and Stripe still wait: a
+      project id is public, and verification uses Google's public JWKS.
+      An unconfigured deployment **refuses** — `local` still issues on an email
+      and warns loudly, every other environment answers 503 — so forgetting the
+      setting fails closed rather than reopening the hole. An unverified email
+      gets nothing.
+
+      **The four roles finally differ.** All four have been in `USER_ROLES`
+      since Phase 1 and only `admin` and `operator` were ever checked, so
+      `analyst` and `viewer` were identical. §3 is a *matrix* — an Operator runs
+      activations and does not build agents; an Analyst builds agents and does
+      not run activations — which the old reader/operator/admin ladder could not
+      express. It is a capability map now, read as a deny-list, with the two
+      surprising consequences (an operator cannot Ask; a viewer cannot read
+      leads) pinned by tests so reversing either has to be a decision.
+
+      **What is not closed, and cannot be here:** Neo4j Community has no
+      row-level security, so the graph half stays application-enforced. That is
+      unchanged since Phase 1 and needs an Enterprise licence or a different
+      store — `data-model.md` → "Store decision". The Postgres half has had
+      forced RLS since migration 0003.
+
+      **Not verified end to end:** a real Google sign-in. There is no Firebase
+      project wired to this checkout, so the verifier is proven against
+      locally-signed tokens with a stubbed key — every check it makes runs, but
+      the round trip to Google has not been exercised.
 - 🔲 **Cloud replay sync** (anonymised) + **cross-activation benchmark** dataset
 - 🔲 **Billing** hooks (Stripe) + plan metering/limits
 - 🔲 Calibration UI + **CV drift telemetry**; multi-camera fusion

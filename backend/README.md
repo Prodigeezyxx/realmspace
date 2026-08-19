@@ -107,7 +107,7 @@ things — a camera cannot do an interactive login.
 | | Humans | Devices (perception, RFID, kiosk) |
 |---|---|---|
 | Header | `Authorization: Bearer <jwt>` | `X-API-Key: <key>` |
-| Get one | `POST /v1/auth/token` with `{"email": …}` | `python -m app.auth.seed` |
+| Get one | `POST /v1/auth/token` with `{"idToken": …}`, or `{"email": …}` locally | `python -m app.auth.seed` |
 | Can | read and write | **write only** |
 
 ```bash
@@ -126,12 +126,18 @@ the whole point of the auth item, and deleting the parameter is a stronger
 guarantee than validating it.
 
 Tokens are signed and verified **locally**, with no network call. `event-bus-spec.md`
-§1 requires the edge box to keep working when the conference wifi does not, and
-verifying a Firebase ID token needs Google's keys. Firebase is still how the
-dashboard establishes identity; the intended flow is to exchange a Firebase
-login once at `POST /v1/auth/token`. **That exchange is not built yet** — the
-endpoint currently trusts the email it is given, which is fine for local
-development and is not authentication. It is the next thing to close.
+§1 requires the edge box to keep working when the conference wifi does not, so
+every request after sign-in is checked against our own HMAC key and nothing else.
+
+**The exchange is built** *(2026-08-18)*. `POST /v1/auth/token` takes a Firebase
+ID token, verifies it against Google's published keys, and issues our own. Only
+that one endpoint needs the network, and only once per session.
+
+Set `FIREBASE_PROJECT_ID` — a project id is public, not a secret. Without it the
+endpoint accepts an email **in `local` only**, warning on every issue, and
+answers 503 in every other environment: a deployment that forgets the setting
+fails closed rather than reopening the hole this closed. An unverified email
+address gets nothing, because `auth_user` maps an address to a tenant and a role.
 
 ## Tenant isolation — read this before writing graph code
 
@@ -162,7 +168,7 @@ item in `data-model.md` → "Store decision".
 
 | Endpoint | Auth | Does |
 |---|---|---|
-| `POST /v1/auth/token` | none | `{"email": …}` → a signed token |
+| `POST /v1/auth/token` | a verified Firebase sign-in | `{"idToken": …}` → a signed token |
 | `GET /v1/auth/resolve` | none | email → org + role (lookup only; grants nothing) |
 | `POST /events` | key or token | Append one event. 201 if created, 200 if the `event_id` was already in the log. |
 | `POST /events/batch` | key or token | Append up to 500 events in one request. **All or nothing** — if any event's tenant disagrees with the credential, none of them land, so a producer can fix the batch and resend rather than reconciling a partial write. |

@@ -59,6 +59,54 @@ Maps cleanly to the actors in the founder architecture (Booth Operator, Event
 Manager, Marketer, Sales Owner). Application roles are separate from *hosted
 route access* — see repo access rules if/when deployed.
 
+### As built *(2026-08-18)* — `backend/app/auth/principal.py`
+
+All four roles have been in `USER_ROLES` since Phase 1 and **only two of them did
+anything**: `admin` and `operator` were checked, so `analyst` and `viewer` were
+both "neither of those" and therefore identical. An analyst could not do what the
+table above grants them, and a client-facing viewer could reach everything an
+analyst could. A role that changes no behaviour is a label.
+
+**The table is now a capability map, not a ladder.** That distinction is the
+reason the two collapsed: this is a *matrix* — an Operator runs activations and
+does not build agents, an Analyst builds agents and does not run activations —
+and a ladder of "reader < operator < admin" cannot express it.
+
+| Capability | What it gates | Held by |
+|---|---|---|
+| `read` | dashboards, reports, events, insights, rule reads | all four |
+| `run_activation` | session config, consent capture, outcomes, `/ops` | admin, operator |
+| `author_rules` | writing a rule document | admin, analyst |
+| `ask` | `POST /v1/ask` | admin, analyst |
+| `leads` | `/v1/handoffs`, `/v1/followups` — contact PII | admin, analyst |
+| `manage_org` | integrations, erasure | admin |
+
+**The table is read as a deny-list.** A permission matrix where omission grants
+nothing is the only kind that means anything, and two consequences are worth
+stating plainly rather than leaving to look like oversights:
+
+- **An operator cannot query Ask.** §3 puts "query Ask" with Analyst, and the
+  person running the room is arguably who most wants to ask it a question. This
+  is the deliberate reading; both it and the alternative are one line, and the
+  test that pins it names itself.
+- **A viewer cannot read leads.** They are "the sponsor/brand stakeholder" —
+  the client reading a report about their activation, not their sales team
+  reading the list of who attended. `/v1/handoffs` and `/v1/followups` return
+  contact emails.
+
+**Admin is a strict superset**, which this table does not say. An owner locked
+out of their own floor on the morning of an event is a support ticket rather than
+a security property, and an admin can grant themselves any role regardless — so
+denying them would be theatre with a cost.
+
+**An unrecognised role grants nothing.** `auth_user.role` is free text, and the
+old gate admitted any human role by name — which is how three test suites ran for
+weeks against a role called `"reader"` that was never in `USER_ROLES`.
+
+**Device keys hold no capability at all**, not even `read`. An API key exists to
+append events; a key taped inside a booth kit is the credential most likely to
+walk out of a venue.
+
 ---
 
 ## 4. Onboarding (self-serve, because public)
