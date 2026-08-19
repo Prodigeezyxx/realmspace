@@ -19,6 +19,65 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-18
 
+### Added — 2026-08-18 (later) — `[neo4j-track]` Phase 5: Ask answers off real data, and a follow-up that names where somebody stood
+
+Two of Phase 5's four items, and the one Phase 2 never finished. No AI provider
+has been chosen — open decision 2 has stood since 3 August — so everything except
+the model itself is built and tested, and a deterministic provider stands where
+the model goes. Both items are 🟡 rather than ✅ in the roadmap, and the reason is
+written there rather than glossed.
+
+**The model picks a question; it never writes the query.** The roadmap asked for
+"constrained Cypher (allow-list, validated)", and the reading where a model
+writes Cypher and a validator approves it does not survive contact with the
+language. The dangerous failure is not `DETACH DELETE` — that would at least be
+obvious. It is correct, valid, keyword-clean Cypher that omits `tenant_id` and
+returns a confident answer about every client the deployment has ever hosted.
+
+So the model's whole output is a name and some parameters, the queries are
+hand-written and reviewed, and the tenant and session are injected by the caller
+and are not parameters any entry declares. That is `docs/adr/003-nl-query-catalogue.md`.
+
+**What Ask replaces returned invented numbers.** Nine regexes, a demo gate, and a
+sidebar reading "Claude 3.5 Sonnet — 420 ms · Total 902 ms" describing a call the
+system had never made. Deleted, on the same grounds as the report's `1,287
+visitors` and `/agents`' `fired: 488`. Every figure now comes from the graph or
+the log, and the one latency shown is measured.
+
+**With no key, a deterministic matcher answers and says that it did.** It is not
+the mock wearing a hat: it matches a question to a catalogue entry by wording and
+then runs the real query, so the figures are measured. The only guess is the
+match, and a tie or a miss is a refusal with the list of what it can answer.
+Every response carries its basis, because an operator who cannot tell a model's
+answer from a keyword match cannot judge either.
+
+**The follow-up drafts and does not send.** There is no email provider, and an
+unreviewed model-written email to somebody who agreed to be contacted is not
+something to put on a cron. The draft carries `groundedIn` — the exact zones,
+surfaces and dwell it was allowed to reference — so a reviewer checks a sentence
+against the measurements rather than trusting it. We measured where somebody
+walked; we did not hear a word they said.
+
+**And the T2 gate turned out not to exist.** `consent-and-identity.md` has said
+since Phase 4 that CRM sync refuses below T2 and that this is "enforced in code
+(the bus consumer), not by convention". Nothing read `tier`. T1 is "take my
+details" and T2 is agreeing to be contacted — different sentences a visitor picks
+between — so every consented lead had been going to every connected CRM
+regardless. One shared gate now, used by the delivery and the draft.
+
+Two things found by writing the tests. `followup.drafted` was in the erasure's
+PII list but not in its subject matcher, so an erasure would have taken the name
+out of the envelope and left a letter reading "Hi Sam" on the log. And the
+anonymous handoff carries no consent block, so the new gate refused it — which
+looked right and was exactly wrong: consent permits acting on a person, and a
+contactless row of zone dwells names nobody.
+
+Verified end to end over HTTP against the real stack: a T2 visitor's draft named
+the zone they dwelled longest in and the surface they touched, the T1 visitor
+beside them got none, and five questions were checked answer by answer against
+the graph they came from.
+
+
 ### Fixed — 2026-08-18 — `[neo4j-track]` seven review findings, four of them about identifiers that are not unique
 
 A review over the Phase 4 commits found seven. All seven were real, and the four

@@ -170,7 +170,14 @@ Adapter interface:
 
 Credentials come from `tenant_integration` (migration 0007), encrypted per
 tenant per `multi-tenant.md` §2 and opened in exactly one function,
-`crm.adapter_for`. `PUT /v1/integrations/{provider}` stores one; it is
+`crm.adapter_for`.
+
+**Not every credential in that table is a destination** *(migration 0010)*.
+Phase 5 stores an AI provider key in the same table, and `crm_delivery` fans a
+lead out over every active row a tenant has — so without a discriminator an
+Anthropic key would be enrolled as a place to send somebody's contact details.
+`kind` is `crm` or `llm`, the delivery consumer asks for `crm` explicitly, and
+the two registries are separate (`app/crm` and `app/llm`). `PUT /v1/integrations/{provider}` stores one; it is
 admin-only, refuses a provider this build has no adapter for, and never returns
 the secret back.
 

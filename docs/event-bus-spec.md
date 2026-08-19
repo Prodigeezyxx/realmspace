@@ -104,6 +104,7 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `handoff.lead` | attribution | normalized LeadHandoff | CRM adapters |
 | `outcome.recorded` | operator (`POST /v1/outcomes`), later CRM adapters | dedupe_key, stage, value, closed_at | attribution ledger |
 | `crm.retract` | re-anonymiser | contact_id, destination, reason | CRM adapters |
+| `followup.drafted` | contextual SDR | contact, subject, body, grounded_in | `/followups` review |
 | `erasure.requested` | admin (`POST /v1/erasure`) | subject ids, requested_by | erasure consumer |
 | `erasure.completed` | erasure consumer | contact_ids, counts | audit |
 | `insight.generated` | LLM/agents | text, refs | graph, dashboard |
@@ -624,6 +625,47 @@ and `source` are on the row because who said so is part of what an auditor reads
 the ledger to find out.
 
 **Carries PII**: `dedupe_key` embeds an email. It is in `PII_EVENT_TYPES`.
+
+**`followup.drafted`** — producer: the contextual SDR
+(`backend/app/consumers/sdr.py`) *(added 2026-08-18)*:
+
+```jsonc
+{
+  "contact":     { "id", "email", "name" },   // PII
+  "dedupe_key":  "t_acme:sam@example.com",
+  "anon_id":     "P-012",
+  "subject":     "Following up from Pavilion No.7",
+  "body":        "Hi Sam,\n\nThank you for visiting…",
+  "basis":       "deterministic",   // or the provider that wrote it
+  "consent":     { "tier": "T2" },
+  "grounded_in": {                  // what the draft was allowed to reference
+    "zones_visited": ["Entry", "Pod"],
+    "top_dwell_zone": "Pod",
+    "dwell_seconds_total": 160.0,
+    "surfaces_engaged": ["AR Mirror"]
+  },
+  "sent":        false,             // stated, never inferred from an absence
+  "drafted_at":  "2026-08-18T18:00:00Z"
+}
+```
+
+**Emitted for the `final` handoff only**, and only at consent **T2 or above**
+(`consent-and-identity.md` §2 puts "personalised follow-up (SDR)" in T2's own
+column). A draft built from the `identified` stage would name the entry zone and
+nothing else, because the visitor has not finished walking.
+
+**`grounded_in` is the point of the payload.** It is the exact set the draft was
+permitted to reference, so a reviewer checks a sentence against it rather than
+trusting it — the only way to catch a model that invented a conversation. We
+measured where somebody walked; we did not hear a word they said.
+
+**Nothing sends it.** There is no email provider and no send endpoint;
+`GET /v1/followups` reports `sendingSupported: false` on every response. `sent`
+is on the payload so a surface never infers "not sent" from a missing field.
+
+**Carries PII**, and unusually it carries PII twice: the `contact` object names
+them and the `body` quotes them. An erasure redacts both — redacting the envelope
+and leaving the letter is not redaction. It is in `PII_EVENT_TYPES`.
 
 **`erasure.requested`** — producer: an admin via `POST /v1/erasure`
 *(added 2026-08-17)*:

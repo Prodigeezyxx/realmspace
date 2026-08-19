@@ -149,8 +149,21 @@ detection → dashboard.
       an operator cannot optimise against a number their client will never see.
       Invented deltas (`+2 in last 5m`, `+18 last hour`, `+12% wk`) removed on
       the same grounds as the report's.
-- 🔲 **Ask the Room** real: LLM → constrained Cypher (allow-list, validated) →
-      graph → answer (replace regex mocks). *Needs AI provider key.*
+- 🟡 **Ask the Room** real: LLM → constrained Cypher (allow-list, validated) →
+      graph → answer (replace regex mocks). **Built 2026-08-18 with Phase 5's
+      Live Analyst — they are the same endpoint** (`POST /v1/ask`). The regex
+      mocks and their invented numbers are deleted, every figure now comes from
+      the graph or the log, and `/ask` works for a real activation rather than
+      only in demo mode.
+      **The allow-list is a catalogue of named, hand-written queries, not
+      validated query text** — `docs/adr/003-nl-query-catalogue.md`. The model
+      picks a name and fills declared parameters; `tenant_id` and `session_id`
+      are injected by the caller and are not parameters any entry declares, so
+      the dangerous failure — correct Cypher that silently omits the tenant — is
+      unwritable rather than caught.
+      🟡 rather than ✅ because open decision 2 is still open: with no provider
+      key a deterministic matcher picks the measurement, so the routing is by
+      wording rather than by understanding. Every answer says which.
 - ✅ Twin plays back **recorded** sessions from the bus — `lib/twin/replay.ts`
       builds paths from the log; positions come from `perception.detection`
       bboxes where they exist and from **zone centres** where they do not, with
@@ -475,13 +488,46 @@ not go, which is what the tests are pointed at.
 
 *Goal: close the loop with contextual follow-up and smarter agents.*
 
-- 🔲 **Contextual SDR** draft agent (path-aware follow-up emails, consent ≥ T2)
-- 🔲 Live Analyst agent (NL queries over the live bus)
-- 🔲 Floor orchestrator (predict density, staff allocation) — if demand proven
-- 🔲 LLM insight generation every N minutes → `insight.generated`
+- 🟡 **Contextual SDR** draft agent (path-aware follow-up emails, consent ≥ T2) —
+      `consumers/sdr.py`. Reads the `final` handoff, checks consent, writes
+      `followup.drafted`; `/followups` is the review list. **It drafts and does
+      not send**, which is what the bullet says and what the absence of an email
+      provider forces: sending wants its own consent question, a suppression
+      list, a bounce story and an audit of who pressed the button, and half of
+      that behind a button labelled Send would be worse than none. The payload
+      carries `grounded_in` — the exact zones, surfaces and dwell the draft was
+      allowed to reference — so a reviewer checks a sentence against the
+      measurements rather than trusting it. 🟡 for the provider, as above: with
+      no key the draft is composed rather than written.
+- 🟡 **Live Analyst agent** (NL queries over the live bus) — `POST /v1/ask`, and
+      the same endpoint that closes Phase 2's Ask the Room. Questions the graph
+      cannot answer ("when was it busiest") are served from the log, which is
+      what "over the live bus" means. See ADR-003 above.
+- 🔲 Floor orchestrator (predict density, staff allocation) — if demand proven.
+      **The one item with a stated precondition, and it has not been met**: no
+      pilot has asked for it.
+- 🔲 LLM insight generation every N minutes → `insight.generated`. Out of this
+      pass by scope; the type is already registered in the taxonomy and the
+      browser contract, and nothing produces it.
 
-**Acceptance:** post-session, a consented lead receives a draft follow-up
-referencing the exact zones/surfaces they engaged; analyst answers live NL queries.
+**Also landed here, because both new consumers needed it:** the **T2 gate**
+(`app/consent_tier.py`). `consent-and-identity.md` §3 has said since Phase 4 that
+"CRM sync consumers refuse to emit a contact without a ≥T2 consent … enforced in
+code (the bus consumer), not by convention", and nothing read `tier`. It does
+now, in one place, used by the CRM delivery and the SDR both.
+
+**Acceptance:** 🟡 post-session, a consented lead receives a draft follow-up
+referencing the exact zones/surfaces they engaged — **verified end to end on
+2026-08-18**: a T2 visitor's draft named the zone they dwelled longest in and the
+surface they touched, and the T1 visitor beside them got none. The analyst
+answers live NL queries against measured data, checked question by question
+against the graph.
+
+What is not met is the phrase "AI" in the phase title. With open decision 2 open,
+routing is by wording and the draft is composed from a template. The seam is
+built and tested — a provider is one adapter module and one `PUT` — but until a
+key exists this phase is 🟡, and claiming otherwise would be the kind of thing
+this codebase deletes from reports.
 
 ---
 
@@ -543,10 +589,17 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 1. **Graph store:** Neo4j (matches docs) vs. embedded SQLite/DuckDB graph for
    the edge box (lighter, offline-friendly). *Lean: decide at start of P1.*
 2. **AI provider:** OpenAI / Anthropic / Gemini for Ask + SDR. *Still open as of
-   2026-08-03.* No key exists in the repo. Ask the Room is therefore sequenced
-   **last** in P2 rather than blocking it — nothing else in the phase needs a
-   provider, so the report, scorecard, ROI tile and twin replay proceed without
-   one. Ask stays on its regex mocks until this is decided.
+   2026-08-18, and now the only thing Phase 5 is waiting on.* No key exists in
+   the repo.
+   **Narrowed 2026-08-18:** it no longer blocks anything but the model itself.
+   The provider seam (`app/llm/`), the per-tenant key storage (migration 0010's
+   `kind`), the query catalogue, the prompts, the token metering, the consent
+   gate and both surfaces are built and tested against a deterministic provider
+   that answers from real data and says that it did. Choosing a vendor is now one
+   adapter module — `crm/hubspot.py` is the worked example, and
+   `docs/adr/003-nl-query-catalogue.md` lists what the adapter owes.
+   Ask's regex mocks are deleted either way: they returned invented numbers, and
+   waiting for a provider was never a reason to keep those.
 3. **First CRM confirmed:** HubSpot as reference adapter (P4). *Closed
    2026-08-17:* all five Tier 1 adapters plus the Zapier/Make hooks are built and
    registered. What is still open is not a decision but an absence — no live

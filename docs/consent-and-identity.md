@@ -83,6 +83,19 @@ non-withdrawn `ConsentEvent` of the required tier exists in the same transaction
 CRM sync consumers refuse to emit a contact without a `≥T2` consent. This is
 enforced in code (the bus consumer), not by convention.
 
+*As built (2026-08-18).* The edge gate has been real since Phase 4 — inside
+`graph_repo.identify`'s single Cypher statement, one layer below where this
+paragraph puts it, so a second caller cannot skip it. **The T2 gate was not.**
+This paragraph described it, `consumers/identity.py` repeated it in a comment,
+and no code read `tier`: every consented lead went to every connected CRM
+regardless. It is now `backend/app/consent_tier.py`, used by `crm_delivery` and
+by the SDR draft — one comparison, one refusal message, and a missing or
+unrecognised tier refuses rather than passing.
+
+It applies to acts that touch a *person*. An anonymous handoff carries no consent
+block, and gating it would make aggregate reach depend on permission from the
+people it deliberately does not identify.
+
 ---
 
 ## 4. The consent capture flow (in the pipeline)
