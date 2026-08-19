@@ -206,6 +206,19 @@ suppressed or frames are never retained (`privacy.md`).
 (Insight)-[:ABOUT]->(Zone|Surface|Person|Group)
 ```
 
+**`DERIVED_FROM` has no writer, deliberately** *(2026-08-18)*. `(:Event)` has a
+key constraint in `graph/schema.py` and nothing has ever written one: events live
+on the append-only log, which is the record of what happened and the thing a
+replay reads. Copying them into the graph to give this edge somewhere to point
+would duplicate the log into a store that holds *current state*, and the copy
+would drift from the original the moment either changed.
+
+So the supporting event ids travel in the `insight.generated` payload
+(`event-bus-spec.md` §3), where a reader resolves them against the log itself —
+which is a stronger citation than a graph edge, because it lands on the event as
+it was written. `ABOUT` is written, and points at zones, which really are nodes
+here.
+
 Relationships are written with `MERGE`, never `CREATE`. Graph writes come from
 bus consumers, which are at-least-once (`event-bus-spec.md` §4) — and because
 the graph is a separate store from the log, a graph write and a cursor advance

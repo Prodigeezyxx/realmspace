@@ -503,12 +503,43 @@ not go, which is what the tests are pointed at.
       the same endpoint that closes Phase 2's Ask the Room. Questions the graph
       cannot answer ("when was it busiest") are served from the log, which is
       what "over the live bus" means. See ADR-003 above.
-- 🔲 Floor orchestrator (predict density, staff allocation) — if demand proven.
-      **The one item with a stated precondition, and it has not been met**: no
-      pilot has asked for it.
-- 🔲 LLM insight generation every N minutes → `insight.generated`. Out of this
-      pass by scope; the type is already registered in the taxonomy and the
-      browser contract, and nothing produces it.
+- 🔲 **Floor orchestrator** (predict density, staff allocation) — if demand
+      proven. **Deferred deliberately, with two preconditions unmet** *(checked
+      2026-08-18, so the next person to ask finds the answer here)*:
+      1. *Its own stated gate.* No pilot has asked for it.
+      2. *A prediction model.* It appears nowhere in either track except this
+         line — no data model, no event type, no acceptance criteria — and the
+         only other mention anywhere is a research note on `floats-agent`:
+         "Prediction models (ObjectForesight) are a P5 floor-orchestrator
+         input". So it always presumed a trajectory-prediction model this repo
+         does not have and has not chosen. That is a second open decision, and
+         nobody had written it down.
+
+      `floats-agent` has not built it either — the identical 🔲 line, no code.
+      Building it now would mean inventing the specification and then writing
+      the acceptance criteria to test against it. The measurable half (live
+      occupancy against a configured capacity, prompting through the Phase 3
+      rules engine) is buildable today and is *measurement, not prediction*; if
+      demand arrives, that is where to start, and it belongs to whoever asks.
+- 🟡 **LLM insight generation every N minutes → `insight.generated`** —
+      `consumers/insights.py`, `app/llm/digest.py`, `/live`.
+      **Built to `floats-agent`'s specification, adopted verbatim** the way
+      ADR-002 adopted their rule spec, so the two tracks do not grow two insight
+      contracts: *"periodic bounded graph snapshot → `insight.generated` with
+      text + supporting event IDs; shown on `/live`; click-through opens the
+      underlying events"*, plus their token-bounded digest.
+      Their acceptance clause — *"insights on `/live` trace to source events"* —
+      is what shaped it. The digest is computed from the **log**, not the graph,
+      because the graph can tell you a zone's average dwell and can never tell
+      you which events say so. Every claim carries the ids behind it, the panel
+      opens them, and a ref that no longer resolves is shown rather than dropped.
+      Triggered on **event time** with fixed contiguous windows, so a replay
+      reproduces the same insights; writing it walked into ADR-002's own trap
+      (an insight is always appended after the events it summarises, so a
+      `before_seq` lookup can never see one) and the fix is recorded in the
+      consumer. Anonymous by construction — the digest reads only `spatial.*`
+      and `surface.interaction`. 🟡 for the provider, as above: with no key the
+      sentence is composed from the measurements rather than written.
 
 **Also landed here, because both new consumers needed it:** the **T2 gate**
 (`app/consent_tier.py`). `consent-and-identity.md` §3 has said since Phase 4 that
@@ -517,11 +548,20 @@ code (the bus consumer), not by convention", and nothing read `tier`. It does
 now, in one place, used by the CRM delivery and the SDR both.
 
 **Acceptance:** 🟡 post-session, a consented lead receives a draft follow-up
-referencing the exact zones/surfaces they engaged — **verified end to end on
-2026-08-18**: a T2 visitor's draft named the zone they dwelled longest in and the
+referencing the exact zones/surfaces they engaged, insights on `/live` trace to
+source events (the clause adopted from `floats-agent`), and the analyst answers
+live NL queries — **verified end to end on 2026-08-18**: a T2 visitor's draft named the zone they dwelled longest in and the
 surface they touched, and the T1 visitor beside them got none. The analyst
 answers live NL queries against measured data, checked question by question
 against the graph.
+
+The insight half was verified the same way: two contiguous five-minute windows
+summarised from a seeded floor, and the first insight's four citations opened to
+exactly the Product Pod events whose dwells sum to the 300 seconds it claimed —
+not the window's other traffic.
+
+**Phase 5 is otherwise complete.** Every item is built or deliberately deferred
+with its reasons recorded; nothing is left merely unstarted.
 
 What is not met is the phrase "AI" in the phase title. With open decision 2 open,
 routing is by wording and the draft is composed from a template. The seam is

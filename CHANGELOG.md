@@ -19,6 +19,61 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-18
 
+### Added — 2026-08-18 (later still) — `[neo4j-track]` Phase 5 closed: the insight agent, and the orchestrator explained rather than built
+
+The last two lines of Phase 5. One is built; the other is deliberately not, and
+the reasons are now written down instead of being rediscovered.
+
+**The insight agent, to `floats-agent`'s specification, adopted verbatim.** Their
+roadmap describes it better than ours did — "periodic bounded graph snapshot →
+`insight.generated` with text + supporting event IDs; shown on /live;
+click-through opens the underlying events" — so this track takes their wording
+rather than inventing a second insight contract, the same move ADR-002 made with
+their rule spec.
+
+Their acceptance clause is the demanding half: *insights on /live trace to source
+events*. It decided the design. **The digest is computed from the log, not the
+graph** — the graph will tell you Product Pod averages 300 seconds and can never
+tell you which events say so, because there is no id to carry. An insight built
+that way is an assertion a reader takes on trust, which is exactly what the
+report's invented `1,287 visitors` was. So every claim carries the ids behind it,
+the panel opens them, and a citation that no longer resolves is shown in amber
+rather than quietly dropped.
+
+The citations are the *supporting* events, not the window's traffic. Verified
+live: an insight claiming 300 seconds at Product Pod opened to the four Product
+Pod events whose dwells sum to exactly that, and to nothing else.
+
+**And it walked straight into ADR-002's own trap.** The first version looked up
+the previous insight with `before_seq=event.seq`, which can never return one — an
+insight is appended at a higher seq than every event it summarises. The lookup
+returned None forever, every event recomputed window zero, and the derived id
+swallowed the duplicates, so it *looked* like it worked: a two-minute interval
+produced exactly one insight for a ten-minute session. ADR-002 records the
+identical bug for rule cooldowns. Both fixes are in the code, with the reasoning.
+
+Windows needed both ends moved, too. `read_window` is `(since, until]`, which is
+right for the evaluator's sliding window and wrong for fixed contiguous ones: an
+exclusive start drops a session's very first event every time, and an inclusive
+end counts a boundary event in two windows.
+
+**Three more invented figures gone.** `/live` showed "Visitors who try the Scent
+Quiz dwell 2.4× longer", "Bottle Wall captures 86% of gazes", and "Entry Arch is
+dropping 38% of visitors within 30s — queue signage unclear" — the last one
+asserting a *cause*, which is precisely what the insight prompt now spends a rule
+forbidding. We measured where people walked; we did not hear a word they said.
+
+**The floor orchestrator is deferred, and now says why.** It has two unmet
+preconditions, not one. Its own stated gate — no pilot has asked — and a
+trajectory-prediction model, which a research note on `floats-agent` names as its
+input and which this repo neither has nor has chosen. Neither track has built it;
+neither has more than six words of specification. Building it would have meant
+inventing the spec and then writing the acceptance criteria to test against it.
+
+Phase 5 is otherwise complete. Every item is built or deferred with its reasons
+recorded, and the phase stays 🟡 for one reason only: open decision 2.
+
+
 ### Added — 2026-08-18 (later) — `[neo4j-track]` Phase 5: Ask answers off real data, and a follow-up that names where somebody stood
 
 Two of Phase 5's four items, and the one Phase 2 never finished. No AI provider

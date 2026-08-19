@@ -107,7 +107,7 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `followup.drafted` | contextual SDR | contact, subject, body, grounded_in | `/followups` review |
 | `erasure.requested` | admin (`POST /v1/erasure`) | subject ids, requested_by | erasure consumer |
 | `erasure.completed` | erasure consumer | contact_ids, counts | audit |
-| `insight.generated` | LLM/agents | text, refs | graph, dashboard |
+| `insight.generated` | insight agent | text, refs (supporting event ids), window | `/live`, graph |
 | `cost.metered` | consumers | tokens/credits/$ | cost telemetry |
 | `drift.detected` | perception telemetry | camera_id, metric, observed vs baseline | ops, calibration UI |
 | `calibration.updated` | calibration UI (operator) | camera_id, kind, revision | tracker (cache invalidation) |
@@ -625,6 +625,55 @@ and `source` are on the row because who said so is part of what an auditor reads
 the ledger to find out.
 
 **Carries PII**: `dedupe_key` embeds an email. It is in `PII_EVENT_TYPES`.
+
+**`insight.generated`** — producer: the insight agent
+(`backend/app/consumers/insights.py`) *(added 2026-08-18)*:
+
+```jsonc
+{
+  "insight_id":   "…",
+  "text":         "2 people moved through 4 zone entries in the last 5 minutes. \
+Product Pod held attention longest, at 300s of dwell.",
+  "refs": [                        // the events this claim rests on
+    { "seq": 5,  "event_id": "…" },
+    { "seq": 6,  "event_id": "…" }
+  ],
+  "measurements": { "people": 2, "zone_entries": 4, "top_zone": "Product Pod",
+                    "top_zone_seconds": 300.0, "zones": [...], "surfaces": [...] },
+  "window":       { "from": "…", "to": "…", "minutes": 5 },
+  "generated_by": "rule",          // 'llm' | 'rule' — data-model.md's (:Insight)
+  "basis":        "deterministic",  // or the provider that wrote the sentence
+  "truncated":    false
+}
+```
+
+**`refs` is the reason this event has a payload at all.** An insight without them
+is an assertion a reader has to take on trust, which is the failure mode the
+report's invented `1,287 visitors` had — it reads as authority and cannot be
+checked. They are the *supporting* events, not the window's traffic: an insight
+about Product Pod cites the Product Pod dwells that sum to the number it quotes.
+`GET /v1/insights/{seq}/sources` resolves them, and a ref that no longer resolves
+is reported as `missing` rather than dropped.
+
+This is why the digest is built from the **log** rather than the graph. The graph
+holds current state and can tell you a zone's average dwell; it cannot tell you
+which events say so, because there is no id to carry.
+
+**Windows are fixed and contiguous** from the session's first event —
+`[first, first+N)`, `[first+N, first+2N)` — and the trigger is **event time**,
+never the clock. A wall-clock trigger would give a replayed log different windows
+from identical events. The consequence is worth stating: insights advance with
+the floor, not with the wall, and a session with no traffic for an hour produces
+no insights about that hour.
+
+`occurred_at` is the window's **end**, not the time of whichever event crossed
+the boundary — an insight is about a period, and dating it by its trigger would
+make its position in the log depend on traffic.
+
+**Anonymous**, and by construction rather than by policy: the digest reads only
+`spatial.*` and `surface.interaction`, so no consent, handoff or contact can
+reach it. It is in `ANONYMOUS_EVENT_TYPES` and may travel the anonymised
+cloud-sync path (§6).
 
 **`followup.drafted`** — producer: the contextual SDR
 (`backend/app/consumers/sdr.py`) *(added 2026-08-18)*:
