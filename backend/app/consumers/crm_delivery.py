@@ -47,6 +47,29 @@ The link is looked up live rather than carried on the event, because an admin
 can revoke and reconnect a CRM between two stages of one lead, and the id from
 the old connection would address a record in an org we are no longer talking to.
 
+## Below T2, nothing is sent, and the refusal is recorded
+
+`consent-and-identity.md` §3 said this consumer already did it — "CRM sync
+consumers refuse to emit a contact without a ≥T2 consent … enforced in code (the
+bus consumer), not by convention" — and it did not. T1 is "take my details" and
+T2 is agreeing to be contacted; they are different sentences on a kiosk and a
+visitor chooses between them. See `app/consent_tier.py`.
+
+The refusal is claimed and recorded rather than skipped silently, for the same
+reason a handoff with no email is: an operator asking why a lead never arrived
+should find the answer on `/ops`, not an absence. It closes as `delivered`
+because nothing is outstanding — there is no retry that would change the answer,
+and the only thing that could is the visitor changing their mind, which arrives
+as a new consent.
+
+**The gate applies to handoffs that name somebody, and only to those.** An
+anonymous handoff carries no `consent` block at all, so a tier check reads it as
+"no consent" and refuses — which looks right and is exactly wrong. Consent is
+what permits us to act on a *person*; a contactless row of zone dwells names
+nobody, and `privacy.md` has that path running with no consent from the
+beginning. Requiring T2 for it would mean an operator's aggregate reach depended
+on permission from the people it deliberately does not identify.
+
 ## A handoff the adapter cannot key on is delivered-with-nothing, not failed
 
 `map()` returning `None` — a contact captured with no email — closes the claim as
@@ -84,7 +107,7 @@ from __future__ import annotations
 
 import logging
 
-from app import crm, db, repository
+from app import consent_tier, crm, db, repository
 from app.consumers.base import Consumer
 from app.cost import meter
 from app.models import EventLog
@@ -206,6 +229,22 @@ class CrmDeliveryConsumer(Consumer):
                 if contact_id
                 else []
             )
+
+            names_somebody = "contact" in event.payload
+            if names_somebody and not consent_tier.permits(
+                consent_tier.tier_of(event.payload)
+            ):
+                await repository.complete_dispatch(
+                    session,
+                    dispatch_id=claim.id,
+                    status="delivered",
+                    detail=consent_tier.refusal(
+                        consent_tier.tier_of(event.payload),
+                        act=f"delivery to {provider}",
+                    ),
+                )
+                await session.commit()
+                return
 
             try:
                 adapter = crm.adapter_for(integration)

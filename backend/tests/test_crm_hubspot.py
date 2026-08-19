@@ -551,3 +551,40 @@ async def test_a_revoked_integration_can_still_retract(
     await end_the_session(db_session)
     await run_chain()
     assert len(hubspot_api.upserts) == upserts_before
+
+
+# ── the consent gate ──────────────────────────────────────────────────────────
+
+
+async def test_a_t1_lead_is_not_pushed_to_a_crm(
+    connected: None,
+    hubspot_api: FakeHubSpot,
+    db_session: AsyncSession,
+    graph_session: GraphSession,
+) -> None:
+    """`consent-and-identity.md` §3: "CRM sync consumers refuse to emit a contact
+    without a ≥T2 consent. This is enforced in code (the bus consumer), not by
+    convention."
+
+    It was enforced nowhere. `identity.py` states the rule in a comment — "CRM
+    sync refuses below T2, enrichment below T3" — as an account of where the
+    gates live, and no gate existed. T1 is "take my details"
+    (`consent-and-identity.md` §2); T2 is the separate act of agreeing to be
+    contacted. Pushing a T1 visitor into a client's CRM is handing a sales team
+    somebody who never agreed to hear from them.
+
+    The refusal is recorded rather than silent: an operator asking why a lead did
+    not arrive should find the answer on `/ops`, not an absence.
+    """
+    await seed_activation(graph_session)
+    await seed_person_with_a_path(graph_session)
+    await consent(db_session, tier="T1")
+    await run_chain()
+
+    assert hubspot_api.upserts == []
+    assert await links(db_session) == []
+
+    declined = [d for d in await dispatches(db_session) if d.kind == "handoff"]
+    assert [d.status for d in declined] == ["delivered"]
+    assert "T1" in declined[0].detail
+    assert "T2" in declined[0].detail

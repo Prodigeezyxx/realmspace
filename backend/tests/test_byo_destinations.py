@@ -530,3 +530,35 @@ async def test_a_withdrawal_past_the_first_page_still_redacts(
     for entry in body["handoffs"]:
         assert entry["withdrawn"] is True
         assert EMAIL not in json.dumps(entry)
+
+
+async def test_an_anonymous_handoff_needs_no_consent_tier(
+    connected: None,
+    hook: FakeHook,
+    db_session: AsyncSession,
+    graph_session: GraphSession,
+) -> None:
+    """The T2 gate applies to handoffs that name somebody, and only those.
+
+    An anonymous handoff carries no `consent` block, so a tier check reads it as
+    "no consent" and refuses — which looks right and is exactly wrong. Consent is
+    what permits acting on a *person*; a contactless row of zone dwells names
+    nobody, and `privacy.md` has that path running with no consent from the
+    beginning. Gating it would make an operator's aggregate reach depend on
+    permission from the people it deliberately does not identify.
+    """
+    await seed_activation(graph_session)
+    await graph_repo.upsert_session(
+        graph_session,
+        tenant_id=T,
+        session_id=S,
+        client="Acme",
+        anonymous_handoffs=True,
+    )
+    await seed_person_with_a_path(graph_session, anon_id="P-777")
+    await end_the_session(db_session)
+    await run_chain()
+
+    delivered = [b for b in hook.bodies if b.get("action") != "healthcheck"]
+    assert [b["anon_id"] for b in delivered] == ["P-777"]
+    assert "consent" not in delivered[0]

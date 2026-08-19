@@ -160,11 +160,12 @@ async def consent(
     anon_id: str = "P-012",
     consent_id: str = "c_0001",
     email: str | None = "sam@example.com",
+    tier: str = "T2",
 ) -> None:
     payload = {
         "consent_id": consent_id,
         "anon_id": anon_id,
-        "tier": "T2",
+        "tier": tier,
         "basis": "explicit_optin",
         "copy_version": "consent-en-2026-08",
         "captured_by": "kiosk-entrance",
