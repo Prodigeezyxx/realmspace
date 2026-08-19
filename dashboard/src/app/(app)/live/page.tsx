@@ -36,6 +36,7 @@ import { useAgentAlerts } from "@/hooks/useAgentStream";
 import { useLiveStats } from "@/lib/live/useLiveStats";
 import { LiveRoiTile } from "@/components/live/LiveRoiTile";
 import { CostTile } from "@/components/live/CostTile";
+import { InsightsPanel } from "@/components/live/InsightsPanel";
 import { StaffPromptTile } from "@/components/live/StaffPromptTile";
 
 /**
@@ -352,39 +353,7 @@ export default function LivePage() {
             )}
           </Panel>
 
-          <Panel
-            title="Insights"
-            subtitle={
-              isDemo
-                ? "Generated every 10 minutes by the AI"
-                : "Insights generate after the first 50 detections"
-            }
-            action={<Sparkles size={14} className="text-accent-violet" />}
-          >
-            {isDemo ? (
-              <ul className="space-y-3 text-sm">
-                <Insight
-                  text="Visitors who try the Scent Quiz dwell 2.4× longer in the Lounge."
-                  ts="3m ago"
-                />
-                <Insight
-                  text="Bottle Wall captures 86% of gazes for visitors within 1m."
-                  ts="11m ago"
-                />
-                <Insight
-                  text="Entry Arch is dropping 38% of visitors within 30s — queue signage unclear."
-                  ts="22m ago"
-                  warn
-                />
-              </ul>
-            ) : (
-              <EmptyState
-                icon={<Sparkles size={18} />}
-                title="No insights yet."
-                hint="The AI surfaces a fresh round of insights every 10 minutes after detections begin."
-              />
-            )}
-          </Panel>
+          <InsightsPanel insights={live.insights} />
 
           <Panel title="Engine" subtitle="What's running this">
             <dl className="grid grid-cols-2 gap-y-2 text-sm">
@@ -524,30 +493,6 @@ function KpiTile({
         </div>
       )}
     </div>
-  );
-}
-
-function Insight({
-  text,
-  ts,
-  warn,
-}: {
-  text: string;
-  ts: string;
-  warn?: boolean;
-}) {
-  return (
-    <li className="flex gap-3">
-      <span
-        className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${
-          warn ? "bg-accent-amber" : "bg-accent-violet"
-        }`}
-      />
-      <div className="flex-1">
-        <div className="text-text-primary leading-snug">{text}</div>
-        <div className="text-[10px] tabular text-text-muted mt-0.5">{ts}</div>
-      </div>
-    </li>
   );
 }
 

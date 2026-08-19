@@ -104,3 +104,60 @@ export function staffPrompts(events: RealmEvent[], now: number): StaffPrompt[] {
 
   return prompts.sort((a, b) => b.at - a.at);
 }
+
+/**
+ * An insight the backend generated, as `/live` shows it.
+ *
+ * Read from the durable log like everything else on that page. What it replaces
+ * was three hardcoded strings ("Scent Quiz dwell 2.4× longer", "Bottle Wall
+ * captures 86% of gazes") shown only in demo mode, beneath a subtitle promising
+ * "the AI surfaces a fresh round every 10 minutes" about a thing that did not
+ * exist.
+ */
+export interface LiveInsight {
+  /** The log position, and what a click-through is fetched by. */
+  seq: number;
+  text: string;
+  /** The events the claim rests on — `insight.generated`'s whole contract. */
+  refs: { seq: number; event_id: string }[];
+  /** End of the window it describes, in ms epoch. */
+  at: number;
+  windowMinutes: number;
+  /** `deterministic` when no AI provider is configured. Always rendered. */
+  basis: string;
+  /** True when the window outran the digest's bound — a partial view, said so. */
+  truncated: boolean;
+}
+
+/**
+ * Insights for this session, newest first.
+ *
+ * No TTL, unlike `staffPrompts`. A staff prompt is an instruction that goes
+ * stale — "a prompt still shown twenty minutes later is furniture" — while an
+ * insight is an observation about a window that already closed, and stays true.
+ */
+export function liveInsights(events: RealmEvent[]): LiveInsight[] {
+  const insights: LiveInsight[] = [];
+
+  for (const e of events) {
+    if (e.type !== "insight.generated") continue;
+    const p = e.payload as unknown as {
+      text?: string;
+      refs?: { seq: number; event_id: string }[];
+      basis?: string;
+      truncated?: boolean;
+      window?: { minutes?: number };
+    };
+    insights.push({
+      seq: (e as unknown as { seq: number }).seq ?? 0,
+      text: String(p.text ?? ""),
+      refs: p.refs ?? [],
+      at: e.occurredAt,
+      windowMinutes: p.window?.minutes ?? 0,
+      basis: String(p.basis ?? "deterministic"),
+      truncated: Boolean(p.truncated),
+    });
+  }
+
+  return insights.sort((a, b) => b.at - a.at);
+}

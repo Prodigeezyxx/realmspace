@@ -34,7 +34,14 @@ import { ZONE_TYPE_TO_KIND } from "@/lib/session/publish";
 import type { RealmEvent, ZoneNode } from "@/lib/contracts";
 import type { Session } from "@/lib/session/types";
 import { hourlyVisitors } from "@/lib/report/derive";
-import { lastEventAt, presentNow, staffPrompts, type StaffPrompt } from "./derive";
+import {
+  lastEventAt,
+  liveInsights,
+  presentNow,
+  staffPrompts,
+  type LiveInsight,
+  type StaffPrompt,
+} from "./derive";
 
 /** How often the scorecard may be recomputed, however fast events arrive. */
 const RECOMPUTE_MS = 1000;
@@ -60,6 +67,12 @@ export interface LiveStats {
    * The `< 3s` end of Phase 3 — see `staffPrompts` for what "recent" means.
    */
   prompts: StaffPrompt[];
+  /**
+   * What the insight agent has said about this room, newest first. No TTL,
+   * unlike `prompts`: an observation about a window that has closed stays
+   * true, while an instruction goes stale.
+   */
+  insights: LiveInsight[];
 }
 
 function emptyStats(): LiveStats {
@@ -72,6 +85,7 @@ function emptyStats(): LiveStats {
     traffic: [],
     cost: summarizeCost([]),
     prompts: [],
+    insights: [],
   };
 }
 
@@ -126,6 +140,7 @@ export function useLiveStats(session: Session): LiveStats {
         // then shows the prompts that were live at each moment rather than an
         // empty panel, and a live session is unaffected because the two agree.
         prompts: staffPrompts(events, lastEventAt(events) ?? Date.now()),
+        insights: liveInsights(events),
       });
     };
 
