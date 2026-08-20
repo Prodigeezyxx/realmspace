@@ -199,3 +199,32 @@ async def test_replayed_events_land_once_in_the_real_log(
     ids = [r["eventId"] for r in rows]
     assert len(ids) == 3, f"expected 3 rows, got {len(ids)}"
     assert len(set(ids)) == 3
+
+
+# ── the read half (Phase 6, the privacy mask) ─────────────────────────────────
+
+
+def test_get_json_returns_the_status_alongside_the_body(bus: BusClient) -> None:
+    """Status is returned rather than raised, because the caller acts on it.
+
+    `perception/mask.py` treats 404 (no such camera) as a misconfiguration to
+    refuse on and a transport failure as a reason to fall back to its cache.
+    Collapsing the two into one exception would let a typo in `--camera-id` run
+    the booth unmasked.
+    """
+    status, body = bus.get_json("/v1/sessions/s_test/cameras/cam-1/mask")
+
+    # http://bus.invalid resolves nowhere, so this is the transport-failure case.
+    assert status == 0
+    assert body is None
+
+
+def test_a_read_is_never_buffered(bus: BusClient) -> None:
+    """The buffer exists so an event that already happened survives an outage.
+
+    There is no equivalent for a read: an answer we could not fetch is not an
+    answer we can replay later, and writing one to the queue would put a GET
+    into a file the replay loop POSTs.
+    """
+    bus.get_json("/v1/sessions/s_test/cameras/cam-1/mask")
+    assert bus.pending() == 0

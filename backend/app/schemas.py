@@ -174,6 +174,46 @@ class EventOut(EventIn):
 # mapper on the client would be a permanent tax.
 
 
+def normalized_polygon(
+    value: list[tuple[float, float]] | None,
+    *,
+    what: str,
+    where: str,
+) -> list[tuple[float, float]] | None:
+    """Reject polygons that could only ever be silently ignored.
+
+    Shared by zones and by camera privacy masks, because both are drawn by the
+    same editor into the same 0..1 coordinate space and both fail the same two
+    ways — and a mask validated more loosely than a zone would be a mask that
+    passes validation and covers nothing.
+
+    Two failures, both otherwise invisible. Fewer than three points is not a
+    shape, and `point_in_polygon` returns False for it forever — every detection
+    inside the zone the operator thinks they drew is attributed nowhere, and the
+    report simply shows less traffic than there was. For a mask the same bug is
+    worse: the pixels go to the model.
+
+    Coordinates outside 0..1 mean pixels were sent where normalized booth
+    coordinates were expected. `consumers/zones.py:normalize` divides every
+    detection by the frame size before comparing, so a pixel polygon matches
+    nothing at all. This is the one place that mistake is cheap to catch.
+    """
+    if value is None:
+        return None
+    if len(value) < 3:
+        raise ValueError(
+            f"a polygon needs at least 3 points, got {len(value)} — "
+            "fewer is not a shape and would contain nobody"
+        )
+    for x, y in value:
+        if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
+            raise ValueError(
+                f"polygon point ({x}, {y}) is outside 0..1 — {what} are "
+                f"normalized booth coordinates, not pixels ({where})"
+            )
+    return value
+
+
 class ZoneConfig(BaseModel):
     """One zone as the session wizard draws it, plus its measurement parameters.
 
@@ -204,32 +244,7 @@ class ZoneConfig(BaseModel):
     def polygon_is_a_normalized_shape(
         cls, value: list[tuple[float, float]] | None
     ) -> list[tuple[float, float]] | None:
-        """Reject polygons the tracker could only ever silently ignore.
-
-        Two failures, both otherwise invisible. Fewer than three points is not a
-        shape, and `point_in_polygon` returns False for it forever — every
-        detection inside the zone the operator thinks they drew is attributed
-        nowhere, and the report simply shows less traffic than there was.
-
-        Coordinates outside 0..1 mean pixels were sent where normalized booth
-        coordinates were expected. `consumers/zones.py:normalize` divides every
-        detection by the frame size before comparing, so a pixel polygon matches
-        nothing at all. This is the one place that mistake is cheap to catch.
-        """
-        if value is None:
-            return None
-        if len(value) < 3:
-            raise ValueError(
-                f"a polygon needs at least 3 points, got {len(value)} — "
-                "fewer is not a shape and would contain nobody"
-            )
-        for x, y in value:
-            if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
-                raise ValueError(
-                    f"polygon point ({x}, {y}) is outside 0..1 — zone polygons are "
-                    "normalized booth coordinates, not pixels (data-model.md → Zone)"
-                )
-        return value
+        return normalized_polygon(value, what="zone polygons", where="data-model.md → Zone")
 
 
 class TouchpointConfig(BaseModel):
@@ -250,6 +265,39 @@ class TouchpointConfig(BaseModel):
     #: operator may add the touchpoint before drawing the zone around it.
     zone_id: str | None = None
     active: bool = True
+
+
+class CameraConfig(BaseModel):
+    """One camera a booth has. The home `camera_id` never had.
+
+    Deliberately thin. `drift.detected` and `calibration.updated` need somewhere
+    to point, and the privacy mask needs an owner; everything else about a
+    camera — lens, mount, resolution — is either not ours to know or arrives on
+    each detection already.
+
+    The mask is **not** settable here. See `CameraOut` and
+    `POST /v1/sessions/{id}/cameras/{camera_id}/calibration`: a mask edit is an
+    audited operator action with a revision, not a field on a config save that
+    could clear it by omission.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    id: str = Field(min_length=1)
+    label: str | None = None
+
+
+class CameraOut(CameraConfig):
+    """A camera as stored, with the mask an operator drew and its revision.
+
+    `mask_revision` is on the read side because perception polls it: a cheap
+    integer comparison tells an edge box whether the mask it cached is still
+    current, without shipping the polygon on every check.
+    """
+
+    label: str
+    privacy_mask: list[tuple[float, float]] | None = None
+    mask_revision: int = 0
 
 
 class SessionConfigIn(BaseModel):
@@ -327,6 +375,11 @@ class SessionConfigIn(BaseModel):
     #: touchpoints; a list replaces the set and prunes what is no longer in it.
     touchpoints: list[TouchpointConfig] | None = None
 
+    #: Same rule again. Declaring a camera here is what gives `camera_id` a
+    #: meaning; a mask drawn against it is set separately and survives a save
+    #: that lists the camera, because `upsert_camera` does not touch the mask.
+    cameras: list[CameraConfig] | None = None
+
     @field_validator("touchpoints")
     @classmethod
     def touchpoint_ids_are_unique(
@@ -339,6 +392,26 @@ class SessionConfigIn(BaseModel):
         duplicates = sorted({t for t in seen if seen.count(t) > 1})
         if duplicates:
             raise ValueError(f"duplicate touchpoint ids: {', '.join(duplicates)}")
+        return value
+
+    @field_validator("cameras")
+    @classmethod
+    def camera_ids_are_unique(
+        cls, value: list[CameraConfig] | None
+    ) -> list[CameraConfig] | None:
+        """As with zones and touchpoints — MERGE collapses the duplicate.
+
+        Worse here than for a zone: two cameras sharing an id share one mask
+        node, so a mask drawn for the camera pointing at the payment terminal
+        would also be applied to the one pointing at the entrance, blanking the
+        wrong pixels on both.
+        """
+        if value is None:
+            return None
+        seen = [c.id for c in value]
+        duplicates = sorted({c for c in seen if seen.count(c) > 1})
+        if duplicates:
+            raise ValueError(f"duplicate camera ids: {', '.join(duplicates)}")
         return value
 
     @field_validator("zones")
@@ -372,6 +445,72 @@ class SessionConfigOut(SessionConfigIn):
 
     zones: list[ZoneConfig] = []
     touchpoints: list[TouchpointOut] = []
+    cameras: list[CameraOut] = []
+
+
+#: The four calibration kinds `event-bus-spec.md` §3 pins for
+#: `calibration.updated`. All four are accepted by the *contract*; only
+#: `privacy_mask` is accepted by the endpoint, which refuses the other three
+#: with the reason. See `routers/calibration.py`.
+CALIBRATION_KINDS = ("homography", "zone_map", "reader_map", "privacy_mask")
+
+
+class CalibrationIn(BaseModel):
+    """An operator recalibrating one camera.
+
+    `polygon` is required for `privacy_mask` and meaningless for the rest, which
+    is not expressed as a union type because the rest are refused anyway — see
+    the router. A validator here would make the refusal a 422 about a missing
+    field instead of a 501 that says nothing consumes a homography, and the
+    second is the message an operator can act on.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    kind: str = Field(default="privacy_mask")
+    #: Normalized 0..1, same coordinate space as a zone polygon and drawn with
+    #: the same editor. None clears an existing mask.
+    polygon: list[tuple[float, float]] | None = None
+    #: Free text — why this was recalibrated. Goes onto the event, because the
+    #: audit trail this event exists to be is a record of decisions, and "the
+    #: camera was knocked at 14:10" is the part a later reader needs.
+    note: str | None = None
+
+    @field_validator("polygon")
+    @classmethod
+    def polygon_is_a_normalized_shape(
+        cls, value: list[tuple[float, float]] | None
+    ) -> list[tuple[float, float]] | None:
+        return normalized_polygon(
+            value, what="privacy masks", where="privacy.md → Sensitive zones"
+        )
+
+
+class CalibrationOut(BaseModel):
+    """What a recalibration produced: the new revision, and the event recording it."""
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    camera_id: str
+    kind: str
+    revision: int
+    event_id: uuid.UUID
+
+
+class MaskOut(BaseModel):
+    """One camera's opt-out polygon, as perception fetches it.
+
+    `polygon: null` is a camera with no mask — a booth with no sensitive
+    surface. It is **not** the same as a 404, which means no such camera was
+    declared, and perception treats the two differently: the first is a
+    deliberate decision, the second is a misconfiguration it refuses to run on.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    camera_id: str
+    polygon: list[tuple[float, float]] | None = None
+    revision: int = 0
 
 
 class ZoneDwell(BaseModel):

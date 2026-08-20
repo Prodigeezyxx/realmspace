@@ -85,6 +85,51 @@ describe("payloadFromWire", () => {
     });
   });
 
+  it("translates the Phase 6 telemetry payloads the ops panel reads", () => {
+    // Both types were pinned in event-bus-spec.md §3 during Phase 3 and had no
+    // producer until Phase 6, so nothing had ever exercised the translation.
+    // The failure it guards against is the Phase 2 one: `camera_id` arriving
+    // untranslated renders as `undefined` beside two real numbers, and a panel
+    // saying "undefined has drifted" is worse than an error.
+    expect(
+      payloadFromWire("drift.detected", {
+        camera_id: "cam-1",
+        metric: "confidence_mean",
+        observed: 0.55,
+        baseline: 0.9,
+        window_seconds: 600,
+        severity: "critical",
+        window: { from: "2026-08-19T09:10:00+00:00", to: "2026-08-19T09:20:00+00:00" },
+      })
+    ).toEqual({
+      cameraId: "cam-1",
+      metric: "confidence_mean",
+      observed: 0.55,
+      baseline: 0.9,
+      windowSeconds: 600,
+      severity: "critical",
+      window: { from: "2026-08-19T09:10:00+00:00", to: "2026-08-19T09:20:00+00:00" },
+    });
+
+    expect(
+      payloadFromWire("calibration.updated", {
+        camera_id: "cam-1",
+        kind: "privacy_mask",
+        revision: 2,
+        by: "u_op",
+        note: "tripod knocked",
+        masked: true,
+      })
+    ).toEqual({
+      cameraId: "cam-1",
+      kind: "privacy_mask",
+      revision: 2,
+      by: "u_op",
+      note: "tripod knocked",
+      masked: true,
+    });
+  });
+
   it("survives a null or non-object payload without throwing", () => {
     expect(payloadFromWire("spatial.dwell", null)).toEqual({});
     expect(payloadFromWire("spatial.dwell", "nonsense")).toEqual({});

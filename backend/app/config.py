@@ -137,6 +137,32 @@ class Settings(BaseSettings):
     # PASSBY_RADIUS, so a visitor is a pass-by on both tracks or on neither.
     tracker_passby_radius: float = 0.08
 
+    # ── CV drift telemetry (roadmap.md Phase 6) ───────────────────────────────
+    # How long a drift window is, in minutes of *event* time. Separate from the
+    # insight interval, which is an operator-facing setting about how often they
+    # want to be told something: this is a measurement window, and shortening it
+    # to get faster warnings just makes each sample noisier.
+    drift_window_minutes: int = 10
+
+    # Below this many samples a window produces no reading. A mean confidence
+    # over three detections is noise, and a drift event built on it is a guess
+    # wearing an event type. No reading is the honest output — the panel shows
+    # nothing rather than a shrug.
+    drift_min_samples: int = 30
+
+    # Relative change against the baseline, as a fraction, before we say
+    # anything. Two thresholds because `drift.detected` carries a severity, and
+    # one number cannot distinguish "worth a look at the next lull" from "the
+    # numbers coming out of this camera are wrong now".
+    #
+    # Deliberately relative, not absolute: cameras differ, and an absolute
+    # confidence floor would fire permanently on a hard scene and never on an
+    # easy one. The event carries both sides of the comparison anyway
+    # (event-bus-spec.md §3), so a human can disagree with the threshold without
+    # having to re-derive the measurement.
+    drift_warn_ratio: float = 0.15
+    drift_critical_ratio: float = 0.30
+
     # ── auth (multi-tenant.md §3, Week 1 tasks 1.6/1.7) ───────────────────────
     # Tokens are issued and verified locally with this secret. Deliberately not
     # Firebase-verified on the hot path: event-bus-spec.md §1 requires the edge

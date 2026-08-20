@@ -35,6 +35,7 @@ from typing import Iterable
 import cv2  # opencv-python
 
 from bus_client import BusClient
+from mask import MaskFetcher, MaskUnavailable
 
 
 @dataclass
@@ -89,6 +90,12 @@ def parse_args() -> argparse.Namespace:
         "--session-id",
         default="s_demo",
         help="activation this run belongs to (default: s_demo)",
+    )
+    p.add_argument(
+        "--camera-id",
+        default="cam-1",
+        help="which camera this process is. Names the privacy mask it fetches "
+             "and the camera drift telemetry is attributed to (default: cam-1).",
     )
     p.add_argument(
         "--api-key",
@@ -192,6 +199,26 @@ def main() -> int:
             file=sys.stderr, flush=True,
         )
 
+    # Before the first frame is read, and therefore before any inference. A
+    # mask established after the loop has started is a mask that missed frames,
+    # and privacy.md's promise is about every frame. Failing here also fails
+    # before the preview window opens, so a refused start is not a booth showing
+    # unmasked video to the room while somebody reads the error.
+    masker = MaskFetcher(bus, session_id=args.session_id, camera_id=args.camera_id)
+    try:
+        mask = masker.start()
+    except MaskUnavailable as exc:
+        print(json.dumps({"type": "mask_unavailable", "error": str(exc)}),
+              file=sys.stderr, flush=True)
+        cap.release()
+        return 2
+    print(
+        json.dumps({"type": "mask", "camera": args.camera_id,
+                    "masking": mask.masks_anything, "revision": mask.revision,
+                    "source": mask.source}),
+        file=sys.stderr, flush=True,
+    )
+
     print(
         json.dumps(
             {
@@ -207,7 +234,11 @@ def main() -> int:
     # session.started on the bus is a separate thing from the stdout line above:
     # one is for a human watching the terminal, the other is an event in the log
     # that the report and the twin will read back later (spec §3).
-    bus.post("session.started", {"source": str(args.source), "model": args.model})
+    bus.post(
+        "session.started",
+        {"source": str(args.source), "model": args.model,
+         "camera_id": args.camera_id},
+    )
 
     frame_id = 0
     fps_t0 = time.time()
@@ -221,6 +252,18 @@ def main() -> int:
                 break
             frame_id += 1
             ts = time.time()
+
+            # Before the model, before the overlay, before --save. The frame is
+            # masked in place and nothing downstream holds the original, which
+            # is the only version of this that cannot leak by omission.
+            if masker.poll():
+                print(
+                    json.dumps({"type": "mask_updated", "camera": args.camera_id,
+                                "masking": masker.mask.masks_anything,
+                                "revision": masker.mask.revision}),
+                    file=sys.stderr, flush=True,
+                )
+            frame = masker.apply(frame, cv2)
 
             results = yolo.track(frame, persist=True, conf=args.conf, classes=[0], verbose=False)
 
@@ -248,6 +291,12 @@ def main() -> int:
                             "frame_id": d.frame_id,
                             "frame_width": frame_w,
                             "frame_height": frame_h,
+                            # Which camera saw this. Additive to the payload
+                            # event-bus-spec.md §3 pins for perception.detection,
+                            # and the field the drift consumer groups on — a
+                            # confidence mean averaged across two cameras
+                            # describes neither.
+                            "camera_id": args.camera_id,
                         },
                     )
                     last_bus_post = ts

@@ -51,6 +51,7 @@ from app.db import get_session
 from app.graph import repository as graph_repo
 from app.graph.driver import get_graph_session
 from app.schemas import (
+    CameraOut,
     EventIn,
     SessionConfigIn,
     SessionConfigOut,
@@ -68,7 +69,10 @@ ZONES_UPDATED = "session.zones_updated"
 
 
 def _config_out(
-    props: dict, zones: list[dict], surfaces: list[dict]
+    props: dict,
+    zones: list[dict],
+    surfaces: list[dict],
+    cameras: list[dict],
 ) -> SessionConfigOut:
     """A Session node's properties plus its zones, as the wire shape.
 
@@ -100,6 +104,7 @@ def _config_out(
         insight_interval_minutes=props.get("insight_interval_minutes") or 10,
         zones=[ZoneConfig(**z) for z in zones],
         touchpoints=[TouchpointOut(**s) for s in surfaces],
+        cameras=[CameraOut(**c) for c in cameras],
     )
 
 
@@ -195,6 +200,30 @@ async def put_session_config(
             keep_ids=[t.id for t in config.touchpoints],
         )
 
+    if config.cameras is not None:
+        # Cameras are written here so `camera_id` means something before the
+        # first frame arrives — `drift.detected` and the mask endpoint both key
+        # on one, and a camera nobody declared is a typo the operator should
+        # find at setup rather than in an empty drift panel.
+        #
+        # `upsert_camera` deliberately does not touch `privacy_mask`. A save
+        # that listed a camera without its mask would otherwise clear it, and
+        # the very next frame would reach the model unmasked.
+        for camera in config.cameras:
+            await graph_repo.upsert_camera(
+                graph,
+                tenant_id=principal.tenant_id,
+                session_id=config.session_id,
+                camera_id=camera.id,
+                label=camera.label,
+            )
+        await graph_repo.prune_cameras(
+            graph,
+            tenant_id=principal.tenant_id,
+            session_id=config.session_id,
+            keep_ids=[c.id for c in config.cameras],
+        )
+
     zones = await graph_repo.zones_for_session(
         graph,
         tenant_id=principal.tenant_id,
@@ -202,6 +231,9 @@ async def put_session_config(
         include_undrawn=True,
     )
     surfaces = await graph_repo.surfaces_for_session(
+        graph, tenant_id=principal.tenant_id, session_id=config.session_id
+    )
+    cameras = await graph_repo.cameras_for_session(
         graph, tenant_id=principal.tenant_id, session_id=config.session_id
     )
 
@@ -224,7 +256,7 @@ async def put_session_config(
         ),
     )
 
-    return _config_out(props, zones, surfaces)
+    return _config_out(props, zones, surfaces, cameras)
 
 
 @router.get(
@@ -261,7 +293,10 @@ async def get_session_config(
     surfaces = await graph_repo.surfaces_for_session(
         graph, tenant_id=principal.tenant_id, session_id=session_id
     )
-    return _config_out(props, zones, surfaces)
+    cameras = await graph_repo.cameras_for_session(
+        graph, tenant_id=principal.tenant_id, session_id=session_id
+    )
+    return _config_out(props, zones, surfaces, cameras)
 
 
 @router.get(

@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   Box,
+  Camera,
   FileBarChart,
   FileSpreadsheet,
   Gauge,
@@ -28,6 +29,11 @@ const items = [
   // from here — a review queue nobody can navigate to is a review queue nobody
   // reads, which is the whole failure that screen was built to avoid.
   { href: "/ops",      label: "Ops",      icon: AlertTriangle },
+  // The calibration step `privacy.md` has described since Phase 0 and that
+  // nothing implemented until Phase 6. Nested under /sessions because it
+  // calibrates one, which is why `active` below can no longer be a plain
+  // prefix test.
+  { href: "/sessions/calibration", label: "Cameras", icon: Camera },
 ];
 
 export function NavRail() {
@@ -38,7 +44,12 @@ export function NavRail() {
         className="bg-bg-raised border border-border-subtle rounded-full flex flex-col items-center gap-1 p-1.5 shadow-[var(--shadow-sm)]"
       >
         {items.map(({ href, label, icon: Icon }) => {
-          const active = pathname.startsWith(href);
+          // Longest match wins. A plain `startsWith` lit Sessions *and* Cameras
+          // on /sessions/calibration, and two highlighted tabs tell a reader
+          // nothing about where they are.
+          const active =
+            pathname.startsWith(href) &&
+            !items.some((o) => o.href.length > href.length && pathname.startsWith(o.href));
           return (
             <Link
               key={href}

@@ -17,6 +17,7 @@
 
 import {
   AlertTriangle,
+  Camera,
   Check,
   HelpCircle,
   Info,
@@ -31,6 +32,12 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
 import { useDeadLetters, type DeadLetter } from "@/lib/ops/useDeadLetters";
+import {
+  drift,
+  METRIC_LABELS,
+  useDriftEvents,
+  type DriftFinding,
+} from "@/lib/ops/useDriftEvents";
 import {
   useStrandedDispatches,
   type StrandedDispatch,
@@ -115,7 +122,143 @@ export default function OpsPage() {
         ))}
 
       <StrandedSection />
+      <DriftSection />
     </div>
+  );
+}
+
+/**
+ * Cameras that are not seeing what they were seeing.
+ *
+ * The third section on this screen and the odd one out: the other two are
+ * queues, with a thing to do per row. This one has no button, because there is
+ * no action a browser can take on a lens that has fogged. What it owes the
+ * operator is the numbers — go and look at that camera, and here is why.
+ *
+ * Which is also why every row shows `observed` against `baseline` rather than
+ * the severity alone. `event-bus-spec.md` §3 pins both onto the event so that
+ * "the event states the comparison it is making instead of asserting a verdict
+ * someone later cannot check", and rendering only the verdict would spend that
+ * on nothing. An operator who can see 0.55 against 0.90 can disagree with the
+ * threshold; one who can only see "critical" can only believe it or not.
+ */
+function DriftSection() {
+  const { status, items, detail, refresh } = useDriftEvents();
+
+  // Same reasoning as the stranded section: no drift is the common case and it
+  // needs no reassurance of its own. A healthy screen should not look like
+  // three things to check.
+  if (status === "loading" || (status === "ready" && !items.length)) return null;
+
+  const cameras = new Set(items.map((item) => item.cameraId)).size;
+
+  return (
+    <section className="space-y-6 pt-4">
+      <div className="flex items-end justify-between gap-4 flex-wrap border-t border-border-hairline pt-6">
+        <div>
+          <Pill variant="warn" className="mb-2">
+            <Camera size={11} />
+            {`${cameras} ${cameras === 1 ? "camera" : "cameras"} drifting`}
+          </Pill>
+          <h2 className="text-xl font-semibold tracking-tight">
+            Cameras seeing less than they were
+          </h2>
+          <p className="text-sm text-text-secondary mt-1 max-w-2xl leading-relaxed">
+            Measured against each camera&rsquo;s own first ten minutes of this
+            activation, not against a fixed number — cameras differ, and a floor
+            an operator has to keep re-tuning is a floor nobody tunes. A quiet
+            room reads as nothing here rather than as a fault: these are
+            per-detection statistics, so an empty booth contributes no samples.
+          </p>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<RefreshCw size={14} />}
+          onClick={() => void refresh()}
+        >
+          Refresh
+        </Button>
+      </div>
+
+      {(status === "offline" || status === "error") && (
+        <EmptyState
+          variant="page"
+          icon={<Info size={20} />}
+          title={
+            status === "offline"
+              ? "No backend configured"
+              : "Could not read the telemetry"
+          }
+          hint={detail ?? undefined}
+        />
+      )}
+
+      {status === "ready" &&
+        items.map((item) => (
+          <DriftItem key={`${item.seq}`} item={item} />
+        ))}
+    </section>
+  );
+}
+
+function DriftItem({ item }: { item: DriftFinding }) {
+  const change = drift(item);
+  const label = METRIC_LABELS[item.metric] ?? item.metric;
+  const minutes = item.windowSeconds ? Math.round(item.windowSeconds / 60) : null;
+
+  return (
+    <Panel
+      title={
+        <span className="flex items-center gap-2">
+          <Pill variant={item.severity === "critical" ? "alert" : "warn"}>
+            {item.severity === "critical" ? "Critical" : "Warning"}
+          </Pill>
+          {item.cameraId} · {label}
+        </span>
+      }
+      subtitle={`${item.sessionId} · ${new Date(item.occurredAt).toLocaleString()}${
+        minutes ? ` · ${minutes}-minute window` : ""
+      }`}
+    >
+      <div className="space-y-3">
+        {/* The comparison, not the conclusion. Both numbers at the same size,
+            because the whole claim is the relationship between them. */}
+        <div className="flex items-baseline gap-6 flex-wrap">
+          <div>
+            <div className="text-xs text-text-muted">Now</div>
+            <div className="text-xl font-semibold tabular-nums">{item.observed}</div>
+          </div>
+          <div>
+            <div className="text-xs text-text-muted">Baseline</div>
+            <div className="text-xl font-semibold tabular-nums text-text-secondary">
+              {item.baseline}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-text-muted">Change</div>
+            <div className="text-xl font-semibold tabular-nums">
+              {change > 0 ? "+" : ""}
+              {Math.round(change * 100)}%
+            </div>
+          </div>
+        </div>
+
+        <p className="text-sm text-text-secondary leading-relaxed">
+          {item.metric === "confidence_mean"
+            ? "The model is less sure about the people it is finding than it was at the start of this activation. Usually the scene changed rather than the model: a light moved, a lens fogged, or something got hung in front of the camera."
+            : item.metric === "track_length"
+              ? "More visits are ending because the tracker lost the person than were at the start. Dwell measured through this camera is a lower bound while that holds, and the report will under-count."
+              : "This measurement has moved away from where it started for this camera."}
+        </p>
+
+        <p className="text-xs text-text-muted leading-relaxed">
+          Nothing to click. Go and look at {item.cameraId}; if the scene has
+          genuinely changed, recalibrating resets the baseline so this stops
+          reporting the new normal as a fault.
+        </p>
+      </div>
+    </Panel>
   );
 }
 

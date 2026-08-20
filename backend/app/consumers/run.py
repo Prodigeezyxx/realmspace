@@ -29,6 +29,7 @@ from app.consumers.graph_writer import GraphWriterConsumer
 from app.consumers.handoff_delivery import HandoffDeliveryConsumer
 from app.consumers.outcomes import OutcomesConsumer
 from app.consumers.identity import IdentityConsumer
+from app.consumers.drift import DriftConsumer
 from app.consumers.insights import InsightsConsumer
 from app.consumers.reanonymise import ReAnonymiseConsumer
 from app.consumers.rules import RulesConsumer
@@ -85,6 +86,11 @@ CONSUMER_CLASSES: list[type[Consumer]] = [
     # the graph writer so a window it summarises has already been written to the
     # graph, and away from the lead chain, which it shares nothing with.
     InsightsConsumer,
+    # Reads the same detection stream on the same fixed windows as the insight
+    # agent, and shares nothing else with it. Neither writes what the other
+    # reads, so the order between them is arbitrary; they sit together because
+    # they are the two consumers that measure a window rather than an event.
+    DriftConsumer,
     # Off the ledger's critical path — the ledger reads the log. This keeps the
     # graph's queryable copy of "which deals came from this visitor" current.
     OutcomesConsumer,

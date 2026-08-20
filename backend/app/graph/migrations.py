@@ -50,6 +50,11 @@ MIGRATIONS: dict[str, tuple[str, list[str], list[str]]] = {
         schema.OUTCOME_004,
         schema.OUTCOME_004_DOWN,
     ),
+    "005": (
+        "Camera — a home for camera_id and the privacy mask (privacy.md)",
+        schema.CAMERA_005,
+        schema.CAMERA_005_DOWN,
+    ),
 }
 
 

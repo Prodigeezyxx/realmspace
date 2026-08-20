@@ -29,6 +29,7 @@ from app.graph import driver as graph_driver
 from app.routers import (
     ask,
     auth,
+    calibration,
     consent,
     consumers,
     dead_letters,
@@ -145,6 +146,9 @@ app.include_router(events.router)
 app.include_router(events.alias_router)
 app.include_router(live.router)
 app.include_router(sessions.router)
+# After sessions: both mount /v1/sessions, and this one's paths are
+# strictly longer, so no route here can shadow one there.
+app.include_router(calibration.router)
 app.include_router(consent.router)
 app.include_router(outcomes.router)
 app.include_router(erasure.router)

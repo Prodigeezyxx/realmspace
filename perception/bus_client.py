@@ -113,6 +113,38 @@ class BusClient:
         except (urllib.error.URLError, TimeoutError, OSError):
             return False  # unreachable — this is what the buffer is for
 
+    def get_json(self, path: str) -> tuple[int, Any]:
+        """GET one JSON document. Returns (status, body). Never raises, never buffers.
+
+        The read half of this client, added for the privacy mask. Deliberately
+        thin and deliberately not buffered: a buffer exists so an event that
+        already happened survives an outage, and there is no equivalent for a
+        read — an answer we could not fetch is not an answer we can invent.
+
+        Status is returned rather than folded into an exception because the
+        caller acts on the difference. `perception/mask.py` treats 404 (no such
+        camera) as a misconfiguration to refuse on and a transport failure as a
+        reason to fall back to its cache, and collapsing the two would let a
+        typo in --camera-id run the booth unmasked.
+
+        Status 0 means the request never reached a server.
+        """
+        request = urllib.request.Request(
+            f"{self.base_url}{path}",
+            headers=self._headers(),
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+                return response.status, json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403):
+                _warn("bus_auth_error", status=exc.code, path=path,
+                      hint="check --api-key / REALMSPACE_API_KEY and --tenant-id")
+            return exc.code, None
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError):
+            return 0, None
+
     # ── buffer ────────────────────────────────────────────────────────────────
 
     def _buffer(self, body: dict[str, Any]) -> None:

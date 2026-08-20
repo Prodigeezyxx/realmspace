@@ -221,6 +221,42 @@ OUTCOME_004_DOWN: list[str] = [
 ]
 
 
+# ── Migration 005 — Camera (Phase 6's calibration + drift telemetry) ────────
+#
+# `drift.detected` and `calibration.updated` have both been pinned in
+# `event-bus-spec.md` §3 since Phase 3, and both are keyed on a `camera_id` that
+# had nowhere to live: `Session.camera_count` is an integer, and nothing else in
+# the backend, the graph or perception knew what a camera was.
+#
+# A camera also has to hold something. `privacy.md` §"Sensitive zones" says an
+# operator draws an opt-out polygon and "pixels within that polygon are masked
+# before any model runs" — a per-camera polygon, since a mask is a region of one
+# camera's frame and means nothing in another's.
+#
+# **Keyed per session, like Zone after 002 and not like Contact.** A physical
+# camera outlives an activation, but a mask does not: it is drawn against one
+# booth layout, and `privacy.md` destroys person ids at session end anyway.
+# Keying per tenant would carry yesterday's masked geometry onto today's floor
+# and mask the wrong pixels — a privacy failure that looks like a working
+# feature, which is the worst kind.
+#
+# `mask_revision` is a property rather than a key: two recalibrations of one
+# camera are two events in the log and one node, and the node holds the current
+# state. The log holds the history — see `calibration.updated`'s random event_id
+# in `event-bus-spec.md` §3, which exists for exactly that split.
+CAMERA_005: list[str] = [
+    "CREATE CONSTRAINT camera_tenant_session_id_unique IF NOT EXISTS "
+    "FOR (c:Camera) REQUIRE (c.tenant_id, c.session_id, c.id) IS UNIQUE",
+    "CREATE INDEX camera_session_idx IF NOT EXISTS "
+    "FOR (c:Camera) ON (c.tenant_id, c.session_id)",
+]
+
+CAMERA_005_DOWN: list[str] = [
+    "DROP INDEX camera_session_idx IF EXISTS",
+    "DROP CONSTRAINT camera_tenant_session_id_unique IF EXISTS",
+]
+
+
 def statements() -> list[str]:
     """Migration 001 as a list of Cypher statements.
 

@@ -280,6 +280,45 @@ require_operator = requires(RUN_ACTIVATION)
 require_admin = requires(MANAGE_ORG)
 
 
+async def require_mask_reader(
+    principal: Principal = Depends(get_principal),
+) -> Principal:
+    """The one read a device credential is allowed: its tenant's privacy masks.
+
+    `requires()` refuses every device outright — "device credentials are
+    write-only" — and that rule is worth keeping, because a camera key is the
+    credential most likely to walk out of a venue and the log it would otherwise
+    read is a room full of people.
+
+    A privacy mask is the exception, and not a grudging one. `privacy.md`
+    §"Sensitive zones" promises that pixels inside an operator's opt-out polygon
+    are masked *before any model runs*, which can only happen on the edge box,
+    which therefore has to be able to fetch the polygon. The thing being read is
+    the instruction not to look — refusing it does not protect a visitor, it
+    un-masks them.
+
+    Deliberately narrow, and narrow in a way a reader can check: this is the only
+    dependency in the file that admits a device, it is used by exactly one
+    endpoint, and what that endpoint returns is a polygon and an integer. A
+    device key stolen from a booth still cannot read one event.
+
+    It is scoped to the tenant on the credential and no further. A device could
+    therefore read the mask of another of its own tenant's sessions, which is
+    accepted rather than overlooked: keys are issued per deployment, and the
+    alternative — binding a key to one session — would mean reissuing camera
+    credentials for every activation.
+    """
+    if principal.kind == "user" and not principal.can(READ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"this needs the {READ!r} capability, which the "
+                f"{principal.role!r} role does not have (multi-tenant.md §3)"
+            ),
+        )
+    return principal
+
+
 async def principal_for_socket(
     session: AsyncSession, token: str | None, path_tenant_id: str
 ) -> Principal:

@@ -29,6 +29,7 @@ write and a cursor advance cannot share a transaction, so replay after a crash
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any
 
 from neo4j import AsyncSession
@@ -607,6 +608,192 @@ async def prune_zones(
         WHERE NOT z.id IN $keep_ids
         DETACH DELETE z
         RETURN count(z) AS deleted
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        keep_ids=keep_ids,
+    )
+    record = await result.single()
+    return record["deleted"]
+
+
+# ── Camera (graph migration 005) ─────────────────────────────────────────────
+#
+# A camera exists for two reasons: `drift.detected` and `calibration.updated`
+# are both keyed on a `camera_id` that previously had nowhere to live, and
+# `privacy.md` §"Sensitive zones" promises a per-camera opt-out polygon whose
+# pixels are masked before any model runs.
+#
+# The polygon is stored flattened, [x1,y1,x2,y2,…], for the same reason zones
+# are: Neo4j cannot hold a nested list as a property. Callers never see that
+# shape — every read here rebuilds pairs.
+
+
+async def upsert_camera(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str,
+    camera_id: str,
+    label: str | None = None,
+) -> dict[str, Any]:
+    """Create or update a Camera. Deliberately does **not** touch the mask.
+
+    This is the session-config path — the wizard declaring which cameras a booth
+    has. The mask is set by `set_privacy_mask` and nothing else.
+
+    Keeping the two apart is not tidiness. The wizard posts its whole camera set
+    on every save, so if this wrote `privacy_mask` a save that omitted it would
+    clear a mask an operator had drawn, and the next frame would go to the model
+    unmasked. Silent, and a privacy failure rather than a lost setting.
+    """
+    result = await session.run(
+        """
+        MERGE (c:Camera {tenant_id: $tenant_id, session_id: $session_id, id: $camera_id})
+        ON CREATE SET c.mask_revision = 0
+        SET c.label = coalesce($label, c.label, $camera_id)
+        RETURN c
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        camera_id=camera_id,
+        label=label,
+    )
+    record = await result.single()
+    return dict(record["c"])
+
+
+async def set_privacy_mask(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str,
+    camera_id: str,
+    polygon: list[list[float]] | None,
+    updated_at: dt.datetime,
+) -> int:
+    """Set (or clear) a camera's opt-out polygon. Returns the new revision.
+
+    The increment is **inside the same Cypher statement** as the write, for the
+    reason `identify` puts its consent gate there: a read-then-write in Python
+    is two round trips, and two operators saving a mask at once would both read
+    revision 3 and both write revision 4. Perception decides whether its cached
+    mask is stale by comparing revisions, so a duplicated revision means an edge
+    box holding the older of two masks and believing it is current.
+
+    `polygon=None` clears the mask and still increments — removing a mask is a
+    calibration change like any other, and an edge box has to learn about it.
+    """
+    flat = None if polygon is None else [c for point in polygon for c in point]
+
+    result = await session.run(
+        """
+        MERGE (c:Camera {tenant_id: $tenant_id, session_id: $session_id, id: $camera_id})
+        ON CREATE SET c.label = $camera_id
+        SET c.privacy_mask   = $polygon,
+            c.mask_revision  = coalesce(c.mask_revision, 0) + 1,
+            c.mask_updated_at = $updated_at
+        RETURN c.mask_revision AS revision
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        camera_id=camera_id,
+        polygon=flat,
+        updated_at=updated_at,
+    )
+    record = await result.single()
+    return int(record["revision"])
+
+
+def _unflatten(flat: list[float] | None) -> list[list[float]] | None:
+    """[x1,y1,x2,y2,…] → [[x1,y1],[x2,y2],…]. None stays None.
+
+    None rather than [] for a camera with no mask, matching the reasoning on
+    `zones_for_session`'s polygon: an empty list is a claim about a shape, and
+    a mask with no points would be a mask that masks nothing — which is exactly
+    the same on-screen as "no mask", and must not be.
+    """
+    if not flat:
+        return None
+    return [[flat[i], flat[i + 1]] for i in range(0, len(flat) - 1, 2)]
+
+
+async def cameras_for_session(
+    session: AsyncSession, *, tenant_id: str, session_id: str
+) -> list[dict[str, Any]]:
+    """Every camera declared for a session, with its mask and revision."""
+    result = await session.run(
+        """
+        MATCH (c:Camera {tenant_id: $tenant_id, session_id: $session_id})
+        RETURN c.id            AS id,
+               c.label         AS label,
+               c.privacy_mask  AS privacy_mask,
+               c.mask_revision AS mask_revision
+        ORDER BY c.id
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+    )
+    cameras: list[dict[str, Any]] = []
+    async for record in result:
+        cameras.append(
+            {
+                "id": record["id"],
+                "label": record["label"] or record["id"],
+                "privacy_mask": _unflatten(record["privacy_mask"]),
+                "mask_revision": record["mask_revision"] or 0,
+            }
+        )
+    return cameras
+
+
+async def camera_mask(
+    session: AsyncSession, *, tenant_id: str, session_id: str, camera_id: str
+) -> dict[str, Any] | None:
+    """One camera's mask, for perception to fetch. None if no such camera.
+
+    The distinction between None here and a camera whose `privacy_mask` is None
+    is the one perception acts on: no camera declared is a misconfiguration an
+    operator has to fix, while a declared camera with no mask is a booth that
+    genuinely has no sensitive surface. Collapsing them would make a typo in
+    `--camera-id` look like a deliberate decision not to mask.
+    """
+    result = await session.run(
+        """
+        MATCH (c:Camera {tenant_id: $tenant_id, session_id: $session_id, id: $camera_id})
+        RETURN c.privacy_mask  AS privacy_mask,
+               c.mask_revision AS mask_revision
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        camera_id=camera_id,
+    )
+    record = await result.single()
+    if record is None:
+        return None
+    return {
+        "polygon": _unflatten(record["privacy_mask"]),
+        "revision": record["mask_revision"] or 0,
+    }
+
+
+async def prune_cameras(
+    session: AsyncSession, *, tenant_id: str, session_id: str, keep_ids: list[str]
+) -> int:
+    """Delete this session's cameras that are not in `keep_ids`. Returns the count.
+
+    Same contract as `prune_zones` — the wizard posts the whole set — with one
+    consequence worth stating: deleting a camera deletes its mask. An operator
+    who removes a camera and adds it back has to redraw, and that is the right
+    failure direction. The alternative is a mask surviving invisibly and being
+    reapplied to a camera someone has since repointed at a different wall.
+    """
+    result = await session.run(
+        """
+        MATCH (c:Camera {tenant_id: $tenant_id, session_id: $session_id})
+        WHERE NOT c.id IN $keep_ids
+        DETACH DELETE c
+        RETURN count(c) AS deleted
         """,
         tenant_id=tenant_id,
         session_id=session_id,
