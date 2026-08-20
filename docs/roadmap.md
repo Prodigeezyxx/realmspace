@@ -612,7 +612,89 @@ this codebase deletes from reports.
       the round trip to Google has not been exercised.
 - 🔲 **Cloud replay sync** (anonymised) + **cross-activation benchmark** dataset
 - 🔲 **Billing** hooks (Stripe) + plan metering/limits
-- 🔲 Calibration UI + **CV drift telemetry**; multi-camera fusion
+- ✅ **Calibration UI + CV drift telemetry** *(2026-08-19)* — the third clause,
+      multi-camera fusion, is split out below with its reasons.
+
+      **`camera_id` had nowhere to live.** `drift.detected` and
+      `calibration.updated` have both been pinned in `event-bus-spec.md` §3
+      since Phase 3, and both are keyed on a camera that nothing in the backend,
+      the graph or perception knew about — `Session.camera_count` was an
+      integer. `(:Camera)` is graph migration 005, keyed per session like `Zone`
+      after 002: a physical camera outlives an activation but a mask does not,
+      and carrying yesterday's masked geometry onto today's floor would blank
+      the wrong pixels.
+
+      **A promise this repo had been making and not keeping.** `privacy.md`
+      §"Sensitive zones" has said since Phase 0 that an operator draws an
+      opt-out polygon and "pixels within that polygon are masked before any
+      model runs", and the session wizard repeats it during setup — *"All
+      sensitive zones masked at pixel level"*. No code anywhere touched a pixel.
+      It does now: `/sessions/calibration` → `calibration.updated` →
+      `perception/mask.py` → `cv2.fillPoly` before `yolo.track`. Verified on a
+      real clip: **40 detections in the masked region without the mask, 0 with
+      it**, the unmasked region unchanged at 60.
+      It **fails closed** — no mask and no cache means refuse to start, the same
+      rule as P4's `credential_encryption_key` and P6's Firebase verifier, and
+      here because the failure it prevents leaves nothing to review or retract.
+      It survives an outage from a disk cache, and the polygon is deliberately
+      **not** on the log: the log is replayed and exported, and a booth's
+      sensitive geometry does not need to be in every copy of it.
+      What an operator does not get is a camera preview to draw over — frames
+      never leave the laptop's 60-second buffer — so the editor is a coordinate
+      grid and the shape is confirmed in the perception preview window. A
+      usability cost taken deliberately.
+
+      **Three of the four calibration kinds are refused with the reason.** §3
+      pins `homography | zone_map | reader_map | privacy_mask` and only the last
+      has a consumer: zone geometry already has an endpoint that already
+      invalidates the tracker's cache, nothing reads a floor-plan transform
+      because zones are normalized image coordinates end to end, and `rfid.read`
+      has no producer. The same choice `/ops` makes when it declines to retry a
+      tracker dead-letter — a button that accepts and does nothing is worse than
+      one that explains itself.
+
+      **Drift emits two metrics, not §3's three, and that is the design.**
+      `detection_rate` falling is confounded with the room emptying, and a
+      detector that fires every lunchtime is worth less than none because it
+      looks like coverage. `confidence_mean` and `track_length` (the dropout
+      share of visit ends, which the tracker has stamped since Phase 2) are
+      per-detection statistics, so a quiet window yields no sample rather than a
+      false alarm. There is a test named for the refusal, because adding the
+      third metric is the obvious "completeness" change and it is the one that
+      breaks the panel.
+      Built on `consumers/insights.py`'s shape — fixed contiguous event-time
+      windows, derived ids, and the same `before_seq` trap it records — so a
+      replay reproduces the run exactly. **The baseline is the session's own
+      first window and a `calibration.updated` resets it**, which is what makes
+      the two halves of this bullet one piece of work rather than two: masking
+      changes what the model sees, so measuring against the pre-mask baseline
+      would report the operator's own correct action as a fault.
+
+      **One narrow exception to a security rule, argued rather than slipped in.**
+      `requires()` refuses every device credential — "device credentials are
+      write-only" — and the edge box has to *read* its mask. `require_mask_reader`
+      is the one dependency that admits a device, used by exactly one endpoint
+      returning a polygon and an integer. What it hands over is the instruction
+      not to look; refusing it would not protect a visitor, it would un-mask
+      them.
+- 🔲 **Multi-camera fusion** — split from the bullet above rather than dropped.
+      `perception.detection` now carries an optional `camera_id`, which is the
+      first thing fusion needed, and the rest is a contract change to the
+      Phase 1 producer plus a re-key of tracker state. Today `anon_id` is
+      `P-NNN` from one ByteTrack instance and the tracker keys on
+      `(session_id, anon_id)`, so two cameras collide on `P-001` — two people
+      become one and their dwells merge.
+      What fusion can mean here is bounded by `privacy.md`: *"No cross-camera
+      re-identification within a session, except by hand-drawn zone topology."*
+      So it is not re-identification, it is disjoint zone coverage — namespace
+      the track id by camera, give each zone an owning camera, and let the
+      topology do the joining. Tractable, and its own bake.
+- 🔲 **`detection_rate` drift** — the third metric §3 names, unemitted for the
+      reason above. It becomes buildable the day something can separate
+      degradation from occupancy; until then it would be a guess with an event
+      type.
+- 🔲 **`homography` and `reader_map` calibration** — refused, not missing. Each
+      lands when the thing that would read it does.
 - 🔲 **Brand re-token** UI to the brand book (Sora/Inter/IBM Plex Mono, orange
       `#FF5C00` / teal `#00D4AA` / base `#0A0B10`) — `brand.md`
 - 🔲 Deploy pipeline, exports, onboarding polish
@@ -647,7 +729,7 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 |---|---|
 | Offline / edge reliability | `event-bus-spec.md` §5 (local log + replay) — P1 |
 | Latency SLA (< 3s) | ✅ measured at **~1.1s** detection → Slack, through the consumers' real poll loop (`tests/test_phase3_latency.py`). Local stack, one process: what it covers is the number of poll intervals a firing waits through, which is the part that regressed silently before. Network to a real webhook and a smaller edge box are on top. |
-| CV model drift | calibration UI + drift telemetry — P6 |
+| CV model drift | ✅ `consumers/drift.py` — `confidence_mean` and track fragmentation per camera, against the session's own first window, reset by a recalibration. `detection_rate` deliberately not emitted: it is confounded with the room emptying. Surfaced on `/ops` with both numbers, never the verdict alone. |
 | Failure states (CRM 429, consent revoked) | dead-letter + HITL, withdrawal flow — P3/P4 |
 | Attribution decay (30/60/90d) | window on outcome edge — P4 |
 | Multi-booth / cross-event aggregation | multi-tenant benchmark — P6 |

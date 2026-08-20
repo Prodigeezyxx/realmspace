@@ -17,7 +17,126 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-18
+## [Unreleased] — last updated 2026-08-19
+
+### Added — 2026-08-19 — `[neo4j-track]` The privacy mask finally masks, and cameras say when they stop seeing
+
+Phase 6's fourth bullet: the calibration UI and CV drift telemetry. Picked next
+because it was the only item left in the phase whose event contracts were
+already sunk — `drift.detected` and `calibration.updated` were pinned in
+`event-bus-spec.md` §3 back in Phase 3 so this producer would not arrive to a
+422. Everything else remaining needs a key nobody has or a decision nobody has
+made.
+
+**A promise this repo had been making for six months and not keeping.**
+`privacy.md` says an operator can draw an opt-out region and that "pixels within
+that polygon are masked before any model runs". The session wizard repeats it
+during setup, in those words. No code anywhere touched a pixel. Somebody
+standing where the operator had marked "do not look" was detected, tracked and
+counted like anyone else.
+
+It works now, and the shape is: draw it on the new calibration screen, the edge
+box fetches it, and `cv2.fillPoly` blacks it out **before** the frame reaches
+YOLO. Not a filter over the results — the model never sees those pixels, so
+there is no detection to discard. Checked against a real clip with people on
+both halves of the frame: 40 detections in the masked half without the mask,
+**0** with it, and the unmasked half unchanged at 60.
+
+**It refuses to start rather than run unmasked.** An edge box that cannot reach
+the backend and has no cached mask stops. Same rule as the unset encryption key
+in Phase 4 and the unconfigured Firebase verifier last night, and here for a
+sharper reason than either: every other failure in this system produces a number
+nobody can trust, while this one produces a recording of a person who was told
+there would not be one. There is nothing to review afterwards and nothing to
+retract. A box that *has* a cached mask carries on through an outage, which is
+the case the venue wifi actually produces.
+
+The polygon is deliberately **not** written to the log. `calibration.updated`
+records that masking started or stopped, on which camera, and who did it — the
+audit trail §3 always said it was — but a booth's sensitive geometry does not
+need to be in every replayed and exported copy of the log for that to be useful.
+
+**`camera_id` had nowhere to live.** Both events are keyed on a camera and
+nothing in the backend, the graph or perception knew what one was —
+`Session.camera_count` was an integer. So `(:Camera)`, graph migration 005,
+keyed per session like a zone rather than per tenant like a contact: a physical
+camera outlives an activation but a mask does not, and reapplying yesterday's
+masked geometry to today's booth would blank the wrong pixels while looking
+exactly like a working feature.
+
+**Three of the four calibration kinds are refused, each with its reason.** §3
+pins homography, zone map, reader map and privacy mask; only the last has
+anything that reads it. Zone geometry already has an endpoint, and a second
+writer would give the system two ideas of what the current zones are. Nothing
+reads a homography — zones are normalized image coordinates from end to end.
+A reader map describes RFID hardware that has no producer. The refusals say
+which, the way `/ops` says why it will not retry a tracker dead-letter. A
+calibration accepted and never applied is a false line in an audit trail.
+
+### Added — 2026-08-19 — `[neo4j-track]` Drift telemetry, and the metric it refuses to emit
+
+The other half, and one piece of work with the first rather than two.
+
+A camera degrades quietly. The lens fogs, someone hangs a banner, a light moves
+— and nothing errors. The confidence drops, tracks fragment, and the activation
+simply reports less traffic than there was. `consumers/drift.py` measures two
+things per camera against that camera's own first ten minutes of the session,
+and says so on `/ops`.
+
+**It does not emit the metric that would have made it useless.** §3 names three:
+detection rate, mean confidence, and track length. Detection rate falling means
+one of two completely different things — the model got worse, or the room
+emptied — and nothing in this system can tell them apart. A booth is empty most
+of the time. A detector built on it fires every lunchtime, and within a week
+nobody reads the panel, at which point it is worth less than no panel because it
+looks like coverage. The two it does emit are per-detection statistics: a quiet
+window contributes no samples rather than a low reading. There is a test named
+for the refusal, because adding the third metric is the obvious "make it
+complete" change and it is precisely the one that breaks it.
+
+**Every event carries both numbers.** Observed and baseline, side by side, on
+the event and on the panel — never the severity alone. §3 asks for that
+explicitly, and the point is that an operator who can see 0.55 against 0.90 can
+disagree with our threshold, while one who can only see "critical" can only
+believe it or not.
+
+**A recalibration resets the baseline, and that is what joins the two halves.**
+Masking pixels changes what the model sees and therefore how confident it is. An
+operator who drew a mask would have set off the alarm — the system reporting
+their own correct action as a fault. So a `calibration.updated` starts a new
+measurement epoch. Checked live: two windows at a lower post-mask level after a
+mask, zero drift events; then a genuine degradation after that, caught.
+
+Built on the insight agent's shape rather than a new one — fixed contiguous
+windows on event time, ids derived from the window, and the same `before_seq`
+trap that file records — so a replay reproduces the same events and the bus
+dedupes them. Verified by rewinding the cursor to zero and running the whole log
+again.
+
+**One narrow exception to a security rule, argued rather than slipped in.** Every
+read in this system refuses a device credential: "device credentials are
+write-only", because a camera key is the one most likely to walk out of a venue.
+The edge box has to *read* its mask. There is now exactly one dependency that
+admits a device, used by exactly one endpoint, returning a polygon and an
+integer. What it hands over is the instruction not to look — refusing it would
+not protect a visitor, it would un-mask them.
+
+**What the operator does not get is a camera preview to draw over.** Frames live
+in a 60-second buffer in memory on the perception laptop and never leave it, so
+there is nothing to show without changing that, which is a decision about the
+privacy posture rather than a convenience for one screen. The editor is a
+coordinate grid and the shape is confirmed in the perception preview window,
+where the masked region is black. Worse to use, and said on the screen instead
+of hidden.
+
+**Multi-camera fusion, the bullet's third clause, is split out and not done.**
+`perception.detection` now carries an optional `camera_id`, which is the first
+thing fusion needed. The rest is a re-key of tracker state: today `anon_id` is
+`P-NNN` from one ByteTrack instance keyed on `(session, anon_id)`, so two
+cameras collide on `P-001` and two people become one. What fusion can even mean
+here is bounded by `privacy.md` — no cross-camera re-identification except by
+hand-drawn zone topology — so it is disjoint zone coverage, not re-id. Its own
+bake.
 
 ### Changed — 2026-08-18 (later still) — `[neo4j-track]` Phase 6 opens: real authentication, and four roles that finally differ
 

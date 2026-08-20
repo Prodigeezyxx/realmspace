@@ -133,6 +133,17 @@ there takes `tenant_id` as a required argument.
   external_ref              // the deal's id in the system it really lives in
 })
 // key: (tenant_id, id) — NOT per session; see below
+
+(:Camera {                  // a camera on a booth — Phase 6, migration 005
+  tenant_id, session_id,
+  id,                       // matches perception's --camera-id exactly
+  label,
+  privacy_mask,             // the opt-out polygon of privacy.md, flattened
+  mask_revision,            // bumped on every calibration; how an edge box
+                            // knows the mask it cached is stale
+  mask_updated_at
+})
+// key: (tenant_id, session_id, id) — like Zone after 002; see below
 ```
 
 **`Outcome` is keyed per tenant, not per session, and that asymmetry is the
@@ -164,6 +175,29 @@ first.
 Both `Contact` and `ConsentEvent` are tenant-keyed for the same reason `Outcome`
 is: a `Person` is session-scoped because an `anon_id` is never reused, but the
 human behind it is the same person at every activation they attend.
+
+**`Camera` is the node this list stopped short of, and two events had been
+waiting on it since Phase 3.** `drift.detected` and `calibration.updated` are
+both keyed on a `camera_id` that had nowhere to live: `Session.camera_count` is
+an integer, and nothing in the backend, the graph or perception knew what a
+camera was. A privacy mask also has to belong to something, and it belongs to a
+camera — a polygon is a region of one camera's frame and means nothing in
+another's.
+
+**Keyed per session, like `Zone` after migration 002 and unlike `Contact`.** A
+physical camera outlives an activation, but a mask does not: it is drawn against
+one booth layout, and an `anon_id` is destroyed at session end anyway. Keying
+per tenant would carry yesterday's masked geometry onto today's floor and blank
+the wrong pixels — a privacy failure that looks exactly like a working feature.
+
+`privacy_mask` is stored flattened to `[x1,y1,x2,y2,…]` for the same reason
+`Zone.polygon` is: Neo4j cannot hold a nested list as a property.
+`graph/repository.py` rebuilds pairs on read, so no caller sees that shape.
+
+`mask_revision` is a property rather than part of the key. Two recalibrations of
+one camera are two events in the log and one node: the node holds current state,
+and the log holds the history — which is why `calibration.updated` takes the
+random-`event_id` exception in `event-bus-spec.md` §3.
 
 **`Frame` has no uniqueness key and is therefore the one node type with no
 constraint in `backend/app/graph/schema.py`.** It is the only node declared

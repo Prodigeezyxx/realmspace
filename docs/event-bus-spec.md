@@ -85,7 +85,7 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 
 | Type | Producer | Payload gist | Key consumers |
 |---|---|---|---|
-| `perception.detection` | edge perception | person bbox, conf, frame | tracker, graph |
+| `perception.detection` | edge perception | person bbox, conf, frame, camera | tracker, graph, drift |
 | `spatial.zone_enter` / `zone_exit` | tracker | anon_id, zone, ts | graph, rules, ROI |
 | `spatial.dwell` | tracker | anon_id, zone, duration | graph, rules, ROI |
 | `spatial.gaze` | tracker | anon_id, object, duration | graph, ROI |
@@ -109,8 +109,8 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `erasure.completed` | erasure consumer | contact_ids, counts | audit |
 | `insight.generated` | insight agent | text, refs (supporting event ids), window | `/live`, graph |
 | `cost.metered` | consumers | tokens/credits/$ | cost telemetry |
-| `drift.detected` | perception telemetry | camera_id, metric, observed vs baseline | ops, calibration UI |
-| `calibration.updated` | calibration UI (operator) | camera_id, kind, revision | tracker (cache invalidation) |
+| `drift.detected` | drift consumer | camera_id, metric, observed vs baseline | ops |
+| `calibration.updated` | calibration UI (operator) | camera_id, kind, revision, masked | drift (baseline reset), perception (mask poll) |
 | `session.started` / `session.ended` | operator | session meta | report, sync |
 | `session.zones_updated` | `POST /v1/sessions` | zone_ids, zone_count, by | tracker (cache invalidation) |
 
@@ -139,7 +139,8 @@ pinned here as they get implemented.
   "bbox":         [x1, y1, x2, y2],   // PIXELS, xyxy (what YOLO returns)
   "confidence":   0.91,
   "frame_width":  1280,           // required — see below
-  "frame_height": 720
+  "frame_height": 720,
+  "camera_id":    "cam-1"         // optional; added in P6, see below
 }
 ```
 
@@ -154,6 +155,15 @@ but `Zone.polygon` is normalized 0–1, so without the frame size there is no wa
 to tell which zone a detection is in. The tracker dead-letters detections that
 omit them rather than guessing. (Same normalisation the browser does in
 `dashboard/src/skills/zone-detect.ts`.)
+
+`camera_id` is **optional and additive** (added 2026-08-19 with the drift
+consumer, which groups on it — a confidence mean averaged across two cameras
+describes neither). Optional rather than required because every detection logged
+before Phase 6 lacks one, and a consumer that dead-lettered its way through a
+season of history would bury the queue `/ops` exists to surface; those group
+under `"unattributed"`, which is visibly not a camera. It is the id
+`perception/realmspace.py --camera-id` was started with, and it must match a
+camera declared on the session or the mask fetch has nothing to answer.
 
 **`rfid.read`** — producer: RFID reader bridge. Added for Week 1 task 1.11; the
 reader speaks MQTT or serial and a small bridge turns each read into an event.
@@ -302,14 +312,42 @@ re-pinned here when that producer lands.
 `{ "camera_id", "metric", "observed", "baseline", "window_seconds", "severity" }`
 
 CV drift is on the risk register (`roadmap.md`) with calibration UI + drift
-telemetry as the mitigation. `metric` is what moved — `detection_rate`,
-`confidence_mean`, `track_length` — and both `observed` and `baseline` are
-carried so the event states the comparison it is making instead of asserting a
-verdict someone later cannot check. `severity` is `"warn" | "critical"`.
+telemetry as the mitigation. `metric` is what moved, and both `observed` and
+`baseline` are carried so the event states the comparison it is making instead
+of asserting a verdict someone later cannot check. `severity` is
+`"warn" | "critical"`.
 
 About the *camera*, not a visitor, but session-scoped like everything on the bus:
 drift matters exactly when it silently degrades a session's numbers, and finding
 that out means being able to read it alongside that session's events.
+
+**Re-pinned when the producer landed (2026-08-19).** This paragraph listed three
+metrics — `detection_rate`, `confidence_mean`, `track_length`. The producer
+(`backend/app/consumers/drift.py`) emits the second and the third and
+**deliberately not the first**, and the reason belongs in the contract rather
+than only in the consumer.
+
+`detection_rate` falls for two completely different reasons: the model got
+worse, or the room emptied. Nothing in the system can tell them apart, and a
+booth is empty most of the time — so a detector built on rate fires every
+lunchtime, and a panel that cries wolf daily is worth less than no panel,
+because it looks like coverage. The other two are **per-detection statistics**,
+computed from samples, so a quiet window contributes no samples rather than a
+low reading.
+
+- `confidence_mean` — the model's own confidence in the people it did find.
+- `track_length` — measured as the share of visits ending in a dropout rather
+  than a move, which the tracker already stamps on every `spatial.zone_exit`.
+
+The type still accepts `detection_rate`: a producer that can separate
+degradation from occupancy — a second sensor, an occupancy feed — would be
+emitting a different and better-founded measurement under the same name, and
+the contract should not have to change for it.
+
+Two fields the producer adds beyond this list, both additive: `window`, the
+`{from, to}` of the fixed contiguous window the reading covers, which the
+consumer reads back to know which windows it has already written; and the
+`camera_id` grouping, which is why `perception.detection` now carries one.
 
 **`calibration.updated`** — producer: the calibration UI (an operator):
 `{ "camera_id", "kind", "revision", "by", "note" }`
@@ -323,6 +361,30 @@ the same exception as that one: its `event_id` is **random, not derived**. Two
 recalibrations of the same camera are two distinct facts, and an id derived from
 `camera_id` would collapse them, silently discarding the second — which here
 would mean the log claiming a mask was applied at a time it was not.
+
+**Built 2026-08-19, for `privacy_mask` only.** `backend/app/routers/calibration.py`
+refuses the other three kinds **with the reason** rather than accepting an event
+nothing reads:
+
+- `zone_map` → 409, pointing at `POST /v1/sessions`, which already writes zone
+  geometry and already appends `session.zones_updated`. Two writers would give
+  the system two ideas of what the current zones are.
+- `homography` → 501. Zones are normalized image coordinates end to end and
+  nothing reads a floor-plan transform, so the event would record a calibration
+  that was never applied.
+- `reader_map` → 501. `rfid.read` is a registered namespace with no producer.
+
+The payload carries one field beyond this list: `masked`, whether the polygon
+was set or cleared, so a reader of the log can tell "masking started here" from
+"masking stopped here" without holding the graph's current state. The **polygon
+itself is deliberately absent** — the log is replayed and exported, and a
+booth's sensitive geometry does not need to be in every copy of it for the event
+to do its job.
+
+It also has a second reader now: `consumers/drift.py` treats a recalibration as
+the start of a new measurement epoch. Masking pixels changes what the model
+sees, so a drift baseline from before the mask would report the operator's own
+correct action as a fault.
 
 **`cost.metered`** — producer: any consumer that spends money:
 `{ "kind", "amount", "unit", "detail" }`

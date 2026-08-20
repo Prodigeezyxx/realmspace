@@ -60,6 +60,36 @@ a payment terminal, near a fitting room), the operator can draw an
 "opt-out" zone on the calibration step. Pixels within that polygon are
 masked before any model runs.
 
+**True in code since 2026-08-19, and stated plainly because it was not before.**
+This paragraph has been in this document since Phase 0 and the session wizard
+repeats it to the operator during setup — *"All sensitive zones masked at pixel
+level"* — while no code anywhere touched a pixel. It does now: an operator draws
+the polygon on `/sessions/calibration`, `perception/mask.py` fetches it, and
+`realmspace.py` fills it black **before** the frame reaches YOLO, so a person
+standing there is never detected, tracked or counted. Verified against a real
+clip: 40 detections in the masked region without the mask, 0 with it, and the
+unmasked region unchanged.
+
+Three properties of that path worth knowing:
+
+- **It fails closed.** An edge box that cannot fetch a mask and has none cached
+  refuses to start rather than running unmasked. Every other failure in this
+  system produces a number nobody can trust; this one would produce a recording
+  of somebody who was promised there would not be one, and there is nothing to
+  review afterwards and nothing to retract.
+- **It survives an outage.** The last fetched mask is cached on the box, so a
+  laptop that boots during a wifi drop still masks.
+- **Every change is on the log.** `calibration.updated` records when masking
+  started or stopped, on which camera, and who changed it — but **not the
+  polygon**, because the log is replayed and exported and a booth's sensitive
+  geometry does not need to be in every copy of it.
+
+What the operator does **not** get is a camera preview to draw over. Frames
+never leave the perception laptop's 60-second buffer, so the editor is a
+coordinate grid and the shape is confirmed in the perception preview window
+instead. That is a usability cost taken deliberately in favour of the row in the
+table above.
+
 ## Compliance posture
 
 - **GDPR (EU)** — visitors are unidentified data subjects throughout; no
