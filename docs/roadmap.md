@@ -53,9 +53,11 @@ graph, wired to the existing dashboard. Multi-tenant from the first commit.*
       than as code nothing exercises.
 - ✅ Consumers: tracker, graph writer (edge, real-time) — `backend/app/consumers/`.
       Both run as tasks in the API process and are reported by `/health`.
-      Tracker emits `spatial.zone_enter` / `zone_exit` / `dwell`;
-      `gaze` / `group` / `passby` are not built (gaze needs pose data perception
-      doesn't emit; passby is P2 per the blind-spots table below).
+      Tracker emits `spatial.zone_enter` / `zone_exit` / `dwell`.
+      `passby` landed in P2 and `group` in P6 (`consumers/grouping.py`, its own
+      consumer rather than more tracker). **`gaze` remains the one unbuilt
+      spatial signal**, and not for want of a decision: it needs head pose, and
+      perception emits bounding boxes.
       Replay is a proven no-op — derived event ids plus `on_replay` state
       clearing, both verified by deliberately breaking them.
 - ✅ WebSocket: bus → dashboard `/live` — `WS /v1/ws/{tenant_id}/{session_id}`,
@@ -764,6 +766,54 @@ this codebase deletes from reports.
       `twin/`. Tracked rather than suppressed: they are React-correctness rules
       and fixing them is real work, but CI gating on a rule the repo violates
       would be red from its first run.
+- ✅ **Group visits** *(2026-08-21)* — the blind-spot row above, and the most
+      thoroughly specified unbuilt thing in the repo until now. `(:Group)` had
+      been constrained in `graph/schema.py` since **migration 001** with a
+      comment that it "is used by GROUP_MEMBER_OF and the 'Groups in Lounge'
+      query in data-model.md but was never declared"; `data-model.md` specified
+      the node; `spatial.group` was in the §3 taxonomy and in the browser
+      contract; `PRD.md` listed "group formation" as a rules trigger, and the
+      rule validator accepts any `spatial.*` prefix — so an operator could arm a
+      rule on it and it would never fire. Nothing produced it.
+
+      **The design problem is that proximity is not company.** Three strangers
+      queueing at a popular zone are within a metre of each other for minutes,
+      so a detector built on distance-and-time calls every queue a family and
+      every busy zone one group — the failure `detection_rate` drift was refused
+      for, where a signal that fires on the common case looks like coverage. A
+      pair therefore clears one of two tests: **co-movement**, their shared
+      midpoint travelling a real distance while they stay together, which
+      separates walking the floor together from standing in one spot; or
+      **joint arrival and departure**, entering and leaving a zone within
+      seconds of each other, which catches the family who sit at a table and
+      never move and which a queue fails because its members join at different
+      times and are served in order. Both halves of the second test are
+      required — a door admits strangers in clumps, so arriving together alone
+      proves nothing.
+
+      Groups are connected components over confirmed pairs rather than cliques,
+      because a family of four walks in a loose chain and requiring every member
+      to pair with every other splits it the moment one of them lags. The
+      `group_id` derives from the founding membership and never changes, so a
+      group that gains a member keeps its history instead of appearing to
+      dissolve. Zone transitions are read from the **tracker's own events**
+      rather than recomputed, so the confirm window and dropout sweep the
+      blind-spot table cites CHI '26 for are not second-guessed.
+
+      Its own consumer, as `drift.py` is, because the tracker is the <500ms path
+      and a grouping bug must not be able to stop dwell being measured. Graph
+      migration 006 re-keys `Group` per session — 002's fix for `Zone` and
+      `Surface`, for the same reason, made now because nothing had written one
+      yet. A `members` → `memberAnonIds` rename was also needed: the spec and
+      the browser contract had disagreed since Phase 1 and nothing had ever put
+      an event between them, so a group would have rendered with no members
+      rather than raising.
+
+      **Verified end to end against a live stack**: a couple walking the Lounge
+      and a queue of four standing at the bar, through the real poll loops — one
+      `spatial.group` for the couple, none for the queue. Then a trio dwelling
+      five minutes, after which `data-model.md`'s own "Groups in Lounge for 4
+      min+" query returned a row for the first time in the project's life.
 - 🔲 **Public share link for a report** — a signed, expiring, read-only URL
       needing no account. "Share with client" grants a viewer seat instead, which
       is what §3 already means by Viewer. A link is a new *unauthenticated* read
@@ -804,7 +854,7 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 | Attribution decay (30/60/90d) | window on outcome edge — P4 |
 | Multi-booth / cross-event aggregation | multi-tenant benchmark — P6 |
 | Cost telemetry / unit economics | `cost.metered` meter — P3 |
-| Group visits | `Group` node (in `data-model.md`) — P1/P2 |
+| Group visits | ✅ `consumers/grouping.py` — a pair counts on **co-movement** (their shared midpoint travelled while they stayed together) or **joint arrival and departure** (into and out of a zone within seconds of each other), never on proximity alone: three strangers queueing are close together for minutes, and a detector built on distance-and-time reports every queue as a family. Groups are connected components over confirmed pairs. |
 | Negative signals (pass-by/skip) | ✅ `spatial.passby` — tracker emits at close-out for a zone approached within `tracker_passby_radius` and never entered |
 | Session hygiene (boundary flicker, track dropout, sub-second dwells) | ✅ confirm window + dropout sweep + minimum dwell in `consumers/tracker.py`, ported from the postgres-track's `spatial-deriver.ts` (CHI '26: 71% of raw sessions invalid without them) |
 

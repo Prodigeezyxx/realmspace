@@ -19,6 +19,75 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-21
 
+### Added — 2026-08-21 (later) — `[neo4j-track]` Who came with whom, without calling every queue a family
+
+The last blind spot on the list that needed nothing we do not have. No API key,
+no hardware — group detection is geometry over a detection stream this repo has
+been producing since Phase 1.
+
+**Everything around it was already built and nothing filled the middle.** The
+`Group` node has been constrained in the graph since **migration 001**, added
+with a comment saying it "is used by GROUP_MEMBER_OF and the 'Groups in Lounge'
+query in data-model.md but was never declared". The data model specified its
+properties. `spatial.group` was in the event taxonomy and in the browser's
+contract. The PRD listed "group formation" as a rules trigger — and the rule
+validator accepts it, so an operator could arm a rule on group formation today
+and it would sit there forever, armed, unable to fire. And `data-model.md` ships
+a worked example query, "Groups in Lounge for 4 min+", which has returned
+nothing every time anyone has ever run it.
+
+**The hard part is that proximity is not company.** Three strangers queueing at
+a bar stand within a metre of each other for four minutes. A detector built on
+"close together for a while" calls that a family, calls every busy zone one
+enormous group, and produces a number an operator stops reading by the second
+day — the same reason we refused to emit detection-rate drift, where a signal
+that fires on the ordinary case is worse than no signal because it looks like
+coverage.
+
+So a pair has to pass one of two harder tests.
+
+**They moved together.** Their shared midpoint travelled a real distance while
+they stayed side by side. This is walking the floor together rather than
+standing in the same spot, and a queue fails it by definition: it accumulates
+time without going anywhere.
+
+**Or they arrived and left together.** Into a zone within seconds of each other,
+and out of it within seconds of each other. This is what catches the family who
+sit at one table for twenty minutes and never move — the case the first test
+cannot see — and a queue fails it for exactly the reason it is a queue: people
+join it at different times and are served in order. Both halves are needed. A
+door admits strangers in clumps, so arriving together on its own proves nothing,
+and there is a test that says so.
+
+Groups are then whoever is connected by those pairs, rather than requiring
+everybody to pair with everybody. A family of four walks in a loose chain, and
+demanding a clique would split them apart the moment one of them stopped to
+look at something.
+
+A few smaller decisions worth knowing. A group keeps its identity when somebody
+joins — otherwise a family would appear to break up the instant a friend caught
+up, and start again as strangers. A group is only placed in a zone when all of
+its members are in the same one; straddling a boundary means no zone rather than
+a guessed one. And it reads zone arrivals from the tracker's own events instead
+of working them out again, so the flicker and dropout handling that took a whole
+phase to get right is not quietly second-guessed by a second opinion.
+
+It runs as its own consumer rather than more tracker. The tracker is on the
+half-second path from camera to dashboard, and a bug in group detection must not
+be able to stop dwell being measured.
+
+**One long-standing mismatch surfaced.** The event spec calls the field
+`members` and the browser contract has always called it `memberAnonIds`. Nobody
+noticed because nothing had ever sent one of these events. Left alone, a group
+would have arrived in the dashboard with no members at all — not an error, just
+an empty list where three people should be.
+
+Checked against a live stack rather than only in tests: a couple walking the
+lounge and a queue of four at the bar, through the real consumer loops — one
+group for the couple, nothing for the queue. Then a trio who stayed five
+minutes, after which the query in `data-model.md` returned a row for the first
+time since it was written.
+
 ### Added — 2026-08-21 — `[neo4j-track]` Anybody can sign up, and the report's buttons finally do something
 
 Three things, and they turned out to be one: the report's Share button needed an

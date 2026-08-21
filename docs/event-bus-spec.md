@@ -89,7 +89,7 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `spatial.zone_enter` / `zone_exit` | tracker | anon_id, zone, ts | graph, rules, ROI |
 | `spatial.dwell` | tracker | anon_id, zone, duration | graph, rules, ROI |
 | `spatial.gaze` | tracker | anon_id, object, duration | graph, ROI |
-| `spatial.group` | tracker | group_id, members | graph |
+| `spatial.group` | grouping consumer | group_id, members, size, cohesion, status | graph, rules |
 | `spatial.passby` | tracker | anon_id, adjacent (negative signal) | ROI |
 | `surface.interaction` | booth surface | surface_id, anon_id, kind | graph, ROI |
 | `rfid.read` | RFID reader (MQTT/serial) | reader_id, tag_id, ts | identity, graph, ROI |
@@ -307,6 +307,52 @@ version there is no way to tell that apart from a data change.
 Marked **provisional**: nothing pins the scoring model yet. The type is
 registered now so P4's producer does not arrive to a 422, and the payload is
 re-pinned here when that producer lands.
+
+**`spatial.group`** — producer: `consumers/grouping.py`:
+`{ "group_id", "members", "size", "cohesion", "zone_id", "status" }`
+
+Who came with whom. The type has been in this table since Phase 1 and had **no
+producer until 2026-08-21**, alongside a `(:Group)` node constrained in the graph
+since migration 001 and a worked example query in `data-model.md` that returned
+nothing for the whole life of the project. Pinned properly now that something
+emits it.
+
+`status` is `"formed" | "changed" | "dissolved"` — one event type rather than
+three, the same shape as the `reason` the tracker puts on a visit ending. A
+group is a thing with a life, and a consumer that saw only formations would show
+groups that broke up hours ago.
+
+`group_id` derives from the founding membership and the moment it formed, and
+**never changes afterwards**. A group that gains a fourth member is the same
+group with one more person in it; deriving the id from current membership would
+give a family two histories and make the first look as though it dissolved the
+instant a friend caught up.
+
+`cohesion` is 0..1: the share of shared observations in which the members were
+actually together, averaged over the member pairs that were ever seen at the
+same time. Pairs never observed together — the two ends of a straggling group —
+are left out rather than counted as zero, which would punish exactly the large
+groups that are hardest to detect.
+
+`zone_id` is present **only when every member is in the same zone**. A group
+straddling a boundary is genuinely not in a zone, and naming one would put four
+people somewhere two of them are standing outside.
+
+**What makes this hard, recorded here because the obvious implementation is
+wrong.** Proximity is not company: three strangers queueing at a popular zone
+are within a metre of each other for minutes, and a detector built on
+distance-and-time reports every queue as a family and every busy zone as one
+giant group. So a pair has to clear one of two tests — **co-movement** (their
+shared midpoint travelled a real distance while they stayed together) or **joint
+arrival and departure** (they entered a zone within seconds of each other and
+left within seconds of each other). The first separates walking the floor
+together from standing in one spot; the second catches the family who sit at a
+table and never move, and is failed by a queue for the reason it is a queue: its
+members join at different times and are served in order.
+
+Groups are the connected components over confirmed pairs, not cliques — two
+people together and one of them with a third is a group of three, which is how
+people actually walk.
 
 **`drift.detected`** — producer: perception telemetry:
 `{ "camera_id", "metric", "observed", "baseline", "window_seconds", "severity" }`

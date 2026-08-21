@@ -98,7 +98,7 @@ there takes `tenant_id` as a required argument.
   first_seen, last_seen,
   cohesion                  // 0..1, how consistently they moved together
 })
-// key: (tenant_id, id)
+// key: (tenant_id, session_id, id) — re-keyed by graph migration 006; see below
 
 (:Event {
   tenant_id, session_id,
@@ -198,6 +198,19 @@ the wrong pixels — a privacy failure that looks exactly like a working feature
 one camera are two events in the log and one node: the node holds current state,
 and the log holds the history — which is why `calibration.updated` takes the
 random-`event_id` exception in `event-bus-spec.md` §3.
+
+**`Group` was re-keyed per session in migration 006** *(2026-08-21)*, the same
+fix 002 made for `Zone` and `Surface` and for the same reason: a group is
+session-scoped because `anon_id` is — this document calls an anon_id
+"session-scoped, never re-used across sessions", so a set of them cannot mean
+anything outside the session that minted them. Nothing had been lost to the old
+key only because nothing had ever written a `Group` node; the migration lands
+with the producer (`consumers/grouping.py`), which is the cheap direction. After
+a season of activations, two sessions sharing a group id would be reconciled by
+hand.
+
+The query below is what this node was declared for, and until that producer
+existed it returned nothing — every time, for the whole life of the project.
 
 **`Frame` has no uniqueness key and is therefore the one node type with no
 constraint in `backend/app/graph/schema.py`.** It is the only node declared
