@@ -316,7 +316,15 @@ async def list_tenants(session: AsyncSession) -> list[str]:
     Consumers loop over this to know what to poll. Reading it off the log keeps
     this item from needing a tenants table it would otherwise have to invent —
     an edge kit runs one tenant's activation at a time (multi-tenant.md §2), so
-    this is a very short list in practice. A real registry is Phase 6.
+    this is a very short list in practice.
+
+    **The registry arrived in Phase 6 (migration 0011) and this still reads the
+    log, deliberately.** They answer different questions: `tenant` says which
+    organisations *exist*, and this says which have *work*. Pointing the consumer
+    loop at the registry would make all sixteen consumers poll every organisation
+    that ever signed up, forever, including the ones that signed up, looked
+    around and never ran an activation — growing the per-poll cost with
+    registrations rather than with usage.
     """
     # Via app_tenants(), a SECURITY DEFINER function added in migration 0003.
     # "which tenants exist" is inherently a cross-tenant question, so under

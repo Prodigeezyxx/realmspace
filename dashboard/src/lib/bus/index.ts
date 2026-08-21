@@ -36,6 +36,7 @@ export {
   flushOutbound,
   markLocalOnly,
   ensureToken,
+  signUpOrganisation,
   clearToken,
   isRemoteBusEnabled,
   busUrl,

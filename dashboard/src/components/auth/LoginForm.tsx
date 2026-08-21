@@ -1,12 +1,13 @@
 "use client";
 
-import { Loader2, Mail } from "lucide-react";
+import { Building2, Loader2, Mail } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Pill } from "@/components/ui/Pill";
+import { busEmail, ensureToken, isRemoteBusEnabled, signUpOrganisation } from "@/lib/bus";
 import {
   logOut,
   resetPassword,
@@ -31,10 +32,44 @@ function LoginFormInner() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  //: Set when Firebase says who somebody is and this backend has never heard of
+  //: them. Signing in correctly and being told `auth failed (401)` was the dead
+  //: end `multi-tenant.md` §4 step 1 left behind — see `needsOrganisation`.
+  const [needsOrg, setNeedsOrg] = useState(false);
+  const [orgName, setOrgName] = useState("");
 
   useEffect(() => {
-    if (user) router.replace(next);
-  }, [user, next, router]);
+    if (user && !needsOrg) router.replace(next);
+  }, [user, next, router, needsOrg]);
+
+  /**
+   * Whether this verified identity has an organisation on this backend.
+   *
+   * A Firebase account is only half a login here: the address still has to map
+   * to a tenant and a role. `ensureToken` returns null on the 401 that means it
+   * does not, which is the moment to ask for a company name rather than to
+   * strand somebody on a dashboard that will fail every request.
+   *
+   * With no backend configured there is nothing to have an account *on*, so the
+   * laptop demo goes straight through — as it did before any of this.
+   */
+  async function needsOrganisation(address: string): Promise<boolean> {
+    if (!isRemoteBusEnabled()) return false;
+    return (await ensureToken(address || busEmail())) === null;
+  }
+
+  async function createOrganisation() {
+    setBusy(true);
+    setError(null);
+    const result = await signUpOrganisation(email || busEmail(), orgName.trim());
+    setBusy(false);
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
+    setNeedsOrg(false);
+    router.replace(next);
+  }
 
   async function handleEmail(e: React.FormEvent) {
     e.preventDefault();
@@ -46,6 +81,10 @@ function LoginFormInner() {
         await signInWithEmail(email, password);
       } else {
         await signUpWithEmail(email, password);
+      }
+      if (await needsOrganisation(email)) {
+        setNeedsOrg(true);
+        return;
       }
       router.replace(next);
     } catch (err) {
@@ -59,7 +98,11 @@ function LoginFormInner() {
     setBusy(true);
     setError(null);
     try {
-      await signInWithGoogle();
+      const account = await signInWithGoogle();
+      if (await needsOrganisation(account.email ?? "")) {
+        setNeedsOrg(true);
+        return;
+      }
       router.replace(next);
     } catch (err) {
       setError((err as Error).message);
@@ -92,6 +135,69 @@ function LoginFormInner() {
           Add Firebase env vars to <code>.env.local</code> (see{" "}
           <code>firebase.env.example</code>).
         </p>
+      </div>
+    );
+  }
+
+  if (needsOrg) {
+    return (
+      <div className="panel-elevated p-8 md:p-10 w-full max-w-md">
+        <Pill variant="info" className="mb-6">
+          <Building2 size={11} />
+          One more step
+        </Pill>
+
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Name your organisation
+        </h1>
+        <p className="text-sm text-text-secondary mt-2 leading-relaxed">
+          We know who you are — this address has no organisation on this
+          deployment yet. Everything realmspace measures belongs to one:
+          activations, zones, leads and integrations are all scoped to it.
+        </p>
+
+        <input
+          type="text"
+          value={orgName}
+          onChange={(e) => setOrgName(e.target.value)}
+          placeholder="Northwind Traders"
+          autoFocus
+          className="w-full mt-6 px-3 py-2.5 rounded-lg bg-bg-canvas border border-border-subtle text-sm focus:border-accent focus:outline-none transition-colors"
+        />
+
+        <Button
+          variant="primary"
+          fullWidth
+          className="mt-4"
+          disabled={busy || !orgName.trim()}
+          onClick={() => void createOrganisation()}
+        >
+          {busy ? <Loader2 className="animate-spin" size={16} /> : null}
+          Create organisation
+        </Button>
+
+        <p className="text-xs text-text-muted mt-5 leading-relaxed">
+          This creates a <em>new</em> organisation with you as its admin. If you
+          were expecting to join one that already exists, stop here and ask an
+          admin there to invite you — we deliberately never file an address into
+          somebody&rsquo;s organisation by guessing from its domain, and carrying
+          on would leave you in an empty one of your own.
+        </p>
+
+        <button
+          type="button"
+          className="text-xs text-text-muted hover:text-text-secondary underline mt-4"
+          onClick={() => {
+            setNeedsOrg(false);
+            void logOut();
+          }}
+        >
+          Sign in as somebody else
+        </button>
+
+        {error && (
+          <p className="mt-4 text-xs text-accent-red leading-relaxed">{error}</p>
+        )}
       </div>
     );
   }

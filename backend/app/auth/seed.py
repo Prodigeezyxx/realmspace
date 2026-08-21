@@ -27,7 +27,7 @@ import secrets
 
 from sqlalchemy import select
 
-from app.auth.models import ApiKey, AuthUser
+from app.auth.models import ApiKey, AuthUser, Tenant
 from app.auth.tokens import generate_api_key, issue_token
 from app.db import SessionLocal
 
@@ -37,6 +37,16 @@ DEFAULT_EMAIL = "admin@floats.demo"
 
 async def seed(tenant_id: str, email: str, role: str) -> None:
     async with SessionLocal() as session:
+        # The organisation, so a seeded tenant is in the registry like one that
+        # signed up. Before migration 0011 a tenant was whatever string this
+        # command was handed; now `POST /v1/auth/signup` creates real rows, and a
+        # dev tenant that existed only as a foreign key on `auth_user` would be
+        # the odd one out on every screen that reads an organisation's name.
+        if (await session.get(Tenant, tenant_id)) is None:
+            session.add(
+                Tenant(tenant_id=tenant_id, name=tenant_id, created_by=None)
+            )
+
         existing = (
             await session.execute(select(AuthUser).where(AuthUser.email == email))
         ).scalar_one_or_none()

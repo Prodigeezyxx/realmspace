@@ -83,11 +83,42 @@ def _test_url() -> str:
     return settings.test_database_url
 
 
-def _admin_url() -> str:
+def admin_url() -> str:
     """The owner connection, for fixture setup that must bypass the policies —
     truncating tables between tests, and seeding another tenant's rows so an
-    isolation test has something to fail to see."""
-    return _test_url().replace("realmspace_app@", "antoniorobles@")
+    isolation test has something to fail to see.
+
+    **`TEST_ADMIN_DATABASE_URL` when it is set**, which is what lets this suite
+    run anywhere. It used to be only the substitution below, and that hardcodes
+    one developer's macOS username as the database owner — so the tests passed
+    on exactly one machine, and CI could not have run them at all.
+
+    Its own variable, and **not** `ADMIN_DATABASE_URL`, which already exists and
+    already means something else: `Settings.admin_url` uses that one for the
+    *application's* owner connection, and in `backend/.env` today it points at
+    the dev database `realmspace`. Reusing it here would have pointed the
+    fixture below — which `TRUNCATE`s nine tables and bypasses every RLS policy
+    — at the dev data. The two connections are different things and conflating
+    them is precisely how that accident happens.
+
+    Guarded like `_test_url` for the same reason, and more so: this connection
+    is the owner, so the guard is the last thing between a mistyped variable and
+    somebody's real events.
+
+    The substitution stays as the fallback, so nobody's existing `backend/.env`
+    has to change.
+    """
+    import os
+
+    url = os.environ.get("TEST_ADMIN_DATABASE_URL")
+    if not url:
+        return _test_url().replace("realmspace_app@", "antoniorobles@")
+    if "test" not in url:
+        raise RuntimeError(
+            "refusing to use a TEST_ADMIN_DATABASE_URL that is not a test "
+            "database — this connection truncates tables and bypasses RLS"
+        )
+    return url
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -105,7 +136,7 @@ def migrated_database() -> None:
     # The owner, not the app role. Migrations create tables, roles, policies and
     # a SECURITY DEFINER function — every one of which the app role is
     # deliberately not allowed to do.
-    os.environ["ALEMBIC_DATABASE_URL"] = _admin_url()
+    os.environ["ALEMBIC_DATABASE_URL"] = admin_url()
     command.downgrade(cfg, "base")
     command.upgrade(cfg, "head")
 
@@ -131,16 +162,21 @@ async def db_session() -> AsyncIterator[AsyncSession]:
     `tenant_integration` (0007) joins them for a third reason: a credential left
     behind is a destination, and the CRM delivery consumer would push a later
     test's leads to whatever stub the earlier test registered.
+
+    `tenant` (0011) for a fourth: signup mints an organisation id with a random
+    tail, so a leaked row would not collide — it would accumulate, and the
+    "how many organisations exist" assertions would pass alone and fail in a
+    suite.
     """
     # Wipe as the owner: TRUNCATE is a privilege the app role deliberately does
     # not have, and it would in any case only be able to see its own tenant.
-    admin = make_engine(_admin_url())
+    admin = make_engine(admin_url())
     async with async_sessionmaker(admin, expire_on_commit=False)() as cleaner:
         await cleaner.execute(
             text(
                 "TRUNCATE event_log, consumer_cursor, dead_letter, "
                 "rules, rule_dispatch, tenant_integration, crm_link, "
-                "auth_user, api_key RESTART IDENTITY;"
+                "auth_user, api_key, tenant RESTART IDENTITY;"
             )
         )
         await cleaner.commit()

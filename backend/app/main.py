@@ -45,6 +45,7 @@ from app.routers import (
     outcomes,
     rules,
     sessions,
+    users,
 )
 
 log = logging.getLogger(__name__)
@@ -161,6 +162,9 @@ app.include_router(dispatches.router)
 app.include_router(consumers.router)
 app.include_router(rules.router)
 app.include_router(integrations.router)
+# Users are org administration, beside integrations: multi-tenant.md §3
+# puts both with Admin, and both outlive the activation an operator runs.
+app.include_router(users.router)
 
 
 @app.get("/health", tags=["meta"])

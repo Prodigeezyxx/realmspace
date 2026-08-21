@@ -156,7 +156,18 @@ async function fetchToken(email: string): Promise<string | null> {
     body: JSON.stringify(idToken ? { idToken, email } : { email }),
   });
   if (!res.ok) {
-    publish({ status: "error", detail: `auth failed (${res.status})` });
+    // 401 here is specifically "verified, but no account" — the backend's
+    // `unknown user`. Worth its own message: `auth failed (401)` in the
+    // connection pill told somebody who had signed in perfectly correctly
+    // nothing at all about what to do, and until Phase 6 there was nothing they
+    // *could* do. See `signUpOrganisation` below.
+    publish({
+      status: "error",
+      detail:
+        res.status === 401
+          ? "signed in, but this address has no organisation yet"
+          : `auth failed (${res.status})`,
+    });
     return null;
   }
   const body = (await res.json()) as {
@@ -188,6 +199,60 @@ export async function ensureToken(email: string): Promise<string | null> {
     });
   }
   return inFlightToken;
+}
+
+/**
+ * Create an organisation for the signed-in identity, and adopt the token.
+ *
+ * `multi-tenant.md` §4 step 1 — the only one of the six onboarding steps that
+ * had no implementation. Until 2026-08-21 a person could complete the "Create
+ * your account" tab on the login form, get a real Firebase identity, and then
+ * receive `401 unknown user` from this backend forever: a Firebase account is
+ * only half a login here, because the address still has to map to a tenant and
+ * a role.
+ *
+ * Deliberately **not** folded into `fetchToken`. Auto-creating an organisation
+ * whenever an unknown address signed in would mean a colleague who was supposed
+ * to be invited to an existing org silently getting an empty one of their own
+ * instead — and the first they would know is that the floor they were told to
+ * watch is not there. Naming the organisation is the confirmation that this is
+ * a new company and not a missing invitation.
+ */
+export async function signUpOrganisation(
+  email: string,
+  orgName: string
+): Promise<{ tenantId: string } | { error: string }> {
+  const idToken = await currentIdToken();
+  const res = await fetch(`${busUrl()}/v1/auth/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // Same shape as the token exchange above, and for the same reason: which
+    // credential is required is a property of the deployment, not of this
+    // browser.
+    body: JSON.stringify(
+      idToken ? { idToken, email, orgName } : { email, orgName }
+    ),
+  });
+
+  const body = await res.json().catch(() => null);
+  if (!res.ok) {
+    return {
+      error:
+        typeof body?.detail === "string"
+          ? body.detail
+          : `Could not create the organisation (${res.status}).`,
+    };
+  }
+
+  // Adopt it exactly as `fetchToken` does — signup returns a token so this is
+  // one round trip rather than two, and a second exchange here would be another
+  // chance to fail on a path where the account now exists.
+  token = body.accessToken;
+  tokenExpiresAt = Date.now() + (body.expiresIn - 60) * 1000;
+  setTenantId(body.tenantId);
+  publish({ status: "live", detail: null });
+
+  return { tenantId: body.tenantId };
 }
 
 /** Drop the cached token. Exported for sign-out and for tests. */

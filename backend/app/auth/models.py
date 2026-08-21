@@ -10,6 +10,10 @@ Two tables because there are two kinds of caller and they are not alike:
 Keeping them apart rather than modelling a device as a user with a funny role
 means a device can never accidentally inherit a permission a human role grows
 later.
+
+A third table joined them in Phase 6, and it is not a caller:
+
+  tenant      the organisation both of the above belong to.
 """
 
 from __future__ import annotations
@@ -28,6 +32,36 @@ USER_ROLES = ("admin", "operator", "analyst", "viewer")
 #: What an API key carries. Not in USER_ROLES on purpose: it is not a human role
 #: and must never be assignable to a person by a typo.
 DEVICE_ROLE = "producer"
+
+
+class Tenant(Base):
+    """An organisation. `multi-tenant.md` §1: "Tenant = Organization."
+
+    Every table in this schema has carried a `tenant_id` since the first
+    migration and none of them ever said which organisations exist — a tenant
+    was whatever string a seeded `auth_user` row happened to hold. That was
+    liveable while somebody had to type the id by hand. `POST /v1/auth/signup`
+    has to mint one nobody has typed, prove it is free, and record what the
+    organisation is actually called.
+
+    **Not** the list consumers poll. `repository.list_tenants` reads the event
+    log and keeps doing so: consumers want the tenants with work, and an
+    organisation that signed up this morning and has run nothing has none.
+    """
+
+    __tablename__ = "tenant"
+
+    tenant_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    #: The `user_id` of whoever signed up. Deliberately not a foreign key — the
+    #: two rows are written in one transaction, and either order would leave one
+    #: of them pointing at something that does not exist yet.
+    created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (Index("tenant_created_by_idx", "created_by"),)
 
 
 class AuthUser(Base):
