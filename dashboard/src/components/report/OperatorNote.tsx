@@ -40,9 +40,12 @@ export function OperatorNote({ session }: { session: Session }) {
 
   if (!editing && !session.reportNote) {
     return (
+      // Nothing written, so nothing to print: an empty "Add a note" prompt in a
+      // client's PDF is the operator's to-do list on the client's document.
       <Panel
         title="Operator note"
         subtitle="Your read of the day — optional, and marked as commentary"
+        data-print-hide
       >
         <Button
           variant="secondary"
@@ -62,9 +65,13 @@ export function OperatorNote({ session }: { session: Session }) {
       subtitle="Written by the team who ran the activation — commentary, not computed"
       action={
         !editing ? (
-          <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-            Edit
-          </Button>
+          // The note itself prints — it is often the most useful paragraph on
+          // the page. The affordance for changing it does not.
+          <span data-print-hide>
+            <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+              Edit
+            </Button>
+          </span>
         ) : undefined
       }
     >

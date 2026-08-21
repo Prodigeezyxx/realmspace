@@ -23,7 +23,6 @@ import {
   FileText,
   Info,
   Quote,
-  Share2,
   Sparkles,
   Target,
   Users,
@@ -31,6 +30,7 @@ import {
 import { useMemo } from "react";
 
 import { OperatorNote } from "@/components/report/OperatorNote";
+import { ShareWithClient } from "@/components/report/ShareWithClient";
 import { ReportGenerator } from "@/components/report/ReportGenerator";
 import { RoiScorecard } from "@/components/report/RoiScorecard";
 import { Button } from "@/components/ui/Button";
@@ -207,11 +207,21 @@ function Report({ session, report }: { session: Session; report: SessionReport }
             <FileText size={11} />
             Client report
           </Pill>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" icon={<Share2 size={14} />}>
-              Share with client
-            </Button>
-            <Button variant="primary" size="sm" icon={<Download size={14} />}>
+          {/* Both of these had no `onClick` at all until 2026-08-21 — primary
+              actions on the client deliverable that did nothing.
+
+              `data-print-hide` and not Tailwind's `print:hidden`: checked in the
+              browser, and the build emitted no `@media print` block for that
+              variant at all, so the class was inert and the buttons printed. One
+              mechanism, and one that has been looked at. */}
+          <div className="flex items-center gap-2" data-print-hide>
+            <ShareWithClient />
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<Download size={14} />}
+              onClick={() => window.print()}
+            >
               Export PDF
             </Button>
           </div>

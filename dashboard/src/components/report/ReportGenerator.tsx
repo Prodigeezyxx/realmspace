@@ -85,9 +85,13 @@ export function ReportGenerator({ report }: { report: SessionReport }) {
   const empty = report.events.length === 0;
 
   return (
+    // `data-print-hide` on the whole panel, not just the button: an unpressed
+    // "Generate summary" in a client's PDF is a control they cannot use, and a
+    // pressed one would print the summary a second time.
     <Panel
       title="Generate summary"
       subtitle="Report agent · local template, no API — restates the computed figures"
+      data-print-hide
     >
       <Button
         variant="primary"
