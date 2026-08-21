@@ -111,7 +111,7 @@ walk out of a venue.
 
 ## 4. Onboarding (self-serve, because public)
 
-1. Sign up → create Organization.
+1. Sign up → create Organization. ✅ *(2026-08-21)*
 2. Create first Activation (name, venue, dates) → the session wizard already
    exists (`/sessions/new`).
 3. Pick a **prefab layout** + draw zones (exists: `PrefabPicker`, `ZoneEditor`).
@@ -121,6 +121,56 @@ walk out of a venue.
 
 Floats-specific fast path: pre-configured kits ship with the tenant + prefab
 already provisioned.
+
+### Step 1, as built *(2026-08-21)*
+
+Steps 2–6 had existed since Phase 2 — the wizard, prefabs, the zone editor,
+integrations, consent config, run. Step 1 did not, and its absence made the rest
+unreachable for anybody new: a user existed only if somebody had run
+`python -m app.auth.seed` on the server. The dashboard meanwhile shipped a
+"Create your account" tab that produced a Firebase identity and then hit
+`401 unknown user` forever, because a Firebase account is only half a login here
+— the address still has to map to a tenant and a role.
+
+`POST /v1/auth/signup` creates the Organization. Migration 0011 gives it
+somewhere to live: a `tenant` table, the registry `repository.list_tenants` has
+been predicting since Phase 1 ("a real registry is Phase 6"). That function still
+reads the **event log**, deliberately — the registry says which organisations
+exist, the log says which have work, and pointing the consumer loop at the
+registry would make all sixteen consumers poll every organisation that ever
+signed up, forever.
+
+Three properties worth stating, because each is a thing the endpoint refuses:
+
+- **It goes through the same identity gate as `POST /token`.** One
+  `_verified_email`, one place that decides whose address this is, including the
+  503 on a deployment with no Firebase project. An unauthenticated endpoint that
+  hands out organisations must not have its own opinion about who somebody is.
+- **It always creates a new organisation and never joins one.** No
+  email-domain matching. §3's own reasoning for `/resolve` applies with more
+  force here: defaulting somebody into a tenant is how a person ends up quietly
+  holding a role nobody granted them.
+- **An address that already has an account is refused, not upserted.**
+  `auth_user.email` is globally unique and a user has one tenant, so an upsert
+  would not create a second account — it would move that person out of their own
+  organisation, leaving their sessions, leads and integrations behind.
+
+Joining an existing organisation therefore has exactly one path: `POST /v1/users`,
+behind `require_admin` per §3's "manage org, billing, integrations, **users**".
+It is also what the client report's "Share with client" calls, with the role
+fixed to `viewer` — §3 defines Viewer as "the sponsor or brand stakeholder", so
+sharing a report *is* granting that seat.
+
+**No email is sent.** There is no email provider in this repo — the absence
+Phase 5's SDR sits behind, where the recorded decision was that it "drafts and
+does not send". The response carries `emailSent: false` as a field rather than
+only in prose, so a UI cannot render "invitation sent" by assuming.
+
+Two guards on that endpoint, both protecting somebody who is already a customer:
+an address belonging to another organisation is refused rather than moved, and
+**the last admin cannot be removed or demoted** — an organisation with no admin
+can never invite anybody, connect an integration, or honour a GDPR Article 17
+erasure, and there is no recovery short of `psql`.
 
 ---
 

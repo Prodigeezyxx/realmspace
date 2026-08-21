@@ -697,7 +697,77 @@ this codebase deletes from reports.
       lands when the thing that would read it does.
 - 🔲 **Brand re-token** UI to the brand book (Sora/Inter/IBM Plex Mono, orange
       `#FF5C00` / teal `#00D4AA` / base `#0A0B10`) — `brand.md`
-- 🔲 Deploy pipeline, exports, onboarding polish
+- ✅ **Self-serve signup, real exports, and CI** *(2026-08-21)* — the "exports"
+      and "onboarding" halves of this bullet. Deploy is split out below.
+
+      **`multi-tenant.md` §4 step 1 did not exist.** Steps 2–6 all did — the
+      wizard, prefabs, zone editor, integrations, consent config, run — while
+      "Sign up → create Organization" was unbuilt, so a user existed only if
+      somebody had run `python -m app.auth.seed` on the server. The dashboard
+      meanwhile shipped a **"Create your account" tab** that produced a Firebase
+      identity and then hit `401 unknown user` forever. `POST /v1/auth/signup`
+      closes it, through the **same `_verified_email`** as `POST /token` — an
+      unauthenticated endpoint that hands out organisations must not have its own
+      opinion about who somebody is — and migration 0011 adds the `tenant`
+      registry `repository.list_tenants` has been predicting since Phase 1.
+      That function still reads the log: the registry says who *exists*, the log
+      says who has *work*, and pointing the consumer loop at the registry would
+      make all sixteen poll every organisation that ever signed up.
+      Signup **always creates a new org and never joins one** (no domain
+      matching — §3's own argument), and an address that already has an account
+      is **refused rather than upserted**, because one user has one tenant and an
+      upsert would move them out of their own organisation.
+
+      **Joining has one path**, `POST /v1/users` behind `require_admin`, with two
+      guards: an address belonging to another org is refused rather than moved,
+      and the **last admin cannot be removed** — an org without one can never
+      invite, integrate, or honour an Article 17 erasure, and there is no
+      recovery short of `psql`. It sends **no email** (no provider exists, the
+      same absence the SDR sits behind) and says so in a field, not just prose.
+
+      **The client report had two dead buttons.** "Share with client" and "Export
+      PDF" had no `onClick`, no handler and no print stylesheet behind them —
+      primary CTAs on the deliverable the product is sold on, doing nothing. A
+      lying button is worse than a lying number: the operator finds out in front
+      of the client. Share now grants a viewer seat (§3's own definition of
+      Viewer), and Export calls `window.print()` against a real `@media print`
+      block. Not a PDF library: this app is `output: export` with no server, and
+      the client-side ones rasterise — no selectable text, no page breaks.
+      Verified by eye, which found three things reasoning would not have:
+      `.panel-elevated` paints with a literal gradient the token flip cannot
+      reach, so the scorecard tiles printed as **black rectangles**; Tailwind's
+      `print:hidden` compiles in production but **not in dev**, so one mechanism
+      (`data-print-hide`) is used throughout; and the brand accents are tuned for
+      a near-black background and measure **1.36:1 against white** — the mint the
+      headline ROI figure is printed in. Print now uses hue-preserved accents
+      that clear 4.5:1.
+
+      **There was no CI**, against 723 tests. `.github/workflows/ci.yml` runs both
+      suites on push and PR, with Postgres and Neo4j services mirroring
+      `docker-compose.yml`. The blocker was that `conftest` built its owner
+      connection by substituting one developer's macOS username, so the suite ran
+      on exactly one machine; it now prefers `TEST_ADMIN_DATABASE_URL` — **its own
+      variable, not `ADMIN_DATABASE_URL`**, which already means the application's
+      owner connection and points at the *dev* database, so reusing it would have
+      aimed the truncating fixtures at real data. `test_websocket.py` had a second
+      copy of the same substitution. Proven by running the whole suite against a
+      Postgres that is not this laptop's default, which also surfaced a latent
+      flake: `strandedForSeconds` subtracts a Python clock from a Postgres one and
+      asserted an exact boundary, reading 299.955 ≥ 300.
+      **Lint reports but does not gate** — see the workflow header.
+- 🔲 **Deploy pipeline** — split from the bullet above. `firebase.json` and a
+      `Dockerfile` exist and no target is configured; publishing needs a hosting
+      decision and credentials that are not in this repo. CI builds both halves,
+      so what is missing is where to put them.
+- 🔲 **The 7 pre-existing lint errors** (3 × "impure function during render",
+      3 × "setState in effect", 1 × `prefer-const`) in `viz/`, `mock/` and
+      `twin/`. Tracked rather than suppressed: they are React-correctness rules
+      and fixing them is real work, but CI gating on a rule the repo violates
+      would be red from its first run.
+- 🔲 **Public share link for a report** — a signed, expiring, read-only URL
+      needing no account. "Share with client" grants a viewer seat instead, which
+      is what §3 already means by Viewer. A link is a new *unauthenticated* read
+      path into tenant data and wants its own security design.
 
 **Acceptance:** a third-party operator self-serves signup → activation → report,
 fully isolated, billed, on-brand.

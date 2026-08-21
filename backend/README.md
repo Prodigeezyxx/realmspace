@@ -58,6 +58,10 @@ python3 -m venv .venv
 cp .env.example .env      # set NEO4J_PASSWORD, the Postgres role, and JWT_SECRET
 .venv/bin/alembic upgrade head
 .venv/bin/python -m app.auth.seed          # prints a dev key and token
+# …or sign up through the API, which is what a real operator does:
+#   curl -X POST localhost:8000/v1/auth/signup -H 'content-type: application/json' \
+#        -d '{"email":"you@example.com","orgName":"Your Company"}'
+# (`email` only works locally; every other environment wants a Firebase idToken.)
 ```
 
 `JWT_SECRET` has no default and the app will not start without one. A shipped
@@ -107,7 +111,7 @@ things — a camera cannot do an interactive login.
 | | Humans | Devices (perception, RFID, kiosk) |
 |---|---|---|
 | Header | `Authorization: Bearer <jwt>` | `X-API-Key: <key>` |
-| Get one | `POST /v1/auth/token` with `{"idToken": …}`, or `{"email": …}` locally | `python -m app.auth.seed` |
+| Get one | `POST /v1/auth/signup` if you have no organisation, then `POST /v1/auth/token` with `{"idToken": …}`, or `{"email": …}` locally | `python -m app.auth.seed` |
 | Can | read and write | **write only** |
 
 ```bash
@@ -168,8 +172,10 @@ item in `data-model.md` → "Store decision".
 
 | Endpoint | Auth | Does |
 |---|---|---|
+| `POST /v1/auth/signup` | a verified Firebase sign-in with **no** account | `{"idToken": …, "orgName": …}` → a new organisation, you as its admin, and a token. Always creates a *new* org — joining an existing one needs an invite. |
 | `POST /v1/auth/token` | a verified Firebase sign-in | `{"idToken": …}` → a signed token |
 | `GET /v1/auth/resolve` | none | email → org + role (lookup only; grants nothing) |
+| `GET/POST /v1/users`, `DELETE /v1/users/{id}` | token, **admin** | Who is in your organisation, and adding or removing a seat. Adding one writes the `auth_user` row `POST /v1/auth/token` looks for — it **does not send an email**, because there is no provider; `emailSent: false` says so in the payload. |
 | `POST /events` | key or token | Append one event. 201 if created, 200 if the `event_id` was already in the log. |
 | `POST /events/batch` | key or token | Append up to 500 events in one request. **All or nothing** — if any event's tenant disagrees with the credential, none of them land, so a producer can fix the batch and resend rather than reconciling a partial write. |
 | `GET /events?since_seq=…` | token | Read your tenant's log forward from a cursor. Also accepts `session_id`, `type`, `limit`. **No tenant parameter.** |

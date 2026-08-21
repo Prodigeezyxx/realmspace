@@ -17,7 +17,131 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-19
+## [Unreleased] — last updated 2026-08-21
+
+### Added — 2026-08-21 — `[neo4j-track]` Anybody can sign up, and the report's buttons finally do something
+
+Three things, and they turned out to be one: the report's Share button needed an
+invite endpoint, invites needed organisations, and organisations needed a table
+nobody had built.
+
+**Nobody could sign up.** `multi-tenant.md` §4 lists six onboarding steps and
+five of them have worked since Phase 2 — the wizard, prefabs, zones,
+integrations, consent, run. Step one, "sign up and create an organisation", did
+not exist at all. A user existed only if somebody had run a command on the
+server. And the login screen has been shipping a **"Create your account" tab**
+the whole time: you could make a real Google account, sign in perfectly
+correctly, and get `401 unknown user` forever. A Firebase account is only half a
+login here — the address still has to map to an organisation and a role, and
+nothing wrote that half.
+
+It works now, and goes through **the same identity check as signing in**. That
+is the point rather than an economy. This is an endpoint anybody on the internet
+can call and it hands out organisations, so the one thing it must never grow is
+its own opinion about who somebody is — including refusing outright on a
+deployment that has not configured Firebase, exactly as sign-in does.
+
+Two things it will not do, both protecting somebody who is already a customer.
+It never files an address into an organisation that already exists by matching
+the email domain — you get a new one, and joining somebody else's takes an
+invitation. And an address that already has an account is **refused rather than
+updated**: one person belongs to one organisation, so "updating" would not add
+them anywhere, it would take them out of theirs and leave their sessions, leads
+and integrations behind in it.
+
+**The organisation itself had nowhere to live.** Every table has carried a
+`tenant_id` since the first migration and none of them ever said which
+organisations exist — a tenant was whatever string somebody typed. Fine while
+typing was the only way in; not fine when signup has to invent one. The registry
+was predicted in the code that needed it, which has said "a real registry is
+Phase 6" since Phase 1. That function still reads the event log, deliberately:
+the registry answers who exists, the log answers who has work, and consumers
+want the second. Otherwise every consumer would poll every organisation that
+ever signed up and looked around once, forever.
+
+**The way in for everyone else.** An admin can add somebody to their
+organisation, and that is also what "Share with client" on the report now does —
+`multi-tenant.md` already defines a Viewer as the client's own stakeholder, so
+sharing a report *is* giving them that seat.
+
+It does **not** send an email, and says so. There is no mail server here — the
+same absence the follow-up drafter sits behind, where the decision was that it
+writes and does not send. The API returns "no email was sent" as a field rather
+than a sentence, so a screen cannot claim otherwise by assuming, and the button
+tells the operator to send the link themselves. Claiming an invitation went out
+when nothing did is the lying button one layer down, and the client finds out.
+
+Two guards. Adding an address that belongs to another organisation is refused
+with the reason rather than quietly moving them. And the **last admin cannot be
+removed** — an organisation with no admin can never invite anybody, connect an
+integration, or honour an erasure request, and there is no way back short of
+somebody with database access.
+
+### Added — 2026-08-21 — `[neo4j-track]` The report exports, and what looking at it found
+
+**"Export PDF" and "Share with client" did nothing.** No handler, no print
+stylesheet, nothing behind either of them — two primary buttons on the document
+the product is sold on. This is the same thing as the invented numbers the report
+has been shedding since Phase 2, except worse: a wrong number is discovered
+later, a dead button is discovered in front of the client.
+
+Export now prints, through the browser's own print pipeline rather than a PDF
+library. The dashboard is a static site with no server to render on, and the
+libraries that run in a browser produce a picture of a page — no selectable text,
+no real page breaks. "Save as PDF" in the print dialog has always been the thing
+that works.
+
+**Three problems only appeared by looking at the printed page**, and none of them
+would have been caught by reasoning about the CSS.
+
+The scorecard tiles and the headline ROI figure came out as **black rectangles**.
+The theme is redefined for print by flipping the colour variables, which handles
+almost everything — but a few surfaces paint with a hard-coded gradient rather
+than a variable, and those printed exactly as they look on screen.
+
+A hidden-on-print class worked in the production build and silently **did nothing
+in development**, which is where anybody would check it. Everything now uses one
+mechanism that was verified in both.
+
+And the brand accent colours are tuned for a near-black background. Measured
+against white paper, the mint green comes out at **1.36 to 1** — the accessibility
+floor for large text is 3, and for body text 4.5. Four of the six accents failed
+even the generous threshold, and the worst of them is what the headline ROI
+figure is printed in. Print now uses darker versions of the same hues, all above
+4.5. Keeping the colours at all is deliberate: the scorecard means something by
+colour, and printing it grey would drop that silently.
+
+### Added — 2026-08-21 — `[neo4j-track]` CI, and the line that made it impossible
+
+There was none. 723 tests — including the ones asserting that a stolen camera key
+cannot read the log, that a withdrawal reaches every CRM, and that a privacy mask
+is applied before the model sees the frame — ran when somebody remembered.
+
+**One line was the blocker.** The test suite built its database-owner connection
+by substituting a developer's own macOS username into the connection string, so
+it ran on exactly one machine in the world. There was a second copy of the same
+line in another test file, which is how a fix to one of them would have looked
+like it worked.
+
+Both now use one setting. Deliberately a **new** setting rather than the existing
+admin one, which already means something else and points at the *dev* database:
+this connection empties nine tables and bypasses every isolation policy, so
+aiming it at real data by reusing a variable name would have been a bad afternoon.
+It refuses any URL that is not a test database, for the same reason.
+
+Proven by running the whole suite against a Postgres that is not this laptop's
+default — which also turned up a latent flake. One test compares a duration
+computed from two different clocks, the application's and the database's, and
+asserted an exact five-minute boundary; where the database is in a container they
+drift, and it read 299.955 against a required 300. It would have failed in CI
+perhaps one run in three, which is the kind of failure that teaches people to
+press retry without reading.
+
+**Lint reports and does not gate**, with the reason in the workflow. There are 7
+pre-existing lint errors, none from this work. A check that is red from its first
+run gets filtered out of everybody's inbox within a week — the same failure the
+ops queue was designed to avoid, one level up. Tests, types and build are green
+today, so those gate, and a red one means something actually broke.
 
 ### Added — 2026-08-19 — `[neo4j-track]` The privacy mask finally masks, and cameras say when they stop seeing
 
