@@ -257,6 +257,42 @@ CAMERA_005_DOWN: list[str] = [
 ]
 
 
+# ── Migration 006 — Group is per session, as Zone and Surface became in 002 ──
+#
+# 001 keyed Group on (tenant_id, id), and 002 already made this exact fix for
+# Zone and Surface with the reasoning that applies here unchanged: a group is
+# session-scoped because `anon_id` is. `data-model.md` calls an anon_id
+# "session-scoped, never re-used across sessions", so a set of them cannot mean
+# anything outside the session that minted them.
+#
+# Nothing has been lost to it yet only because nothing has ever written a Group
+# node — this migration lands with the producer. Doing it now rather than later
+# is the cheap direction: after a season of activations, two sessions sharing a
+# group id would have to be reconciled by hand.
+#
+# The generated ids happen to embed the session, so a collision was unlikely in
+# practice. That is not a reason to leave the key saying something untrue: the
+# constraint is what a later reader trusts, and 002's whole story is what
+# happens when it disagrees with the code.
+GROUP_006: list[str] = [
+    "DROP CONSTRAINT group_tenant_id_unique IF EXISTS",
+    "CREATE CONSTRAINT group_tenant_session_id_unique IF NOT EXISTS "
+    "FOR (g:Group) REQUIRE (g.tenant_id, g.session_id, g.id) IS UNIQUE",
+    "CREATE INDEX group_session_idx IF NOT EXISTS "
+    "FOR (g:Group) ON (g.tenant_id, g.session_id)",
+]
+
+#: As with REKEY_002_DOWN, the downgrade can fail where 006 was doing its job —
+#: two sessions legitimately holding the same group id cannot both exist under a
+#: tenant-global key. That is the honest outcome rather than one to paper over.
+GROUP_006_DOWN: list[str] = [
+    "DROP INDEX group_session_idx IF EXISTS",
+    "DROP CONSTRAINT group_tenant_session_id_unique IF EXISTS",
+    "CREATE CONSTRAINT group_tenant_id_unique IF NOT EXISTS "
+    "FOR (g:Group) REQUIRE (g.tenant_id, g.id) IS UNIQUE",
+]
+
+
 def statements() -> list[str]:
     """Migration 001 as a list of Cypher statements.
 

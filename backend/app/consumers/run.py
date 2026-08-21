@@ -30,6 +30,7 @@ from app.consumers.handoff_delivery import HandoffDeliveryConsumer
 from app.consumers.outcomes import OutcomesConsumer
 from app.consumers.identity import IdentityConsumer
 from app.consumers.drift import DriftConsumer
+from app.consumers.grouping import GroupingConsumer
 from app.consumers.insights import InsightsConsumer
 from app.consumers.reanonymise import ReAnonymiseConsumer
 from app.consumers.rules import RulesConsumer
@@ -85,6 +86,12 @@ CONSUMER_CLASSES: list[type[Consumer]] = [
     # Watches the spatial stream for the passage of event time. Ordered after
     # the graph writer so a window it summarises has already been written to the
     # graph, and away from the lead chain, which it shares nothing with.
+    # Reads the detection stream and the tracker's own zone transitions, and
+    # writes `spatial.group` back. Before the graph writer would be wrong: the
+    # writer links members to `Person` nodes, and a group announced ahead of the
+    # people in it would find nobody to link. After the tracker for the same
+    # reason — the zone enters it reads are the tracker's output.
+    GroupingConsumer,
     InsightsConsumer,
     # Reads the same detection stream on the same fixed windows as the insight
     # agent, and shares nothing else with it. Neither writes what the other

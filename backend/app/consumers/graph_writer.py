@@ -44,6 +44,10 @@ ZONE_ENTER = "spatial.zone_enter"
 ZONE_EXIT = "spatial.zone_exit"
 DWELL = "spatial.dwell"
 SURFACE = "surface.interaction"
+GROUP = "spatial.group"
+
+#: `spatial.group` statuses. See `consumers/grouping.py`.
+DISSOLVED = "dissolved"
 
 
 class GraphWriterConsumer(Consumer):
@@ -55,7 +59,7 @@ class GraphWriterConsumer(Consumer):
     #: what the original attempt would have. That is what makes the HITL retry
     #: button meaningful for this consumer and not for the others.
     retryable = True
-    handles = (DETECTION, ZONE_ENTER, ZONE_EXIT, DWELL, SURFACE)
+    handles = (DETECTION, ZONE_ENTER, ZONE_EXIT, DWELL, SURFACE, GROUP)
 
     async def handle(self, event: EventLog) -> None:
         settings = get_settings()
@@ -70,6 +74,46 @@ class GraphWriterConsumer(Consumer):
                 await self._on_dwell(gs, event)
             elif event.type == SURFACE:
                 await self._on_surface_interaction(gs, event)
+            elif event.type == GROUP:
+                await self._on_group(gs, event)
+
+    async def _on_group(self, gs, event: EventLog) -> None:
+        """`spatial.group` → `(:Group)` and its `GROUP_MEMBER_OF` edges.
+
+        The node survives dissolution. A group that has broken up still
+        happened, and `data-model.md`'s "Groups in Lounge" query asks what
+        visited — deleting it at close-out would mean a report could only ever
+        describe the groups that were still standing when the doors shut.
+
+        Membership is **replaced**, not appended (`set_group_members`), because a
+        `changed` event carries the membership as it now stands. An append-only
+        writer would leave a departed member linked forever and `size` would
+        disagree with the number of edges beneath it.
+        """
+        payload = event.payload or {}
+        group_id = payload.get("group_id")
+        members = payload.get("members") or []
+        if not group_id:
+            raise ValueError(f"spatial.group seq={event.seq} has no group_id")
+
+        at = event.occurred_at.isoformat()
+        await graph_repo.upsert_group(
+            gs,
+            tenant_id=event.tenant_id,
+            session_id=event.session_id,
+            group_id=group_id,
+            size=int(payload.get("size") or len(members)),
+            cohesion=float(payload.get("cohesion") or 0.0),
+            first_seen=at,
+            last_seen=at,
+        )
+        await graph_repo.set_group_members(
+            gs,
+            tenant_id=event.tenant_id,
+            session_id=event.session_id,
+            group_id=group_id,
+            members=list(members),
+        )
 
     async def _on_detection(self, gs, event: EventLog) -> None:
         anon_id = event.payload.get("anon_id") or event.payload.get("person_id")

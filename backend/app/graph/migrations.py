@@ -55,6 +55,11 @@ MIGRATIONS: dict[str, tuple[str, list[str], list[str]]] = {
         schema.CAMERA_005,
         schema.CAMERA_005_DOWN,
     ),
+    "006": (
+        "Group is per session, as Zone and Surface became in 002",
+        schema.GROUP_006,
+        schema.GROUP_006_DOWN,
+    ),
 }
 
 

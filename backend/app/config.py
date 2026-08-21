@@ -163,6 +163,47 @@ class Settings(BaseSettings):
     drift_warn_ratio: float = 0.15
     drift_critical_ratio: float = 0.30
 
+    # ── Group visits (roadmap.md blind spot, data-model.md → (:Group)) ────────
+    #
+    # The whole difficulty here is that **proximity is not company**. Three
+    # strangers queueing at a popular zone are within a metre of each other for
+    # minutes, and a detector built on distance-and-time reports every queue as
+    # a family. So a pair has to clear one of two harder tests, and these are
+    # the knobs for both.
+
+    # How close counts as together: normalized distance between two centroids.
+    # A little wider than `tracker_passby_radius`, because that measures a
+    # person against a zone edge and this measures two people who are trying to
+    # stay next to each other.
+    group_radius: float = 0.10
+
+    # Test one, co-movement: how far the pair's midpoint must travel while they
+    # stay together, as a fraction of the frame. This is what separates walking
+    # the floor together from standing in the same spot — a queue accumulates
+    # time without accumulating travel.
+    group_min_travel: float = 0.25
+
+    # Test two, joint arrival and departure: how close in time two people must
+    # enter and leave a zone to count as arriving together. This is what catches
+    # the family who sit at one table and never move, and what a queue fails —
+    # queue members arrive and leave at different times, which is what makes it
+    # a queue.
+    group_joint_window_seconds: float = 8.0
+
+    # Below this many co-observations there is nothing to be confident about,
+    # whichever test they cleared. Same reasoning as `drift_min_samples`.
+    group_confirm_samples: int = 20
+
+    # Share of a pair's shared observations in which they were actually
+    # together. Two people who happen to be near each other a third of the time
+    # are two people, and this is the floor that says so.
+    group_min_cohesion: float = 0.6
+
+    # How long apart before the pair is no longer a pair. Measured on event time
+    # like every other window here, so a replay dissolves the group at the same
+    # point the original run did.
+    group_break_seconds: float = 45.0
+
     # ── auth (multi-tenant.md §3, Week 1 tasks 1.6/1.7) ───────────────────────
     # Tokens are issued and verified locally with this secret. Deliberately not
     # Firebase-verified on the hot path: event-bus-spec.md §1 requires the edge

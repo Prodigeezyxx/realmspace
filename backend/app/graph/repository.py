@@ -803,6 +803,147 @@ async def prune_cameras(
     return record["deleted"]
 
 
+# ── Group (graph migration 006) ──────────────────────────────────────────────
+#
+# Co-visiting people. `data-model.md` has specified this node since the start
+# and `schema.py` has constrained it since migration 001 — with a comment saying
+# it "is used by GROUP_MEMBER_OF and the 'Groups in Lounge' query in
+# data-model.md but was never declared". Nothing wrote one until `consumers/
+# grouping.py`, so that documented example query returned nothing for the whole
+# life of the project.
+
+
+async def upsert_group(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str,
+    group_id: str,
+    size: int,
+    cohesion: float,
+    first_seen: str,
+    last_seen: str,
+) -> dict[str, Any]:
+    """Create or update a Group (data-model.md → `(:Group {...})`).
+
+    `first_seen` is written only on create. It is the founding moment the group
+    id itself derives from, so letting a later event move it would make the id
+    stop matching the node it names — and every subsequent event for that group
+    would derive a different id and create a second node.
+    """
+    result = await session.run(
+        """
+        MERGE (g:Group {tenant_id: $tenant_id, session_id: $session_id, id: $group_id})
+        ON CREATE SET g.first_seen = $first_seen
+        SET g.size      = $size,
+            g.cohesion  = $cohesion,
+            g.last_seen = $last_seen
+        RETURN g
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        group_id=group_id,
+        size=size,
+        cohesion=cohesion,
+        first_seen=first_seen,
+        last_seen=last_seen,
+    )
+    record = await result.single()
+    return dict(record["g"])
+
+
+async def set_group_members(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str,
+    group_id: str,
+    members: list[str],
+) -> int:
+    """Make the group's membership exactly `members`. Returns how many are linked.
+
+    **Replaces rather than appends**, which is the whole reason this is not a
+    loop of MERGEs at the call site. A `changed` event carries the membership as
+    it now stands, so somebody who left has to actually lose their edge — an
+    append-only writer would leave them in the group forever, and `size` would
+    disagree with the number of edges under it.
+
+    Both endpoints are matched with tenant *and* session, so an edge can never
+    be drawn across either. A member with no `Person` node yet is skipped rather
+    than created: the graph writer builds people from `perception.detection`,
+    and inventing one here would produce a person with no position, no zone and
+    no history who exists only because they were near somebody.
+    """
+    await session.run(
+        """
+        MATCH (g:Group {tenant_id: $tenant_id, session_id: $session_id, id: $group_id})
+              <-[r:GROUP_MEMBER_OF]-(:Person)
+        WHERE NOT r.anon_id IN $members
+        DELETE r
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        group_id=group_id,
+        members=members,
+    )
+    result = await session.run(
+        """
+        MATCH (g:Group  {tenant_id: $tenant_id, session_id: $session_id, id: $group_id})
+        MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id})
+        WHERE p.anon_id IN $members
+        MERGE (p)-[r:GROUP_MEMBER_OF]->(g)
+        SET r.anon_id = p.anon_id
+        RETURN count(r) AS linked
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        group_id=group_id,
+        members=members,
+    )
+    record = await result.single()
+    return int(record["linked"])
+
+
+async def groups_for_session(
+    session: AsyncSession, *, tenant_id: str, session_id: str
+) -> list[dict[str, Any]]:
+    """Every group in a session, with its members. Ordered by size then id.
+
+    Written for the tests and for whatever reads groups next; nothing on the
+    dashboard consumes it yet, and it is small enough that adding it now costs
+    less than the round trip of discovering it missing.
+    """
+    result = await session.run(
+        """
+        MATCH (g:Group {tenant_id: $tenant_id, session_id: $session_id})
+        OPTIONAL MATCH (p:Person)-[:GROUP_MEMBER_OF]->(g)
+        WITH g, collect(p.anon_id) AS members
+        RETURN g.id         AS id,
+               g.size       AS size,
+               g.cohesion   AS cohesion,
+               g.first_seen AS first_seen,
+               g.last_seen  AS last_seen,
+               members
+        ORDER BY g.size DESC, g.id
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+    )
+    groups: list[dict[str, Any]] = []
+    async for record in result:
+        groups.append(
+            {
+                "id": record["id"],
+                "size": record["size"],
+                "cohesion": record["cohesion"],
+                "first_seen": record["first_seen"],
+                "last_seen": record["last_seen"],
+                "members": sorted(m for m in record["members"] if m),
+            }
+        )
+    return groups
+
+
 async def dwell_by_zone(
     session: AsyncSession, *, tenant_id: str, session_id: str | None = None
 ) -> list[dict[str, Any]]:

@@ -246,7 +246,16 @@ export interface GazePayload {
 export interface GroupPayload {
   groupId: string;
   memberAnonIds: string[];
+  /** Only when every member is in the same one — see `consumers/grouping.py`. */
   zoneId?: string;
+  size: number;
+  /** 0..1, how consistently the members were observed together. */
+  cohesion: number;
+  /**
+   * What this event says about the group it names. One type rather than three,
+   * the same shape as the `reason` the tracker puts on a visit ending.
+   */
+  status: "formed" | "changed" | "dissolved";
 }
 export interface PassbyPayload {
   anonId: string;

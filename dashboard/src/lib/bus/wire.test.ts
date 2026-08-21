@@ -130,6 +130,32 @@ describe("payloadFromWire", () => {
     });
   });
 
+  it("translates spatial.group, whose producer arrived in Phase 6", () => {
+    // The type has been in the taxonomy since Phase 1 with nothing emitting it,
+    // so this translation had never been exercised. `group_id` and `member_anon_ids`
+    // arriving untranslated is the Phase 2 failure again: undefined rendered
+    // beside real numbers rather than an error.
+    expect(
+      payloadFromWire("spatial.group", {
+        group_id: "g-1",
+        members: ["P-001", "P-002", "P-003"],
+        size: 3,
+        cohesion: 0.94,
+        zone_id: "z_lounge",
+        status: "changed",
+      })
+    ).toEqual({
+      groupId: "g-1",
+      // Renamed: the spec pins `members`, this contract declares
+      // `memberAnonIds`. Nothing had ever put an event between them.
+      memberAnonIds: ["P-001", "P-002", "P-003"],
+      size: 3,
+      cohesion: 0.94,
+      zoneId: "z_lounge",
+      status: "changed",
+    });
+  });
+
   it("survives a null or non-object payload without throwing", () => {
     expect(payloadFromWire("spatial.dwell", null)).toEqual({});
     expect(payloadFromWire("spatial.dwell", "nonsense")).toEqual({});

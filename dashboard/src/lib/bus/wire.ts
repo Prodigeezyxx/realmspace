@@ -73,10 +73,19 @@ const INBOUND_RENAMES: Partial<Record<RealmEventType, Record<string, string>>> =
   // The spec calls it `duration` (seconds); the contract calls it `durationSec`.
   // `scorecard.ts` reads the latter — this rename is what makes dwell count.
   "spatial.dwell": { duration: "durationSec" },
+  // The spec pins `members` (event-bus-spec.md §3); this app's contract has
+  // always declared `memberAnonIds`, which is the clearer name and matches
+  // `anonId` everywhere else. The two were written years apart and nothing had
+  // ever put an event between them, because `spatial.group` had no producer
+  // until Phase 6 — so the mismatch was invisible: the payload would have
+  // arrived with `members` set and `memberAnonIds` undefined, and any reader
+  // would have rendered a group with no members rather than raising.
+  "spatial.group": { members: "memberAnonIds" },
 };
 
 const OUTBOUND_RENAMES: Partial<Record<RealmEventType, Record<string, string>>> = {
   "spatial.dwell": { durationSec: "duration" },
+  "spatial.group": { memberAnonIds: "members" },
 };
 
 function applyRenames(
