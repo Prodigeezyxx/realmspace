@@ -28,6 +28,7 @@ from starlette.testclient import TestClient
 
 from app.config import get_settings
 from app.main import app
+from tests.conftest import admin_url
 
 T = "t_ws"
 OTHER = "t_ws_other"
@@ -78,9 +79,14 @@ def ws_client():
     # do in production. TRUNCATE below goes through a separate owner connection,
     # because the app role deliberately cannot truncate.
     engine = create_async_engine(_test_url(), poolclass=NullPool)
-    admin_engine = create_async_engine(
-        _test_url().replace("realmspace_app@", "antoniorobles@"), poolclass=NullPool
-    )
+    # `conftest.admin_url`, not a second copy of the substitution. This file
+    # used to inline `.replace("realmspace_app@", "antoniorobles@")` — the same
+    # line conftest had, and the same reason the suite ran on exactly one
+    # machine. Two copies also meant fixing one of them silently left the other:
+    # with a password in the URL the substitution stops matching, this engine
+    # quietly falls back to the app role, and the TRUNCATE below fails with
+    # "permission denied" rather than anything that names the cause.
+    admin_engine = create_async_engine(admin_url(), poolclass=NullPool)
     original = app_db.SessionLocal
     app_db.SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 

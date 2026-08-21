@@ -118,7 +118,13 @@ async def test_a_dispatch_whose_process_died_shows_up_with_its_rule(
     # The name, not just the id: `r_entry_crowd` does not tell an operator which
     # message to go looking for in the channel.
     assert rows[0]["ruleName"] == "Entrance crowding → ping ops"
-    assert rows[0]["strandedForSeconds"] >= 300
+    # About five minutes, not at least five minutes. `strandedForSeconds` is a
+    # Python `now()` minus a Postgres `now()` (`routers/dispatches.py`), so the
+    # two clocks are not the same clock: on a machine where the database is in a
+    # container they drift by tens of milliseconds and this read 299.955. The
+    # claim being made is "it reports roughly how long", and asserting the exact
+    # boundary made that a coin flip in CI.
+    assert 295 <= rows[0]["strandedForSeconds"] <= 310
 
 
 async def test_a_deleted_rule_leaves_the_dispatch_readable(
