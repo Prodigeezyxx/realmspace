@@ -1,17 +1,33 @@
-# Perception Engine — stub
+# Perception Engine — a stub, and here is exactly which parts
 
-The Python perception engine that backs the dashboard. This folder ships
-a single minimal script that proves the loop: open the webcam → detect
-people with YOLO → draw bounding boxes → log JSON events.
+The Python perception engine that backs the dashboard: open a camera or a clip →
+detect people with YOLO → track them with ByteTrack → emit events.
 
-The dashboard in `/dashboard` is wired against the *contract* this script
-will eventually emit. Right now the dashboard reads from `lib/mock/` data.
-Once this engine writes real events to the event bus, the dashboard swaps to
-it with no UI changes.
+**Still called a stub deliberately.** It is one script running one camera, with
+no cross-camera re-identification and no head pose — which is why
+`spatial.gaze` is the last unbuilt signal in the taxonomy, and why multi-camera
+fusion is still open (two cameras would collide on `P-001`). Those are the
+limits; the rest of this README is what it does do.
 
-**It writes into the bus now.** Add `--bus-url` and a device key and every
-detection becomes a durable event; leave them off and it prints to stdout as
-before.
+**It writes into the bus.** Add `--bus-url` and a device key and every detection
+becomes a durable event; leave them off and it prints to stdout. Kill the
+backend mid-run and events buffer to a local JSONL, replaying oldest-first on
+reconnect — the `event_id` is assigned when the event happens rather than when
+it is sent, which is what makes that idempotent instead of duplicating.
+
+**It masks before it infers.** With a privacy mask drawn on
+`/sessions/calibration`, the polygon is filled black *before* the frame reaches
+the model, so nobody standing there is detected, tracked or counted — see
+`mask.py`. An edge box that cannot fetch a mask and has none cached refuses to
+start rather than running unmasked.
+
+**Measured**, on a 30-second clip into a local stack: **157ms median** from the
+capture of a frame to the derived `spatial.*` event arriving on a dashboard
+socket, against the `< 500ms` in `roadmap.md`'s Phase 1 acceptance.
+
+> The dashboard used to read `lib/mock/` data and swap to this later. That
+> stopped being true in Phase 2 — `/live`, `/report` and `/twin` read the
+> durable log now.
 
 ```bash
 python realmspace.py --headless \

@@ -17,7 +17,77 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-21
+## [Unreleased] — last updated 2026-08-22
+
+### Changed — 2026-08-22 — `[neo4j-track]` Phase 1 and Phase 2 finally say whether they passed
+
+Every phase from 3 onward carries a verdict on its acceptance criteria — a
+measured number, a date, or an honest 🟡 saying what is still missing. Phases 1
+and 2 carried nothing at all. Five phases of work were sitting on top of two
+whose stated bar nobody had ever confirmed.
+
+Both are now marked, and the checking turned up more than a tick.
+
+**The headline latency number was for a shorter journey than the one being
+claimed.** Phase 1 promises under 500ms from detection to dashboard. The figure
+in the notes — 58ms — is real, but it measures the WebSocket hop alone: bus to
+browser. The journey the promise describes starts at the camera and includes
+running the model, posting the event, and two background workers each waking up
+on their own schedule. Nobody had timed that, and nothing would have noticed if
+it got slower.
+
+Timed now, with the real perception script running YOLO over a clip and a client
+listening on the socket: **157ms typical, 191ms worst**. Comfortably inside the
+promise, and now measured on the thing the promise is about.
+
+There is also a repeatable test for the part that can be automated, which found
+something the criterion never distinguished. The background workers poll quickly
+while there is work and back off when the log is quiet — sensibly. So there are
+two answers, not one: **110ms during an activation**, when a camera keeps the log
+busy, and **218ms for the first visitor after a lull**, who arrives to sleeping
+workers. Both are inside budget and both are recorded, because the second is a
+real property of the system and it is a real person who experiences it.
+
+One near-miss worth admitting: the first version of that test reported 611ms and
+looked like a genuine budget failure. It was not — the test was starting its
+stopwatch after the event it meant to time had already happened. A measurement
+that fails in the direction you half expect is the one to distrust.
+
+### Changed — 2026-08-22 — `[neo4j-track]` Two things the twin was still making up
+
+Checking Phase 2's promise that "the twin replays a real recorded session" found
+the replay itself working — real visitors, real paths, from a real camera run —
+and the page around it still furnished with the demo.
+
+**Every client's replay was titled "Pavilion No. 7".** The heading was a fixed
+string, so an operator opening their own activation's replay saw the name of our
+demo session at the top of it.
+
+**The zone list and the surfaces panel were reading mock data.** Beside a replay
+of somebody's real visitors sat the demo's five zones and three hardcoded
+interaction counts — 482, 317, 904 — presented exactly as a measurement would
+be. These are the same invented figures that were struck off the report and the
+live view in Phase 2; they had survived one page over.
+
+Both now read the activation. The surfaces panel shows **no counts at all**, and
+says why: nothing emits a surface interaction yet, because real ones need booth
+hardware, so any number there would be invented rather than measured. A marked
+absence is the honest answer and a plausible figure is not.
+
+The rest of Phase 2 checked out on one recorded session: the four-layer
+scorecard rendered from the log, and a **3.2:1 ROI ratio** badged against the
+industry 3–5:1 band — with the card stating on its face that the revenue behind
+it was supplied by the client rather than measured by us. Ask answered three
+questions in **6 to 12 milliseconds** against a five-second promise, every figure
+traceable, and labelled as coming from the query catalogue rather than a model,
+because there is still no AI provider.
+
+Also corrected: the perception engine's README, which said the dashboard reads
+mock data — untrue since Phase 2 — and called the whole thing a stub without
+saying which parts. It is still a stub in specific ways worth knowing (one
+camera, no re-identification, no head pose, which is why gaze is the last
+unbuilt signal) and it is not a stub in others: it writes durably, survives an
+outage, and masks the privacy polygon before the model ever sees the frame.
 
 ### Added — 2026-08-21 (later) — `[neo4j-track]` Who came with whom, without calling every queue a family
 

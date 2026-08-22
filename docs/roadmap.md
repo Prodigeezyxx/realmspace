@@ -14,7 +14,7 @@ Legend: ✅ exists today · 🟡 mocked/partial · 🔲 to build.
 |---|---|
 | Next.js dashboard: landing, live, twin, ask, agents, report | ✅ |
 | **Live on-device tracking** (TF.js + COCO-SSD + centroid tracker) | ✅ (real) |
-| Python perception stub (YOLO + ByteTrack → JSON) | 🟡 stub |
+| Python perception stub (YOLO + ByteTrack → JSON) | 🟡 — writes durably into the bus, buffers and replays across an outage, and masks the privacy polygon before inference. Still a stub in the ways that matter: one script, one camera, no re-identification, no pose (which is why `spatial.gaze` is unbuilt). |
 | Docs: PRD, architecture, data-model, privacy, gtm | ✅ |
 | Docs: vision, brand, roi, integrations, consent, event-bus, tenancy, competition | ✅ (this set) |
 | Backend event bus (durable, Postgres) | ✅ (`backend/` — see Phase 1) |
@@ -86,9 +86,37 @@ graph, wired to the existing dashboard. Multi-tenant from the first commit.*
       no equivalent), and `POST /v1/auth/token` still trusts the email it is
       given rather than verifying a Firebase login.
 
-**Acceptance:** real camera → real event in Postgres log → real graph node → real
-`/live` KPI, tenant-scoped, works offline then replays on reconnect. `< 500ms`
-detection → dashboard.
+**Acceptance:** ✅ real camera → real event in Postgres log → real graph node →
+real `/live` KPI, tenant-scoped, works offline then replays on reconnect.
+`< 500ms` detection → dashboard. **Verified end to end 2026-08-22**, having never
+been marked before — five later phases were built on top of a bar nobody had
+confirmed.
+
+**The latency, on the chain the criterion actually names.** The 58ms/175ms in
+the WebSocket bullet above is real and is the *socket leg only*; the criterion
+starts at the camera. Measured with `perception/realmspace.py` running YOLO over
+a 30-second clip into a local stack, a socket client timing each `spatial.*`
+event from the capture stamp of the frame that caused it:
+**157ms median, 191ms worst, 96ms best** over 10 samples in 5 runs. Inference,
+the HTTP post, the tracker's poll, the broadcast's poll and the socket are all
+inside that. Excluded: a real camera's capture latency, a venue network, and a
+smaller edge box.
+
+`tests/test_phase1_latency.py` guards the part CI can reach — ingest → dashboard
+push, consumers on their real `run_forever()` loops. It measures **two** numbers,
+because there are two situations the criterion did not distinguish: **110ms
+median (233ms worst) while traffic is continuous**, which is an activation, and
+**218ms median (323ms worst) for the first visitor after the log has gone
+quiet**, when the consumers have backed off to their idle interval. Both inside
+budget.
+
+The other clauses, on one recorded session: a `Person` node and `DWELLED_IN`
+edges for both zones (7.5s at Entry Arch, 5.5s at Mirror Room) from a real
+camera; `/live` showing 1 unique visitor, 7s average dwell and 70 events from
+the durable log; a second organisation reading the same session id and getting
+**0 events**. Offline replay was already evidenced in the perception bullet
+above — 11 events across an outage, 11 rows, in order — and is cited rather than
+re-run.
 
 ---
 
@@ -176,9 +204,33 @@ detection → dashboard.
       replayed. The twin pages `GET /events` itself rather than going through the
       5,000-event local ring buffer, which a real session would overflow.
 
-**Acceptance:** 24h after a session, a client gets a data-true report with the
-4-layer scorecard and a stated ROI ratio vs. benchmark; Ask answers a live
-question in `< 5s`; twin replays a real recorded session.
+**Acceptance:** ✅ **verified end to end 2026-08-22**, on the same recorded
+session as Phase 1's, against a live stack.
+
+- **Data-true report with the 4-layer scorecard.** `/report` rendered Reach,
+  Engagement, Affinity and Pipeline from that session's log.
+- **A stated ROI ratio vs. benchmark.** **3.2:1**, badged `STRONG · 3–5:1`
+  against `roi-framework.md`'s band. Worth restating where the numerator comes
+  from: influenced revenue is **operator-supplied**, and the card says so on its
+  face — "were supplied by the client, not measured by realmspace". Nothing
+  measures influenced revenue until a CRM does.
+- **Ask answers a live question in `< 5s`.** Three questions at **6–12ms**,
+  every figure traceable to the log or the graph. `basis: deterministic` — this
+  is the query catalogue and the wording matcher, not a model, because open
+  decision 2 is still open. The criterion does not mention an LLM, so this is
+  the honest reading: measure what ships, and label it.
+- **Twin replays a real recorded session.** `/twin` replayed P-001 from the
+  camera run — 1 in the room, 70 events, scrubbing.
+
+**Two things the twin was still faking, found by looking.** Its heading was the
+string `"Pavilion No. 7 — 3D replay"`, hardcoded, so every client's replay was
+titled with the demo's name. And its "Zones in twin" and "Interactive surfaces"
+panels read `lib/mock/session` — showing the demo's five zones and hardcoded
+interaction counts of 482, 317 and 904 beside a replay of somebody's real
+visitors. Those are the same invented figures this phase struck off `/report`
+and `/live`; they had survived one page over. Both now read the activation, and
+the surfaces panel shows **no counts at all**, because nothing emits
+`surface.interaction` and a number there would be an invention.
 
 ---
 
