@@ -35,6 +35,18 @@ That's not a feature we added to be polite. It's how the system is
 - **No cross-camera re-identification within a session, except by
   hand-drawn zone topology.** A person who walks behind a wall and reappears
   is treated as a new ID.
+
+  **Enforced since 2026-08-21, not merely intended.** Every visitor is keyed on
+  `camera_id/anon_id`, so somebody who leaves one camera's view and enters
+  another's is two visitors — two `(:Person)` nodes, two dwell series, counted
+  twice in reach. That is the cost of this promise and it is the honest side to
+  err on: the alternative is a system that quietly decides two strangers are the
+  same person. Before this, two cameras' first visitors were merged into one by
+  accident, which broke the promise in the *other* direction while looking like
+  nothing was wrong.
+
+  Grouping declines to pair people seen by different cameras for the same
+  reason, and zones belong to the camera whose frame they were drawn in.
 - **No cloud upload of video frames.** AI reasoning calls (Claude / GPT-4o)
   receive only structured event summaries — never images.
 - **No customer-identifiable storage.** We don't know who the people in your

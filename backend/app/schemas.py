@@ -20,7 +20,10 @@ from pydantic import (
     Field,
     field_serializer,
     field_validator,
+    model_validator,
 )
+
+from app.consumers.ids import CAMERA_SEP
 
 
 # The namespaces in event-bus-spec.md §3. Deliberately a prefix check, not an
@@ -232,6 +235,19 @@ class ZoneConfig(BaseModel):
     name: str = Field(min_length=1)
     type: str = Field(default="other", validation_alias=AliasChoices("type", "kind"))
     polygon: list[tuple[float, float]] | None = None
+    #: Which camera's frame this polygon is drawn in.
+    #:
+    #: A polygon is normalized 0..1 *within one frame*, so the same coordinates
+    #: name different floor in different cameras. Without an owner, a detection
+    #: from the camera pointing at the entrance is tested against the polygons
+    #: drawn over the demo stand and lands in a zone nobody walked into.
+    #:
+    #: **None means every camera**, which is what every zone drawn before this
+    #: existed is, so a one-camera booth is unaffected. On a multi-camera
+    #: session an unowned zone is the operator saying "score this against
+    #: whatever sees it" — worth allowing, because a booth may genuinely have
+    #: two cameras covering one stand from either side.
+    camera_id: str | None = None
     color: str | None = None
     capacity: int | None = Field(default=None, ge=0)
     #: roi-framework.md §2 — dwell-weighted attention is Σ(dwell × weight).
@@ -285,6 +301,25 @@ class CameraConfig(BaseModel):
 
     id: str = Field(min_length=1)
     label: str | None = None
+
+    @field_validator("id")
+    @classmethod
+    def id_has_no_namespace_separator(cls, value: str) -> str:
+        """No `/`, because a track id is namespaced `camera_id/anon_id`.
+
+        `consumers/ids.person_key` joins the two with `CAMERA_SEP` to keep two
+        cameras' `P-001` apart. Allow the separator inside a camera id and the
+        join stops being reversible — `("cam/1", "P-2")` and `("cam", "1/P-2")`
+        produce the same key — which is the collision the namespace exists to
+        prevent, reintroduced one level up. Refused at the only place a camera
+        id is chosen, so nothing downstream has to escape anything.
+        """
+        if CAMERA_SEP in value:
+            raise ValueError(
+                f"camera id may not contain {CAMERA_SEP!r}: it separates the camera "
+                "from the track id it namespaces (consumers/ids.py)"
+            )
+        return value
 
 
 class CameraOut(CameraConfig):
@@ -432,6 +467,34 @@ class SessionConfigIn(BaseModel):
         if duplicates:
             raise ValueError(f"duplicate zone ids: {', '.join(duplicates)}")
         return value
+
+    @model_validator(mode="after")
+    def zones_name_a_declared_camera(self) -> "SessionConfigIn":
+        """A zone cannot belong to a camera the session does not have.
+
+        Silently is the alternative, and it is the bad one: the tracker filters
+        zones by the detection's camera, so a zone owned by a typo matches
+        nothing, collects no dwell, and appears in the report as a part of the
+        booth nobody visited. That is indistinguishable from a genuine finding.
+
+        **Only checked when the same request declares both lists.** The wizard
+        posts the whole configuration, so it is; a request that updates zones
+        alone leaves `cameras` None, and the stored camera set is not visible
+        from inside a schema. `routers/sessions.py` makes the same check against
+        what is stored, which is the one that catches a zone orphaned later by
+        a camera being removed.
+        """
+        if self.zones is None or self.cameras is None:
+            return self
+        declared = {c.id for c in self.cameras}
+        unknown = sorted(
+            {z.camera_id for z in self.zones if z.camera_id and z.camera_id not in declared}
+        )
+        if unknown:
+            raise ValueError(
+                f"zones name cameras this session does not declare: {', '.join(unknown)}"
+            )
+        return self
 
 
 class TouchpointOut(TouchpointConfig):

@@ -35,7 +35,13 @@ function ev(
 }
 
 /** A detection whose centroid lands on (x, y) in normalized coords. */
-const detection = (anonId: string, x: number, y: number, at: number) =>
+const detection = (
+  anonId: string,
+  x: number,
+  y: number,
+  at: number,
+  cameraId?: string
+) =>
   ev(
     "perception.detection",
     {
@@ -44,6 +50,7 @@ const detection = (anonId: string, x: number, y: number, at: number) =>
       frameWidth: 1000,
       frameHeight: 1000,
       confidence: 0.9,
+      ...(cameraId ? { cameraId } : {}),
     },
     at
   );
@@ -188,5 +195,43 @@ describe("buildReplay — the timeline", () => {
     const a = buildReplay([detection("P-042", 0.2, 0.2, T0)], ZONES);
     const b = buildReplay([detection("P-042", 0.9, 0.9, T0)], ZONES);
     expect(a.tracks[0].color).toBe(b.tracks[0].color);
+  });
+});
+
+describe("two cameras", () => {
+  it("draws two people, not one crossing the room at frame rate", () => {
+    // Both cameras call their first visitor P-001, because ByteTrack numbers
+    // people per process and one process runs per camera. Keyed on the bare id,
+    // these six detections are one person flickering between 0.2 and 0.8.
+    const replay = buildReplay(
+      [
+        detection("P-001", 0.2, 0.5, T0, "cam-1"),
+        detection("P-001", 0.8, 0.5, T0, "cam-2"),
+        detection("P-001", 0.21, 0.5, T0 + 1000, "cam-1"),
+        detection("P-001", 0.81, 0.5, T0 + 1000, "cam-2"),
+        detection("P-001", 0.22, 0.5, T0 + 2000, "cam-1"),
+        detection("P-001", 0.82, 0.5, T0 + 2000, "cam-2"),
+      ],
+      ZONES
+    );
+
+    expect(replay.tracks.map((t) => t.id).sort()).toEqual([
+      "cam-1/P-001",
+      "cam-2/P-001",
+    ]);
+    // Each stayed on their own side. Merged, both tracks would swing the full
+    // width of the booth three times in two seconds.
+    for (const track of replay.tracks) {
+      const xs = track.waypoints.map((w) => w.x);
+      expect(Math.max(...xs) - Math.min(...xs)).toBeLessThan(0.1);
+    }
+  });
+
+  it("leaves a detection with no camera on its bare id", () => {
+    // Every detection logged before multi-camera, and every one-camera session.
+    // The spatial events the backend derives carry the same bare id, so the
+    // inferred fallback still finds the same person.
+    const replay = buildReplay([detection("P-001", 0.2, 0.5, T0)], ZONES);
+    expect(replay.tracks.map((t) => t.id)).toEqual(["P-001"]);
   });
 });

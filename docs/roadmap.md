@@ -731,18 +731,67 @@ this codebase deletes from reports.
       returning a polygon and an integer. What it hands over is the instruction
       not to look; refusing it would not protect a visitor, it would un-mask
       them.
-- 🔲 **Multi-camera fusion** — split from the bullet above rather than dropped.
-      `perception.detection` now carries an optional `camera_id`, which is the
-      first thing fusion needed, and the rest is a contract change to the
-      Phase 1 producer plus a re-key of tracker state. Today `anon_id` is
-      `P-NNN` from one ByteTrack instance and the tracker keys on
-      `(session_id, anon_id)`, so two cameras collide on `P-001` — two people
-      become one and their dwells merge.
-      What fusion can mean here is bounded by `privacy.md`: *"No cross-camera
+- ✅ **Multi-camera fusion** *(2026-08-21)* — two cameras stop becoming one
+      person.
+
+      **The collision was silent, which is what made it worth doing.** ByteTrack
+      numbers people per process and `perception/realmspace.py` runs one process
+      per camera, so every camera called its first visitor `P-001`. The tracker
+      keyed on `(tenant_id, session_id, anon_id)`, so those two visitors were
+      one: interleaved zone transitions, merged dwells, one `(:Person)`. Nothing
+      raised, and the activation under-reported its audience while over-reporting
+      engagement — both numbers looking entirely ordinary in the report.
+
+      **The namespace goes in the consumers, not the producer.** `person_key`
+      (`consumers/ids.py`) composes `camera_id/anon_id` at read time; the raw
+      ByteTrack id stays on the log and `perception/realmspace.py` is untouched,
+      which matters because the postgres-track shares that file. A detection with
+      no `camera_id` keeps its bare id, and that fallback is load-bearing rather
+      than lenient: spatial event ids are **derived** from this value, so it is
+      what makes a replay of pre-Phase-6 history reproduce its original ids
+      instead of a parallel set of duplicate dwells. There is a test named for
+      exactly that.
+
+      **Namespacing alone would still have been wrong.** A zone polygon is
+      normalized 0..1 *within one frame*, so a `cam-2` centroid scored against
+      `cam-1`'s polygons puts a visitor in a part of the booth they were never
+      in — and hands them a pass-by for every zone they were never near. Zones
+      now carry an owning `camera_id`, set on `/sessions/calibration` and offered
+      only once a session has two cameras. **Unowned means every camera**, which
+      is what every zone drawn before this is, so a one-camera booth is
+      unaffected and two cameras covering one stand from either side stay
+      expressible.
+
+      **A bare id is refused where it could be ambiguous.** On a session
+      declaring two or more cameras, a detection with no `camera_id` dead-letters
+      naming the camera set rather than being attributed by guess. One camera or
+      none, it is accepted exactly as before — the same fail-loud-only-where-it-
+      matters shape as the mask fetch and the credential key.
+
+      **Grouping declines to pair across cameras.** Two people at the same
+      fraction of their own camera's width measure as walking arm in arm; there
+      is no transform between the frames (`homography` is refused for that
+      reason), so the only honest answer is not to compare. Proven by a pair of
+      tests that differ in one thing — the same walk, one camera or two.
+
+      **Two setup mistakes are refused at save time**, both naming the camera:
+      a zone owned by a camera the session does not declare, and a save that
+      would prune a camera some stored zone still names. The second needs the
+      stored state rather than the request body — that request mentions no zones
+      at all — and there is a test for the way out of it, so it is a guard and
+      not a trap.
+
+      **The twin was drawing the merge.** `lib/twin/replay.ts` bucketed waypoints
+      by `anonId`, so two cameras' `P-001` rendered as one person teleporting
+      between two rooms at frame rate. Same key, composed in the browser.
+
+      **What this deliberately is not.** `privacy.md`: *"No cross-camera
       re-identification within a session, except by hand-drawn zone topology."*
-      So it is not re-identification, it is disjoint zone coverage — namespace
-      the track id by camera, give each zone an owning camera, and let the
-      topology do the joining. Tractable, and its own bake.
+      Somebody who walks from one camera's view into another's is **two people**,
+      counted twice in reach. That is the cost of the promise and the honest side
+      to err on; the previous behaviour broke the same promise in the other
+      direction by accident. Joining what they did belongs to zone topology, at
+      the zone level, not to per-person identity.
 - 🔲 **`detection_rate` drift** — the third metric §3 names, unemitted for the
       reason above. It becomes buildable the day something can separate
       degradation from occupancy; until then it would be a guess with an event
@@ -905,6 +954,7 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 | Failure states (CRM 429, consent revoked) | dead-letter + HITL, withdrawal flow — P3/P4 |
 | Attribution decay (30/60/90d) | window on outcome edge — P4 |
 | Multi-booth / cross-event aggregation | multi-tenant benchmark — P6 |
+| Two cameras, one `P-001` | ✅ every visitor is keyed `camera_id/anon_id` (`consumers/ids.person_key`) and zones belong to the camera whose frame they were drawn in. A detection with no camera is refused on a session that declares two, accepted where it cannot collide. Crossing between cameras stays two people, per `privacy.md`. |
 | Cost telemetry / unit economics | `cost.metered` meter — P3 |
 | Group visits | ✅ `consumers/grouping.py` — a pair counts on **co-movement** (their shared midpoint travelled while they stayed together) or **joint arrival and departure** (into and out of a zone within seconds of each other), never on proximity alone: three strangers queueing are close together for minutes, and a detector built on distance-and-time reports every queue as a family. Groups are connected components over confirmed pairs. |
 | Negative signals (pass-by/skip) | ✅ `spatial.passby` — tracker emits at close-out for a zone approached within `tracker_passby_radius` and never entered |

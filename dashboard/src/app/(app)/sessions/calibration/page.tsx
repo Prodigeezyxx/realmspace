@@ -37,12 +37,18 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
-import { useCalibration, type CameraConfig, type Point } from "@/lib/ops/useCalibration";
+import {
+  useCalibration,
+  type CameraConfig,
+  type Point,
+  type ZoneConfig,
+} from "@/lib/ops/useCalibration";
 import { useActiveSession } from "@/lib/session/store";
 
 export default function CalibrationPage() {
   const session = useActiveSession();
-  const { status, cameras, detail, refresh, declare, setMask } = useCalibration(session.id);
+  const { status, cameras, zones, detail, refresh, declare, assignZone, setMask } =
+    useCalibration(session.id);
   const [adding, setAdding] = useState(false);
   const [newId, setNewId] = useState("cam-1");
   const [error, setError] = useState<string | null>(null);
@@ -127,6 +133,10 @@ export default function CalibrationPage() {
             />
           ))}
 
+          {cameras.length > 1 && (
+            <ZoneOwnership cameras={cameras} zones={zones} onAssign={assignZone} />
+          )}
+
           <Panel title="Add a camera">
             <div className="space-y-3">
               <p className="text-sm text-text-secondary leading-relaxed">
@@ -162,6 +172,82 @@ export default function CalibrationPage() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Which camera's frame each zone was drawn in.
+ *
+ * **Only shown once a session has two cameras**, because with one there is no
+ * question to answer and a control that only ever has one right answer invites
+ * an operator to get it wrong. This is the same call the calibration screen
+ * already makes about the three calibration kinds nothing consumes.
+ */
+function ZoneOwnership({
+  cameras,
+  zones,
+  onAssign,
+}: {
+  cameras: CameraConfig[];
+  zones: ZoneConfig[];
+  onAssign: (zoneId: string, cameraId: string | null) => Promise<string | null>;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function assign(zoneId: string, value: string) {
+    setBusy(zoneId);
+    setError(await onAssign(zoneId, value === "" ? null : value));
+    setBusy(null);
+  }
+
+  return (
+    <Panel title="Which camera sees each zone">
+      <div className="space-y-4">
+        <p className="text-sm text-text-secondary leading-relaxed">
+          A zone polygon is drawn in one camera&rsquo;s frame, and the same
+          coordinates are a different piece of floor in another. Left on{" "}
+          <em>every camera</em>, a zone counts anybody standing in that corner of
+          any frame &mdash; a visitor credited with a stay somewhere they never
+          stood. Set it wherever two cameras point at different parts of the
+          booth; leave it alone where two cameras cover one stand from either
+          side.
+        </p>
+
+        {!zones.length && (
+          <p className="text-sm text-text-muted">
+            This session has no zones yet. They come from the session wizard.
+          </p>
+        )}
+
+        {zones.map((zone) => (
+          <div
+            key={zone.id}
+            className="flex items-center justify-between gap-3 flex-wrap border-b border-border-hairline last:border-0 pb-3 last:pb-0"
+          >
+            <div>
+              <p className="text-sm text-text-primary">{zone.name ?? zone.id}</p>
+              <p className="text-xs text-text-muted">{zone.id}</p>
+            </div>
+            <select
+              value={zone.cameraId ?? ""}
+              disabled={busy === zone.id}
+              onChange={(e) => void assign(zone.id, e.target.value)}
+              className="text-sm bg-bg-canvas border border-border-hairline rounded-lg px-3 py-2"
+            >
+              <option value="">Every camera</option>
+              {cameras.map((camera) => (
+                <option key={camera.id} value={camera.id}>
+                  {camera.label || camera.id}
+                </option>
+              ))}
+            </select>
+          </div>
+        ))}
+
+        {error && <p className="text-xs text-accent-red leading-relaxed">{error}</p>}
+      </div>
+    </Panel>
   );
 }
 

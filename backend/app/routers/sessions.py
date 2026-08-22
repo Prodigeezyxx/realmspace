@@ -157,6 +157,37 @@ async def put_session_config(
     )
 
     if config.zones is not None:
+        # A zone owned by a camera that will not exist after this save is a
+        # zone the tracker will never score a detection against — it collects
+        # no dwell and reports as a part of the booth nobody visited, which
+        # reads exactly like a finding. `SessionConfigIn` catches it when one
+        # request declares both lists; this catches the two cases a schema
+        # cannot see: zones posted alone against the stored camera set, and a
+        # save whose `cameras` list prunes a camera some zone still names.
+        owning = {z.camera_id for z in config.zones if z.camera_id}
+        if owning:
+            if config.cameras is not None:
+                declared = {c.id for c in config.cameras}
+            else:
+                declared = {
+                    c["id"]
+                    for c in await graph_repo.cameras_for_session(
+                        graph,
+                        tenant_id=principal.tenant_id,
+                        session_id=config.session_id,
+                    )
+                }
+            unknown = sorted(owning - declared)
+            if unknown:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "zones name cameras this session does not have: "
+                        f"{', '.join(unknown)}. Declare them in `cameras`, or clear "
+                        "`cameraId` to score the zone against every camera."
+                    ),
+                )
+
         for zone in config.zones:
             await graph_repo.upsert_zone(
                 graph,
@@ -166,6 +197,7 @@ async def put_session_config(
                 name=zone.name,
                 type=zone.type,
                 polygon=[list(point) for point in zone.polygon] if zone.polygon else None,
+                camera_id=zone.camera_id,
                 color=zone.color,
                 capacity=zone.capacity,
                 weight=zone.weight,
@@ -217,6 +249,39 @@ async def put_session_config(
                 camera_id=camera.id,
                 label=camera.label,
             )
+        # The mirror of the check in the zones branch, and it catches the case
+        # that one cannot: a save that lists cameras but no zones. Pruning
+        # `cam-2` would orphan the zone drawn in its frame while the request
+        # says nothing about zones at all, so the operator gets no hint that
+        # they have just switched off a part of their booth.
+        #
+        # Read after the zone write above, so what is checked is the zone set
+        # this request leaves behind rather than the one it found.
+        stored = await graph_repo.zones_for_session(
+            graph,
+            tenant_id=principal.tenant_id,
+            session_id=config.session_id,
+            include_undrawn=True,
+        )
+        declared = {c.id for c in config.cameras}
+        orphaned = sorted(
+            {
+                z["camera_id"]
+                for z in stored
+                if z.get("camera_id") and z["camera_id"] not in declared
+            }
+        )
+        if orphaned:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "these zones' cameras would be removed by this save: "
+                    f"{', '.join(orphaned)}. A zone owned by a camera that does not "
+                    "exist is never scored against anything. Reassign those zones "
+                    "first, or keep the camera."
+                ),
+            )
+
         await graph_repo.prune_cameras(
             graph,
             tenant_id=principal.tenant_id,

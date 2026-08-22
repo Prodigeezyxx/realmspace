@@ -105,6 +105,7 @@ async def upsert_zone(
     name: str,
     type: str,
     polygon: list[list[float]] | None = None,
+    camera_id: str | None = None,
     color: str | None = None,
     capacity: int | None = None,
     weight: float = 1.0,
@@ -128,6 +129,11 @@ async def upsert_zone(
 
     `weight` defaults to 1.0 rather than 0, so a zone whose weight was never set
     counts as ordinary dwell instead of silently contributing nothing.
+
+    `camera_id` is which camera's frame the polygon was drawn in — the polygon
+    is normalized within one frame, so the same numbers mean different floor in
+    a different camera. None means every camera, which is what every zone drawn
+    before multi-camera existed is.
     """
     flat: list[float] | None = None
     if polygon is not None:
@@ -139,6 +145,7 @@ async def upsert_zone(
         SET z.name         = $name,
             z.type         = $type,
             z.polygon      = $polygon,
+            z.camera_id    = $camera_id,
             z.color        = $color,
             z.capacity     = $capacity,
             z.weight       = $weight,
@@ -151,6 +158,7 @@ async def upsert_zone(
         name=name,
         type=type,
         polygon=flat,
+        camera_id=camera_id,
         color=color,
         capacity=capacity,
         weight=weight,
@@ -457,6 +465,12 @@ async def zones_for_session(
     `weight` and `funnel_order` come back with the geometry because the report
     needs them alongside the dwell they weight, and a second round trip to fetch
     them is a second chance for the two to disagree about which zones exist.
+
+    `camera_id` comes back for the same reason and is **not** filtered here.
+    The tracker holds one cached zone set per session and narrows it per
+    detection in memory (`consumers/tracker.py`), which is one round trip
+    instead of one per camera on the <500ms path — and one cache to invalidate
+    when an operator redraws, rather than a set of them that can disagree.
     """
     result = await session.run(
         """
@@ -466,6 +480,7 @@ async def zones_for_session(
                z.name         AS name,
                z.type         AS type,
                z.polygon      AS polygon,
+               z.camera_id    AS camera_id,
                z.color        AS color,
                z.capacity     AS capacity,
                z.weight       AS weight,
@@ -498,6 +513,10 @@ async def zones_for_session(
                     if flat
                     else None
                 ),
+                # None for every zone drawn before cameras had ids, and for a
+                # zone an operator deliberately left unowned. Both mean the
+                # same thing to the tracker: score it against any camera.
+                "camera_id": record["camera_id"],
                 "color": record["color"],
                 "capacity": record["capacity"],
                 # A zone written before weights existed has no weight property.

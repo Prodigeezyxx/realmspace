@@ -15,6 +15,25 @@ behind a wall and reappears is treated as a new ID", and there is no
 cross-session or cross-camera re-identification. If perception hands us a new
 id, that is a new person. Full stop.
 
+## Two cameras are two people, on purpose
+
+ByteTrack numbers people per process and `perception/realmspace.py` runs one
+process per camera, so every camera calls its first visitor `P-001`. Keyed on
+that bare id, two cameras' first visitors were one person — interleaved zone
+transitions, merged dwells, one `(:Person)` — and nothing raised.
+
+So the id this consumer works in is `camera_id/anon_id`
+(`consumers/ids.person_key`), and zones are filtered to the camera that saw the
+detection. Both halves are needed: namespacing alone still scores a `cam-2`
+centroid against `cam-1`'s polygons, because normalized 0..1 means a different
+piece of floor in each frame.
+
+Somebody who walks out of one camera's view and into another's is therefore two
+people here, and that is the design rather than a gap. privacy.md: "No
+cross-camera re-identification within a session, except by hand-drawn zone
+topology." Joining them per person is what that forbids; joining what they did
+at the zone level is what the topology is for.
+
 ## What it emits
 
 Reading a detection, it works out which zone the person's centroid is in and
@@ -82,7 +101,7 @@ from dataclasses import dataclass, field
 from app import repository
 from app.config import get_settings
 from app.consumers.base import Consumer
-from app.consumers.ids import derive_event_id
+from app.consumers.ids import derive_event_id, person_key
 from app.consumers.zones import centroid, dist_to_polygon, normalize, zone_for_point
 from app import db
 from app.graph import repository as graph_repo
@@ -168,6 +187,13 @@ class TrackerConsumer(Consumer):
         self._where: dict[tuple[str, str, str], TrackState] = {}
         # (tenant_id, session_id) -> (zones, fetched_at_monotonic)
         self._zones: dict[tuple[str, str], tuple[list[dict], float]] = {}
+        # (tenant_id, session_id) -> (camera_ids, fetched_at_monotonic)
+        #
+        # Only the ids, and only to answer one question: does this session have
+        # more than one camera? See handle(). Cached on the same terms as the
+        # zones beside it, and invalidated by the same event, because the same
+        # endpoint writes both.
+        self._cameras: dict[tuple[str, str], tuple[list[str], float]] = {}
 
     def _prune_where(self) -> None:
         cap = get_settings().tracker_max_tracked_people
@@ -223,8 +249,39 @@ class TrackerConsumer(Consumer):
         return zones
 
     def forget_zones(self, tenant_id: str, session_id: str) -> None:
-        """Drop a session's cached polygons immediately, ahead of the TTL."""
+        """Drop a session's cached polygons and camera set, ahead of the TTL."""
         self._zones.pop((tenant_id, session_id), None)
+        self._cameras.pop((tenant_id, session_id), None)
+
+    async def cameras_for(self, tenant_id: str, session_id: str) -> list[str]:
+        """The camera ids declared on a session, cached like the zones.
+
+        Read for one purpose: a detection carrying no `camera_id` is ambiguous
+        exactly when the session has more than one camera, and harmless when it
+        has one or none. Answering that needs the count, not the cameras, so
+        only the ids are kept.
+
+        Same TTL as `zones_for`, and dropped by the same `session.zones_updated`
+        — `POST /v1/sessions` writes zones and cameras in one request and
+        appends one event for both. A booth that grows a second camera mid-run
+        therefore starts refusing un-attributed detections within a TTL rather
+        than silently merging them.
+        """
+        settings = get_settings()
+        key = (tenant_id, session_id)
+        now = time.monotonic()
+
+        cached = self._cameras.get(key)
+        if cached is not None and now - cached[1] < settings.tracker_zone_cache_seconds:
+            return cached[0]
+
+        async with get_driver().session(database=settings.neo4j_database) as gs:
+            cameras = await graph_repo.cameras_for_session(
+                gs, tenant_id=tenant_id, session_id=session_id
+            )
+        ids = [c["id"] for c in cameras]
+        self._cameras[key] = (ids, now)
+        return ids
 
     async def handle(self, event: EventLog) -> None:
         if event.type == ZONES_UPDATED:
@@ -250,17 +307,47 @@ class TrackerConsumer(Consumer):
             return
 
         payload = event.payload
-        # Two spellings in the wild: `anon_id` (data-model.md's name for the
-        # Person key, and what the postgres-track's producer sends as `anonId`)
-        # and `person_id` (what event-bus-spec.md §3 documents). Accepting both
-        # means one producer script works against both backends; §3 records
-        # `anon_id` as canonical and `person_id` as accepted.
-        anon_id = payload.get("anon_id") or payload.get("person_id")
+        # Who this is: the track id, namespaced by the camera that saw it.
+        # `person_key` handles both spellings in the wild — `anon_id`
+        # (data-model.md's name for the Person key, and what the postgres-track's
+        # producer sends as `anonId`) and `person_id` (what event-bus-spec.md §3
+        # documents) — so one producer script works against both backends.
+        #
+        # From here down, `anon_id` means the namespaced id. It is what goes
+        # into the state key, into every emitted payload and into the derived
+        # event ids, which is the whole of the fix: ByteTrack numbers people per
+        # process, so two cameras both call their first visitor P-001.
+        anon_id = person_key(payload)
+        camera_id = payload.get("camera_id")
         bbox = payload.get("bbox")
         if not anon_id or not bbox:
             raise ValueError(
                 f"perception.detection seq={event.seq} missing anon_id/person_id or bbox"
             )
+
+        if camera_id is None:
+            # A bare track id is only unambiguous while there is one camera to
+            # have produced it. On a session with two, `P-001` could be either
+            # camera's first visitor and there is no way to tell — so refuse,
+            # rather than pick one and merge two people.
+            #
+            # Not retryable (see `retryable` above), so this lands on `/ops` as
+            # a dead letter naming the session and the camera set. That is the
+            # right shape for it: the fix is to restart perception with
+            # `--camera-id`, which is an operator action, and the parked events
+            # are replayable once it is done.
+            #
+            # Sessions with one camera or none keep working exactly as before,
+            # which is what every event logged before Phase 6 needs.
+            cameras = await self.cameras_for(event.tenant_id, event.session_id)
+            if len(cameras) > 1:
+                raise ValueError(
+                    f"perception.detection seq={event.seq} has no camera_id and "
+                    f"session {event.session_id} declares {len(cameras)} cameras "
+                    f"({', '.join(sorted(cameras))}) — a bare track id cannot be "
+                    "attributed, and two cameras both emit P-001. Restart "
+                    "perception with --camera-id."
+                )
 
         # Frame dimensions are required: bboxes arrive in pixels and zone
         # polygons are normalized 0..1, so there is no way to compare them
@@ -274,8 +361,21 @@ class TrackerConsumer(Consumer):
             )
 
         zones = await self.zones_for(event.tenant_id, event.session_id)
+        if camera_id is not None:
+            # A zone polygon is normalized 0..1 *within one camera's frame*, so
+            # the same coordinates name different floor in a different camera.
+            # Scoring a detection against another camera's zones puts a visitor
+            # in a part of the booth they were never in — and, through
+            # `min_dist_by_zone` below, hands them a pass-by for every zone they
+            # were never near. Namespacing the track id does not fix this half;
+            # only the filter does.
+            #
+            # A zone with no owner belongs to every camera. That is what every
+            # zone drawn before this existed is, and it is also the honest
+            # answer for two cameras covering one stand from either side.
+            zones = [z for z in zones if z.get("camera_id") in (None, camera_id)]
         if not zones:
-            return  # no zones drawn yet; nothing spatial to say
+            return  # no zones drawn yet for this camera; nothing spatial to say
 
         cx, cy = centroid(bbox)
         nx, ny = normalize(cx, cy, frame_w, frame_h)

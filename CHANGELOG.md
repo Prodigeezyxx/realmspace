@@ -19,6 +19,80 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-22
 
+### Added — 2026-08-22 — `[neo4j-track]` Two cameras stop being one person
+
+A booth with two cameras was counting its visitors wrong, and nothing in the
+product said so. Perception runs one process per camera, and the tracker inside
+each one numbers the people it sees from `P-001` up. So both cameras called
+their first visitor `P-001` — and everything downstream, which knew a person
+only by that name, treated them as the same person.
+
+What that produced was not an error. It was one visitor instead of two, with
+their two stays interleaved into one flickering journey between two zones. The
+audience came out smaller than the day was and the engagement came out higher
+than it was, and both numbers looked exactly like measurements.
+
+**A visitor is now the camera and the track together**, `cam-1/P-001`. Composed
+where the events are read rather than where they are written, so the raw id
+stays on the log and the perception script — shared with the other track — did
+not have to change.
+
+**A zone now belongs to the camera it was drawn in.** This is the half that
+namespacing alone would have left broken. A zone is stored as a shape between 0
+and 1 across the frame, so "the left third" is a different piece of floor for
+every camera. Scored against the wrong camera's zones, a visitor is credited
+with a stay somewhere they never stood. An operator assigns them on the
+calibration screen, which only offers the choice once a session has two cameras
+— with one, there is nothing to answer. A zone left unassigned belongs to every
+camera, which is what every zone drawn until now is, so nothing that already
+worked changes.
+
+**A detection that cannot be attributed is refused rather than guessed.** If a
+session declares two cameras and a detection arrives without saying which one it
+came from, it goes to the dead-letter queue on `/ops` naming the cameras it could
+have been, and the operator restarts perception with `--camera-id`. On a session
+with one camera the same detection is accepted exactly as before — which is what
+every event recorded before cameras had ids looks like.
+
+**Two people seen by different cameras are never grouped.** The group detector
+works on how close together two people are, and two people standing at the same
+fraction of their own camera's width measure as touching. There is no way to
+convert between two cameras' coordinates here, so the honest move is to decline
+the comparison. It costs something real: a couple who split across two views
+stop reading as a group until they are both in one view again. The alternative
+is reporting strangers as families, which is the failure the group detector was
+built to avoid in the first place.
+
+**The twin was drawing the merge on screen.** The replay grouped its paths by
+visitor name, so two cameras' `P-001` rendered as one person teleporting between
+two rooms several times a second. Same fix, in the browser.
+
+**What this deliberately does not do.** Somebody who walks out of one camera's
+view and into another's is two visitors, counted twice. That is what
+`privacy.md` promises — *"no cross-camera re-identification within a session"* —
+and it is the side to be wrong on. The old behaviour broke the same promise in
+the opposite direction, by accident, by deciding two strangers were one person.
+Joining up what happened across cameras is a question about zones, not about
+people, and it stays open.
+
+One thing worth recording about the tests: the first version of the
+cross-camera grouping test passed before the fix as well as after it. The two
+people in it were standing still, and the group detector requires movement — so
+the test proved nothing and would have gone on proving nothing after somebody
+deleted the check. It now has a positive control beside it: the identical walk
+on one camera, which must produce a group. Every other guard here was checked
+the same way, by removing it and watching the test fail.
+
+**Two setup mistakes are refused rather than absorbed.** A zone naming a camera
+the session does not have is rejected at save time, and so is a save that would
+remove a camera some zone still belongs to — the second matters because that
+request need not mention zones at all, so the operator would otherwise switch off
+part of their booth without being told. Both say which camera and what to do
+about it, and the second has a test for the way out of it, so it is a guard and
+not a trap.
+
+18 new backend tests, 2 in the browser. Backend suite 625 passing, dashboard 155.
+
 ### Changed — 2026-08-22 — `[neo4j-track]` Phase 1 and Phase 2 finally say whether they passed
 
 Every phase from 3 onward carries a verdict on its acceptance criteria — a

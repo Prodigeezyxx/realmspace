@@ -58,3 +58,48 @@ def derive_event_id(*parts: str | int) -> uuid.UUID:
     Used by consumers/tracker.py for every spatial.* event it emits.
     """
     return uuid.uuid5(NAMESPACE, _SEP.join(str(part) for part in parts))
+
+
+#: Separates a camera id from the track id it namespaces. Printable, unlike
+#: `_SEP` above, because this one is not an internal hash input: it ends up in
+#: `Person.anon_id` in the graph, in every `spatial.*` payload, and on screen in
+#: the twin. A control character there would be unreadable and unloggable.
+#:
+#: Printable brings back the ambiguity `_SEP` exists to avoid — ("cam/1", "P-2")
+#: and ("cam", "1/P-2") would both join to "cam/1/P-2" — so the ambiguity is
+#: removed at the other end instead: `schemas.CameraConfig` refuses a camera id
+#: containing this character. One camera id, one reading.
+CAMERA_SEP = "/"
+
+
+def person_key(payload: dict) -> str | None:
+    """Who a detection is about: the track id, namespaced by the camera.
+
+    ByteTrack numbers people per process, from `P-001` up. Two cameras are two
+    processes (`perception/realmspace.py` is one script per camera), so both
+    emit `P-001` on their first visitor and every consumer keyed on the bare id
+    treats those two people as one — merged dwells, one `(:Person)`, an
+    activation that under-reports its audience while over-reporting engagement.
+    Namespacing by camera is what keeps them apart.
+
+    **A detection with no `camera_id` keeps its bare id**, and that is
+    load-bearing rather than lenient. Every event logged before Phase 6 lacks
+    the field, and `derive_event_id` builds spatial event ids out of this value,
+    so a bare fallback is what makes a replay of an old session produce the same
+    ids it produced the first time. Change it and the bus stops recognising its
+    own history as a duplicate. The same reasoning put `drift.py`'s
+    "unattributed" bucket where it is.
+
+    The ambiguity that fallback creates — is `P-001` a camera-less detection or
+    a camera called nothing? — is closed by `tracker.py` refusing a detection
+    with no `camera_id` on a session that declares more than one camera. Bare
+    ids are accepted only where they cannot collide.
+
+    Returns None when there is no id at all; the caller decides whether that is
+    a dead letter.
+    """
+    anon = payload.get("anon_id") or payload.get("person_id")
+    if not anon:
+        return None
+    camera = payload.get("camera_id")
+    return f"{camera}{CAMERA_SEP}{anon}" if camera else str(anon)

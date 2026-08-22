@@ -198,6 +198,16 @@ export interface DetectionPayload {
    */
   frameWidth?: number;
   frameHeight?: number;
+  /**
+   * Which camera saw this, when the booth has more than one.
+   *
+   * Consumers key a person on `cameraId/anonId`, not on `anonId` alone:
+   * ByteTrack numbers people per process and one process runs per camera, so
+   * every camera calls its first visitor `P-001`. Absent means a session with
+   * one camera or none — the backend refuses an unattributed detection on a
+   * session that declares two, rather than merging two people.
+   */
+  cameraId?: string;
 }
 /**
  * Why a stay ended.

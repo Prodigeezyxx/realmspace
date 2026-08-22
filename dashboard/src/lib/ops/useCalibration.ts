@@ -36,11 +36,29 @@ export interface CameraConfig {
   maskRevision: number;
 }
 
+/**
+ * A zone as the backend stores it, carried through this hook untouched.
+ *
+ * Deliberately open: `POST /v1/sessions` replaces the whole zone set and prunes
+ * what is not in it, so re-posting a zone means re-posting *everything* it had
+ * — polygon, weight, funnel order, capacity. Narrowing this type to the two
+ * fields this screen edits would drop the rest on the first save, and the
+ * operator would find their funnel ordering gone with nothing to explain it.
+ */
+export interface ZoneConfig {
+  id: string;
+  name?: string;
+  /** Which camera's frame the polygon was drawn in. Null means every camera. */
+  cameraId?: string | null;
+  [key: string]: unknown;
+}
+
 export type CalibrationStatus = "loading" | "ready" | "offline" | "error";
 
 export interface CalibrationState {
   status: CalibrationStatus;
   cameras: CameraConfig[];
+  zones: ZoneConfig[];
   detail: string | null;
 }
 
@@ -59,10 +77,11 @@ async function authed(path: string, init?: RequestInit): Promise<Response | null
 
 function initialState(): CalibrationState {
   return isRemoteBusEnabled()
-    ? { status: "loading", cameras: [], detail: null }
+    ? { status: "loading", cameras: [], zones: [], detail: null }
     : {
         status: "offline",
         cameras: [],
+        zones: [],
         detail:
           "No backend configured. A mask has to reach the edge box to do anything, so there is nothing to draw against here.",
       };
@@ -79,6 +98,7 @@ export function useCalibration(sessionId: string) {
         setState({
           status: "error",
           cameras: [],
+          zones: [],
           detail: "Could not authenticate with the bus.",
         });
         return;
@@ -87,6 +107,7 @@ export function useCalibration(sessionId: string) {
         setState({
           status: "error",
           cameras: [],
+          zones: [],
           detail: "This session has no configuration yet. Publish it first.",
         });
         return;
@@ -95,6 +116,7 @@ export function useCalibration(sessionId: string) {
         setState({
           status: "error",
           cameras: [],
+          zones: [],
           detail: `The bus returned ${res.status}.`,
         });
         return;
@@ -103,10 +125,16 @@ export function useCalibration(sessionId: string) {
       setState({
         status: "ready",
         cameras: (config.cameras ?? []) as CameraConfig[],
+        zones: (config.zones ?? []) as ZoneConfig[],
         detail: null,
       });
     } catch {
-      setState({ status: "error", cameras: [], detail: "The bus is unreachable." });
+      setState({
+        status: "error",
+        cameras: [],
+        zones: [],
+        detail: "The bus is unreachable.",
+      });
     }
   }, [sessionId]);
 
@@ -149,6 +177,41 @@ export function useCalibration(sessionId: string) {
   );
 
   /**
+   * Say which camera's frame a zone was drawn in. `null` means every camera.
+   *
+   * Why this matters, since it looks like bookkeeping: a zone polygon is
+   * normalized 0..1 *within one frame*, so the same numbers name different
+   * floor in a different camera. Unowned, a zone drawn over the demo stand on
+   * `cam-1` also swallows anybody standing in the corresponding corner of
+   * `cam-2` — a visitor credited with a stay in a part of the booth they were
+   * never in, which reads in the report exactly like a real one.
+   *
+   * Posts the **whole** zone set, each zone exactly as it came back from the
+   * backend, for the reason `declare` posts the whole camera set: the endpoint
+   * replaces the set and prunes what is missing from it.
+   */
+  const assignZone = useCallback(
+    async (zoneId: string, cameraId: string | null): Promise<string | null> => {
+      const zones = state.zones.map((z) =>
+        z.id === zoneId ? { ...z, cameraId } : z
+      );
+      const res = await authed("/v1/sessions", {
+        method: "POST",
+        body: JSON.stringify({ sessionId, zones }),
+      });
+      if (!res?.ok) {
+        const body = await res?.json().catch(() => null);
+        return body?.detail
+          ? String(body.detail)
+          : `Could not save the zone (${res?.status ?? "offline"}).`;
+      }
+      await refresh();
+      return null;
+    },
+    [refresh, sessionId, state.zones]
+  );
+
+  /**
    * Set or clear one camera's mask. `null` clears it.
    *
    * A separate endpoint from the config save, deliberately: this is an audited
@@ -182,5 +245,5 @@ export function useCalibration(sessionId: string) {
     [refresh, sessionId]
   );
 
-  return { ...state, refresh, declare, setMask };
+  return { ...state, refresh, declare, assignZone, setMask };
 }

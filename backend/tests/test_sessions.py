@@ -723,3 +723,125 @@ async def test_graph_endpoint_reports_dwell_and_unique_people(
         {"zoneId": "z_a", "zone": "Mirror Room", "avgDwell": 90.0, "visitors": 1}
     ]
     assert body["zones"][0]["weight"] == 2.0
+
+
+# ── zones and the camera that owns them (multi-camera fusion) ─────────────────
+
+
+async def test_a_zone_can_name_the_camera_it_was_drawn_in(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """Round trip, and the default that keeps every existing zone working.
+
+    A zone with no `cameraId` is scored against every camera. That has to be the
+    default rather than a migration, because it is what every zone drawn before
+    cameras had owners already is.
+    """
+    res = await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            zones=[
+                zone("z_left", "Entrance", LEFT_POLY, cameraId="cam-1"),
+                zone("z_right", "Lounge", RIGHT_POLY),
+            ],
+            cameras=[{"id": "cam-1"}, {"id": "cam-2"}],
+        ),
+    )
+    assert res.status_code == 200, res.text
+
+    by_id = {z["id"]: z for z in res.json()["zones"]}
+    assert by_id["z_left"]["cameraId"] == "cam-1"
+    assert by_id["z_right"]["cameraId"] is None
+
+
+async def test_a_zone_naming_an_undeclared_camera_is_refused(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """Accepting it would mean a zone the tracker never scores anything against.
+
+    It collects no dwell and reports as a part of the booth nobody visited,
+    which is indistinguishable from a real finding — so the typo has to be
+    caught here, at setup, where the operator can still see what they typed.
+    """
+    res = await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            zones=[zone("z_left", "Entrance", LEFT_POLY, cameraId="cam-typo")],
+            cameras=[{"id": "cam-1"}],
+        ),
+    )
+    assert res.status_code == 422, res.text
+    assert "cam-typo" in res.text
+
+
+async def test_a_camera_id_may_not_contain_the_namespace_separator(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """`/` separates the camera from the track id it namespaces.
+
+    Allowed inside a camera id, the join stops being reversible and two
+    different people can produce the same key — the collision the namespace
+    exists to prevent, one level up.
+    """
+    res = await operator.post(
+        "/v1/sessions",
+        json=config_body(cameras=[{"id": "cam/1"}]),
+    )
+    assert res.status_code == 422, res.text
+
+
+async def test_removing_a_camera_a_zone_still_names_is_refused(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """The case a schema validator cannot see, because the zones are stored.
+
+    A later save that prunes `cam-2` would otherwise orphan the zone drawn in
+    its frame — silently, since the request that removes the camera says
+    nothing about zones at all.
+    """
+    first = await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            zones=[zone("z_right", "Lounge", RIGHT_POLY, cameraId="cam-2")],
+            cameras=[{"id": "cam-1"}, {"id": "cam-2"}],
+        ),
+    )
+    assert first.status_code == 200, first.text
+
+    # Only the camera set is posted. The stored zone keeps its owner, and
+    # nothing in this request mentions it — which is exactly why the refusal has
+    # to come from the stored state rather than from the request body.
+    res = await operator.post(
+        "/v1/sessions",
+        json=config_body(cameras=[{"id": "cam-1"}]),
+    )
+    assert res.status_code == 409, res.text
+    assert "cam-2" in res.text
+
+    # And the camera is still there: a refused save changes nothing.
+    still = await operator.get(f"/v1/sessions/{S}")
+    assert {c["id"] for c in still.json()["cameras"]} == {"cam-1", "cam-2"}
+
+
+async def test_a_save_that_moves_a_zone_off_a_camera_may_then_remove_it(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """The way out of the refusal above, so it is a guard and not a trap."""
+    await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            zones=[zone("z_right", "Lounge", RIGHT_POLY, cameraId="cam-2")],
+            cameras=[{"id": "cam-1"}, {"id": "cam-2"}],
+        ),
+    )
+
+    res = await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            zones=[zone("z_right", "Lounge", RIGHT_POLY)],
+            cameras=[{"id": "cam-1"}],
+        ),
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["zones"][0]["cameraId"] is None
+    assert {c["id"] for c in res.json()["cameras"]} == {"cam-1"}

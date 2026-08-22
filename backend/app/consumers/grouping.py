@@ -45,6 +45,21 @@ Either test, plus a cohesion floor, makes a **pair**. Groups are the connected
 components over confirmed pairs, because two people together and one of them
 with a third is a group of three, which is how people actually walk.
 
+## Never across cameras
+
+Both positions in the proximity test are normalized 0..1 within their own
+camera's frame, so two people in different frames can measure a hand's width
+apart while standing in different rooms — and `group_radius` would call them a
+pair for the length of the session. There is no transform between the two
+frames (zones are normalized image coordinates end to end, which is why
+`homography` calibration is refused), so this cannot be fixed by converting,
+only by declining to compare.
+
+The cost is real and worth stating: a couple who split across two camera views
+stop registering as a group until they are both in one view again. The
+alternative is reporting strangers as families, which is the failure this whole
+consumer exists to avoid.
+
 ## Zone transitions come from the tracker, not from here
 
 This consumer subscribes to `spatial.zone_enter` / `spatial.zone_exit` rather
@@ -82,7 +97,7 @@ from typing import Any, Iterable
 from app import db, repository
 from app.config import get_settings
 from app.consumers.base import Consumer
-from app.consumers.ids import derive_event_id
+from app.consumers.ids import derive_event_id, person_key
 from app.consumers.zones import centroid, normalize
 from app.models import EventLog
 from app.schemas import EventIn
@@ -118,6 +133,9 @@ class Person:
     exited_at: dict[str, dt.datetime] = field(default_factory=dict)
     #: Where they were standing when last seen, so the panel can name a zone.
     zone: str | None = None
+    #: Which camera saw them. None on a session that declares one camera or
+    #: none, and on every detection logged before cameras had ids.
+    camera: str | None = None
 
 
 @dataclass
@@ -242,7 +260,7 @@ class GroupingConsumer(Consumer):
     def _on_detection(
         self, key: tuple[str, str], event: EventLog, payload: dict[str, Any]
     ) -> list[EventIn]:
-        anon_id = payload.get("anon_id") or payload.get("person_id")
+        anon_id = person_key(payload)
         bbox = payload.get("bbox")
         frame_w = payload.get("frame_width")
         frame_h = payload.get("frame_height")
@@ -261,6 +279,7 @@ class GroupingConsumer(Consumer):
 
         person = people.setdefault(anon_id, Person())
         person.x, person.y, person.last_seen = nx, ny, now
+        person.camera = payload.get("camera_id")
         self._prune(people, settings.tracker_max_tracked_people)
 
         pairs = self._pairs.setdefault(key, {})
@@ -270,6 +289,21 @@ class GroupingConsumer(Consumer):
             # Only compare against somebody seen recently. Two people are not
             # near each other because one of them stood there an hour ago.
             if (now - other.last_seen).total_seconds() > settings.group_break_seconds:
+                continue
+            # Never across cameras. Both positions below are normalized 0..1
+            # within their own camera's frame, so two people in different frames
+            # can measure a hand's width apart while standing in different
+            # rooms — and `group_radius` would call them a pair. There is no
+            # transform between the two frames (zones are normalized image
+            # coordinates end to end; `homography` is refused for that reason,
+            # roadmap.md), so this cannot be fixed by converting, only by
+            # declining to compare.
+            #
+            # What that costs is real and worth stating: a couple who split up
+            # across two camera views stop registering as a group until they are
+            # both in one view again. The alternative is reporting strangers as
+            # families, which is the failure this whole consumer exists to avoid.
+            if other.camera != person.camera:
                 continue
             self._observe(pairs, anon_id, other_id, person, other, now, settings)
 

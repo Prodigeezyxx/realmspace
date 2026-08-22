@@ -156,14 +156,38 @@ to tell which zone a detection is in. The tracker dead-letters detections that
 omit them rather than guessing. (Same normalisation the browser does in
 `dashboard/src/skills/zone-detect.ts`.)
 
-`camera_id` is **optional and additive** (added 2026-08-19 with the drift
-consumer, which groups on it — a confidence mean averaged across two cameras
-describes neither). Optional rather than required because every detection logged
-before Phase 6 lacks one, and a consumer that dead-lettered its way through a
-season of history would bury the queue `/ops` exists to surface; those group
-under `"unattributed"`, which is visibly not a camera. It is the id
-`perception/realmspace.py --camera-id` was started with, and it must match a
-camera declared on the session or the mask fetch has nothing to answer.
+`camera_id` was **optional and additive** when the drift consumer arrived
+(2026-08-19), which groups on it — a confidence mean averaged across two cameras
+describes neither. It is the id `perception/realmspace.py --camera-id` was
+started with, and it must match a camera declared on the session or the mask
+fetch has nothing to answer.
+
+**Since 2026-08-21 it also decides who a person is.** Consumers key a visitor on
+`camera_id/anon_id`, not on `anon_id` alone (`backend/app/consumers/ids.py`,
+`person_key`). ByteTrack numbers people per process and one process runs per
+camera, so every camera calls its first visitor `P-001`; keyed on the bare id,
+two cameras' first visitors were one person with merged dwells and nothing
+raised. Every `spatial.*` payload therefore carries the namespaced id in its
+`anon_id`, and `(:Person).anon_id` is the namespaced one too.
+
+Still optional, on two conditions:
+
+- **Absent means the bare id.** Every detection logged before Phase 6 lacks the
+  field and spatial event ids are derived from this value, so the fallback is
+  what makes replaying that history reproduce its original ids rather than a
+  parallel set of duplicates. Drift's `"unattributed"` bucket exists for the
+  same reason and stays as it is.
+- **Absent is refused when it could be ambiguous.** On a session declaring two
+  or more cameras, a detection with no `camera_id` is dead-lettered by the
+  tracker naming the camera set, because there is no way to tell which camera's
+  `P-001` it is and guessing merges two people. One camera or none, it is
+  accepted exactly as before.
+
+A zone gained an owning `camera_id` in the same change, for the other half of
+the same problem: a polygon is normalized 0..1 *within one frame*, so scoring a
+`cam-2` centroid against `cam-1`'s polygons puts a visitor in a part of the
+booth they were never in. A zone with no owner belongs to every camera, which is
+what every zone drawn before this is.
 
 **`rfid.read`** — producer: RFID reader bridge. Added for Week 1 task 1.11; the
 reader speaks MQTT or serial and a small bridge turns each read into an event.

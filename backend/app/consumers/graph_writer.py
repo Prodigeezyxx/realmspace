@@ -33,6 +33,7 @@ import logging
 
 from app.config import get_settings
 from app.consumers.base import Consumer
+from app.consumers.ids import person_key
 from app.graph import repository as graph_repo
 from app.graph.driver import get_driver
 from app.models import EventLog
@@ -116,7 +117,12 @@ class GraphWriterConsumer(Consumer):
         )
 
     async def _on_detection(self, gs, event: EventLog) -> None:
-        anon_id = event.payload.get("anon_id") or event.payload.get("person_id")
+        # Namespaced by camera, the same way the tracker keys its state, so the
+        # two cameras that both call their first visitor `P-001` become two
+        # `(:Person)` nodes rather than one person who appears to be in two
+        # places. Without this the graph would disagree with every `spatial.*`
+        # event written above it, which all carry the namespaced id.
+        anon_id = person_key(event.payload)
         if not anon_id:
             raise ValueError(f"perception.detection seq={event.seq} has no anon_id/person_id")
 

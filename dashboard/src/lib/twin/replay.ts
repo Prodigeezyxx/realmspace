@@ -112,6 +112,24 @@ export function polygonCentre(polygon: [number, number][]): [number, number] {
   return [sx / polygon.length, sy / polygon.length];
 }
 
+/**
+ * Who a detection is about: the track id, namespaced by the camera.
+ *
+ * The browser half of `backend/app/consumers/ids.py::person_key`, and it has to
+ * agree with it. ByteTrack numbers people per process and one process runs per
+ * camera, so both cameras call their first visitor `P-001` — bucket the
+ * waypoints by `anonId` alone and the twin draws one person teleporting between
+ * two rooms at camera frame rate.
+ *
+ * No `cameraId` keeps the bare id, which is every detection logged before
+ * multi-camera and every session with one camera. The backend refuses an
+ * unattributed detection on a session that declares two, so a bare id reaching
+ * here cannot be ambiguous.
+ */
+function personKey(p: DetectionPayload): string {
+  return p.cameraId ? `${p.cameraId}/${p.anonId}` : p.anonId;
+}
+
 /** Detections → waypoints, in event order. Empty when the person has none. */
 function measuredWaypoints(events: RealmEvent[]): Map<string, Waypoint[]> {
   const byPerson = new Map<string, Waypoint[]>();
@@ -121,8 +139,9 @@ function measuredWaypoints(events: RealmEvent[]): Map<string, Waypoint[]> {
     const p = e.payload as DetectionPayload;
     if (!p.anonId || !p.bbox || !p.frameWidth || !p.frameHeight) continue;
 
+    const id = personKey(p);
     const [x1, y1, x2, y2] = p.bbox;
-    const list = byPerson.get(p.anonId) ?? [];
+    const list = byPerson.get(id) ?? [];
     list.push({
       t: e.occurredAt,
       // Same centroid-then-normalise as the backend tracker and the browser's
@@ -130,7 +149,7 @@ function measuredWaypoints(events: RealmEvent[]): Map<string, Waypoint[]> {
       x: (x1 + x2) / 2 / p.frameWidth,
       y: (y1 + y2) / 2 / p.frameHeight,
     });
-    byPerson.set(p.anonId, list);
+    byPerson.set(id, list);
   }
 
   return byPerson;

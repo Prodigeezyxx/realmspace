@@ -50,7 +50,13 @@ there takes `tenant_id` as a required argument.
 (:Person {
   tenant_id,
   session_id,               // part of the key: anon_id means nothing without it
-  anon_id,                  // session-scoped ("P-211"), never re-used across sessions
+  anon_id,                  // session-scoped, never re-used across sessions.
+                            // "cam-1/P-211" where the booth has cameras declared:
+                            // ByteTrack numbers people per process and one process
+                            // runs per camera, so every camera has a P-001. Bare
+                            // ("P-211") on a one-camera session and on everything
+                            // recorded before cameras had ids — see
+                            // consumers/ids.py, person_key.
   first_seen, last_seen,
   total_dwell_seconds,
   attention_score,          // 0..1, rolling
@@ -62,6 +68,10 @@ there takes `tenant_id` as a required argument.
   tenant_id, session_id,
   id, name, type,           // see ZoneType below
   polygon,                  // normalized booth coords, flattened [x1,y1,x2,y2,…]
+  camera_id,                // whose frame the polygon was drawn in. NULL = every
+                            // camera, which is every zone drawn before this. A
+                            // polygon is normalized *within one frame*, so the
+                            // same numbers are different floor in another camera
   color,
   capacity,                 // optional, for crowding alerts
 
