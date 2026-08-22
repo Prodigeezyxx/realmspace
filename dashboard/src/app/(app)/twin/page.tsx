@@ -19,7 +19,6 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
-import { surfaces, zones } from "@/lib/mock/session";
 import { useLiveSession } from "@/lib/live-session/store";
 import { useActiveSession } from "@/lib/session/store";
 import { useTwinLive } from "@/hooks/useTwinLive";
@@ -85,7 +84,7 @@ export default function TwinPage() {
             {useLiveTwin ? "Digital twin · live" : "Digital twin · replay"}
           </Pill>
           <h1 className="text-2xl font-semibold tracking-tight">
-            {useLiveTwin ? "Live spatial twin" : "Pavilion No. 7 — 3D replay"}
+            {useLiveTwin ? "Live spatial twin" : `${activeSession.name} — 3D replay`}
           </h1>
           <p className="text-sm text-text-secondary mt-1">
             {useLiveTwin
@@ -273,13 +272,17 @@ export default function TwinPage() {
             )}
           </Panel>
 
+          {/* The activation's own zones. This panel read `lib/mock/session`
+              until 2026-08-22, so an operator replaying their client's floor
+              was shown the demo's five zones — Bottle Wall, Lounge, Exit + RFID
+              Wall — beside a replay of their real visitors. */}
           <Panel title="Zones in twin" padded={false}>
             <ul className="px-3 py-2 space-y-1">
-              {zones.map((z) => (
+              {activeSession.zones.map((z) => (
                 <li key={z.id} className="flex items-center gap-2.5 py-1 text-xs">
                   <span
                     className="w-2 h-2 rounded-full"
-                    style={{ background: z.color }}
+                    style={{ background: z.color ?? "var(--text-faint)" }}
                   />
                   <span className="flex-1 truncate">{z.name}</span>
                   <span className="text-text-muted text-[10px] uppercase tracking-[0.12em]">
@@ -287,33 +290,48 @@ export default function TwinPage() {
                   </span>
                 </li>
               ))}
+              {activeSession.zones.length === 0 && (
+                <li className="py-2 text-xs text-text-muted">
+                  No zones configured for this activation.
+                </li>
+              )}
             </ul>
           </Panel>
 
+          {/* The activation's own touchpoints, and **no interaction counts**.
+              This panel read `lib/mock/session` until 2026-08-22 and rendered
+              its hardcoded `triggerCount`s — 482, 317, 904 — as though they were
+              this session's. They were the same invented figures Phase 2 struck
+              off `/report` and `/live`, still being shown here.
+
+              There is no count to put in their place and that is the honest
+              state: `roadmap.md` Phase 2 records that surface interactions have
+              their whole path built but "no producer was invented — real
+              interactions need booth hardware", so the number stays a marked
+              absence until something POSTs one. */}
           <Panel title="Interactive surfaces" padded={false}>
             <ul className="px-3 py-2 space-y-1">
-              {surfaces.map((s) => (
-                <li
-                  key={s.id}
-                  className="flex items-center gap-2.5 py-1 text-xs"
-                >
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      s.active ? "bg-accent-cyan" : "bg-text-faint"
-                    }`}
-                    style={
-                      s.active
-                        ? { boxShadow: "0 0 10px var(--accent-cyan)" }
-                        : undefined
-                    }
-                  />
-                  <span className="flex-1 truncate">{s.label}</span>
-                  <span className="text-text-muted tabular text-[10px]">
-                    {s.triggerCount}
+              {activeSession.touchpoints.map((t) => (
+                <li key={t.id} className="flex items-center gap-2.5 py-1 text-xs">
+                  <span className="w-2 h-2 rounded-full bg-accent-cyan" />
+                  <span className="flex-1 truncate">{t.name}</span>
+                  <span className="text-text-muted text-[10px] uppercase tracking-[0.12em]">
+                    {t.type}
                   </span>
                 </li>
               ))}
+              {activeSession.touchpoints.length === 0 && (
+                <li className="py-2 text-xs text-text-muted">
+                  No touchpoints configured for this activation.
+                </li>
+              )}
             </ul>
+            <p className="px-3 pb-3 text-[10px] text-text-muted leading-relaxed">
+              Interaction counts are not shown: nothing emits
+              <code className="mx-1">surface.interaction</code>
+              yet, and a number here would be an invention rather than a
+              measurement.
+            </p>
           </Panel>
         </div>
       </div>
