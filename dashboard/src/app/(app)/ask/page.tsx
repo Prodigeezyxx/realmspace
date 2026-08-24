@@ -36,7 +36,6 @@ export default function AskPage() {
   const [catalogue, setCatalogue] = useState<CatalogueEntry[]>([]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchCatalogue().then(setCatalogue);
   }, []);
 

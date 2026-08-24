@@ -19,6 +19,69 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-24
 
+### Fixed — 2026-08-24 — `[neo4j-track]` A new client's first page load showed them an empty room
+
+Reading the benchmark against a live stack turned up a bug the test suite could
+not have caught, because it only appears for an organisation that is not the
+development default.
+
+**On a first load, the report said "the session is configured correctly and the
+log is genuinely empty" over an activation full of visitors.** A reload fixed
+it, which is exactly why nobody had noticed. That sentence is the one the report
+exists to keep separate from a broken pipeline — a client would have been told
+they had a quiet day.
+
+The cause was an ordering nobody had written down. The browser only learns which
+organisation it belongs to when the backend hands it a token, and six places
+read that value at the top of an effect, before anything had been awaited. So
+they got the default. Every event arriving from the backend then failed the
+comparison on the way in, was dropped, and the page read an empty local log.
+
+Two mechanisms fix it, because the six places split into two shapes. Anything
+already waiting on the network now waits for the answer as well. Anything
+reading the local log subscribes, so it re-runs the moment the real
+organisation is known.
+
+**The same mistake, one level down, was making the live feed flicker.** The
+socket captured the organisation when it was created and then waited for a
+token before connecting — with the value it had captured before the token
+existed. The backend refused that pair, correctly, and the operator saw BUS DOWN
+on a system that was working. It now uses the verified answer, which is the rule
+the token exchange already applied to everything else.
+
+Two neighbours of that were fixed while it was open: a connection whose
+subscriber had already gone away would still open, because nothing re-checked
+after the wait; and signing out left an in-flight token exchange running, so the
+next request could be handed the token the sign-out was meant to discard.
+
+### Changed — 2026-08-24 — `[neo4j-track]` CI gates on lint, because the code stopped failing it
+
+Seven lint errors had been tracked rather than fixed, and the CI job ran
+`eslint src || true` because of them — gating on rules the repo violates makes a
+permanently-red check, and a permanently-red check gets filtered out of people's
+inboxes within a week.
+
+**Two of the seven were real bugs.** The live view computed its session duration
+and each tracked subject's time in frame by reading the clock while rendering,
+which means both were measured once at first paint and then sat there. An
+activation could run for an hour with the duration still showing the second it
+started. They now read a shared clock that ticks — one timer for the whole page
+rather than one per row on screen.
+
+Three more were the same shape as each other: a component storing something it
+could work out, then correcting itself immediately afterwards. The sign-in
+provider's "loading" is the clearest — with no Firebase configured there was
+never anybody to wait for, so it rendered a loading state and then took it back.
+It is now simply derived.
+
+**One is left suppressed, with the reason at the line.** The rule flagged a
+clock read inside a button handler, where reading the clock is the correct
+thing to do; it cannot tell a handler from a render. Rewriting working code to
+satisfy a misreading would leave the next person wondering what the contortion
+was for.
+
+3 new browser tests. Dashboard suite 170 passing, backend unchanged at 630.
+
 ### Added — 2026-08-24 — `[neo4j-track]` The report can finally say "better than last time"
 
 A client reading their second activation could not tell whether it beat their

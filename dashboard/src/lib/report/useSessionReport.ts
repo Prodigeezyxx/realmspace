@@ -21,7 +21,13 @@
 
 import { useEffect, useState } from "react";
 
-import { busEmail, backfillSession, isRemoteBusEnabled, readAll } from "@/lib/bus";
+import {
+  busEmail,
+  backfillSession,
+  ensureTenantId,
+  isRemoteBusEnabled,
+  readAll,
+} from "@/lib/bus";
 import {
   fetchSessionConfig,
   fetchSessionGraph,
@@ -94,8 +100,18 @@ export function useSessionReport(session: Session): SessionReport {
     let cancelled = false;
 
     async function load() {
-      const tenantId = getTenantId();
       const email = busEmail();
+      // Awaited, not read. `getTenantId()` returns a guess until a token
+      // exchange has verified who this browser is, and reading it here — before
+      // the backfill below establishes it — is what made this report say "the
+      // log is genuinely empty" over an activation full of visitors: every
+      // event failed the tenant comparison on the way in, and the partition
+      // read afterwards was the wrong one.
+      //
+      // The demo path keeps the stored value, because there is no backend to
+      // ask and no token to wait for.
+      const tenantId = session.isDemo ? getTenantId() : await ensureTenantId(email);
+      if (cancelled) return;
 
       let config: RemoteSessionConfig | null = null;
       let graph: RemoteSessionGraph | null = null;

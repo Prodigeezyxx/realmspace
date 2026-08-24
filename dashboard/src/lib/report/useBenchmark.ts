@@ -34,13 +34,17 @@
 
 import { useEffect, useState } from "react";
 
-import { busEmail, fetchSessionEvents, isRemoteBusEnabled } from "@/lib/bus";
+import {
+  busEmail,
+  ensureTenantId,
+  fetchSessionEvents,
+  isRemoteBusEnabled,
+} from "@/lib/bus";
 import {
   fetchSessionList,
   type RemoteSessionSummary,
 } from "@/lib/session/publish";
 import { computeScorecard, type Scorecard } from "@/lib/roi/scorecard";
-import { getTenantId } from "@/lib/tenant/context";
 import type { RealmEvent } from "@/lib/contracts";
 import type { Session } from "@/lib/session/types";
 
@@ -228,8 +232,13 @@ export function useBenchmark(session: Session, current: Scorecard): Benchmark {
         return;
       }
 
-      const tenantId = getTenantId();
       const email = busEmail();
+      // Same reason as `useSessionReport`: read synchronously, this is the
+      // default tenant rather than this browser's, and every prior activation's
+      // events would be dropped on the way in — a client with a history would
+      // be told they had none.
+      const tenantId = await ensureTenantId(email);
+      if (cancelled) return;
 
       const listing = await fetchSessionList(email);
       if (cancelled) return;

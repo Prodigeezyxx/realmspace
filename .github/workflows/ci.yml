@@ -13,19 +13,28 @@ name: CI
 # machine. It now prefers `TEST_ADMIN_DATABASE_URL`, which is what this file
 # sets. That is the whole unlock.
 #
-# ## Why lint reports but does not gate
+# ## Lint gates, as of 2026-08-24
 #
-# `eslint src` has 7 pre-existing errors (3 × "impure function during render",
-# 3 × "setState in effect", 1 × prefer-const) in viz/, mock/ and twin/, none of
-# them new. Gating on a rule the repo already violates makes the first run red
-# and every run after it, and a permanently-red check gets filtered out of
-# people's inboxes within a week — the same failure `/ops` was designed to avoid
-# one level down, where an ignored queue is worse than no queue because it looks
-# like coverage.
+# It did not, until then. `eslint src` carried 7 pre-existing errors — 3 ×
+# "impure function during render", 3 × "setState in effect", 1 × prefer-const —
+# and gating on a rule the repo already violates makes the first run red and
+# every run after it. A permanently-red check gets filtered out of people's
+# inboxes within a week, which is the failure `/ops` was designed to avoid one
+# level down: an ignored queue is worse than no queue because it looks like
+# coverage.
 #
-# Tests, types and build are all green today, so those gate: red means something
-# broke, which is the only signal worth paging on. The 7 errors are tracked in
-# roadmap.md rather than suppressed here.
+# All 7 are fixed, so the reason not to gate is gone. Two of them were real
+# bugs rather than style — `/live` computed its session duration and each
+# track's lifespan with `Date.now()` during render, so both froze at first
+# paint while the activation ran.
+#
+# One suppression exists, in `twin/PrefabSelector.tsx`, and it is a misread
+# rather than an exception: the purity rule flagged a `Date.now()` inside an
+# async click handler, where reading the clock is correct. It is commented at
+# the site.
+#
+# Everything here gates now. Red means something broke, which is the only
+# signal worth paging on.
 
 on:
   push:
@@ -157,5 +166,5 @@ jobs:
         run: npx next build
 
       - name: Lint
-        # Reports, does not gate. See the header of this file.
-        run: npx eslint src || true
+        # Gates, since 2026-08-24. See the header of this file.
+        run: npx eslint src

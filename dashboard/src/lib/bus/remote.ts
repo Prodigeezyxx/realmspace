@@ -35,7 +35,7 @@
 import { getFirebaseAuth } from "@/lib/firebase/client";
 import { append, read, getCursor, setCursor, headSeq } from "./log";
 import { eventFromWire, eventToWire, type WireEvent } from "./wire";
-import { setTenantId } from "@/lib/tenant/context";
+import { getTenantId, setTenantId } from "@/lib/tenant/context";
 import type { RealmEvent } from "@/lib/contracts";
 
 const OUTBOUND_CURSOR = "remote-bus";
@@ -187,6 +187,27 @@ async function fetchToken(email: string): Promise<string | null> {
   return token;
 }
 
+/**
+ * The tenant this browser is actually in, once the backend has said so.
+ *
+ * `getTenantId()` on its own returns the default (or whatever was last stored)
+ * until a token exchange lands, because the verified tenant arrives as a side
+ * effect of `fetchToken` above. Every caller that reads the tenant before its
+ * first await was therefore reading a guess — which for a first load in any
+ * other organisation is wrong, and produces an empty log rather than an error.
+ *
+ * Awaiting the token is the whole fix, and it lives here rather than in each
+ * caller so the ordering guarantee sits next to the thing that establishes it.
+ *
+ * Falls back to the stored value when there is no token to be had — no backend
+ * configured, or the exchange failed — because the alternative is a caller with
+ * no tenant at all, and the local-only demo path still needs one.
+ */
+export async function ensureTenantId(email: string): Promise<string> {
+  await ensureToken(email);
+  return getTenantId();
+}
+
 /** The current token, refreshed if it is missing or about to expire. */
 export async function ensureToken(email: string): Promise<string | null> {
   if (token && Date.now() < tokenExpiresAt) return token;
@@ -259,6 +280,10 @@ export async function signUpOrganisation(
 export function clearToken() {
   token = null;
   tokenExpiresAt = 0;
+  // The in-flight exchange too. Left behind, the very next `ensureToken` is
+  // handed the promise this call was meant to discard — so a sign-out that
+  // raced a token refresh would hand the new identity the old one's token.
+  inFlightToken = null;
 }
 
 /* ── outbound: local log → POST /events ──────────────────────────────────── */
@@ -386,6 +411,13 @@ export async function backfillSession(
   if (!isRemoteBusEnabled()) return 0;
   const jwt = await ensureToken(email);
   if (!jwt) return 0;
+  // Same rule as the socket below: the token has just landed, so the verified
+  // tenant beats whatever the caller captured before it existed. Without this
+  // a caller that read the default would have every event fail the comparison
+  // in the loop and mirror nothing — a backfill that reports success and
+  // writes an empty log, which is how a full activation came to render as a
+  // quiet day.
+  const verified = getTenantId() || tenantId;
 
   const PAGE = 500;
   let since = 0;
@@ -407,7 +439,7 @@ export async function backfillSession(
       // The server filters by session, but the log is partitioned by
       // (tenant, session) and a mismatch here would write into the wrong
       // partition — worth one comparison rather than trusting the query.
-      if (wire.tenantId === tenantId && wire.sessionId === sessionId) mirror(wire);
+      if (wire.tenantId === verified && wire.sessionId === sessionId) mirror(wire);
     }
     total += batch.length;
     since = batch[batch.length - 1].seq;
@@ -527,11 +559,24 @@ export function connectLiveFeed(opts: ConnectOptions): () => void {
 
     const jwt = await ensureToken(email);
     if (!jwt) return scheduleRetry();
+    // Checked again, because the await above is long enough for the caller to
+    // have unsubscribed. Without this, an effect that re-runs while the first
+    // attempt is still waiting for a token opens **both** sockets: the second
+    // one connects, and the first — whose cleanup has already run — opens a
+    // moment later anyway. That is what put a rejected connection in the log
+    // after an accepted one on every cold load.
+    if (closed) return;
 
-    const since = getRemoteSeq(tenantId, sessionId);
+    // The verified tenant wins over the one this was called with, for the same
+    // reason `fetchToken` overrides whatever the browser had stored: the caller
+    // may have captured the default before any token existed, and a socket
+    // opened against it is refused with a 403 the operator sees as BUS DOWN.
+    // The token has just landed, so by here the right answer is known.
+    const verified = getTenantId() || tenantId;
+    const since = getRemoteSeq(verified, sessionId);
     const base = busUrl().replace(/^http/, "ws");
     const url =
-      `${base}/v1/ws/${encodeURIComponent(tenantId)}/${encodeURIComponent(sessionId)}` +
+      `${base}/v1/ws/${encodeURIComponent(verified)}/${encodeURIComponent(sessionId)}` +
       `?since_seq=${since}&token=${encodeURIComponent(jwt)}`;
 
     try {
@@ -546,7 +591,10 @@ export function connectLiveFeed(opts: ConnectOptions): () => void {
       // into a tight reconnect loop.
       retryMs = 1_000;
       publish({ status: "live", detail: null });
-      void flushOutbound(tenantId, sessionId);
+      // `verified`, not the captured `tenantId`: this flushes the local
+      // outbox, and a flush aimed at the wrong partition sends nothing and
+      // reports success.
+      void flushOutbound(verified, sessionId);
     };
 
     socket.onmessage = (ev: MessageEvent) => {

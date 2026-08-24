@@ -19,7 +19,7 @@
 import { useEffect, useState } from "react";
 
 import { readAll, subscribe } from "@/lib/bus";
-import { getTenantId } from "@/lib/tenant/context";
+import { useTenantId } from "@/lib/tenant/useTenantId";
 import type { RealmEvent } from "@/lib/contracts";
 import type { RuleFiredPayload } from "@/lib/contracts/rules";
 
@@ -63,9 +63,13 @@ const EMPTY: RuleActivity = { firings: [], countByRule: {}, lastFiredByRule: {} 
 
 export function useRuleActivity(sessionId: string): RuleActivity {
   const [activity, setActivity] = useState<RuleActivity>(EMPTY);
+  // From the store rather than read once: the verified tenant arrives with
+  // the token, after this effect first runs, and a partition keyed on the
+  // guess is empty. In the dependency list so the effect re-runs when the
+  // real one lands.
+  const tenantId = useTenantId();
 
   useEffect(() => {
-    const tenantId = getTenantId();
     let cancelled = false;
 
     const recompute = () => {
@@ -91,7 +95,7 @@ export function useRuleActivity(sessionId: string): RuleActivity {
       cancelled = true;
       unsubscribe();
     };
-  }, [sessionId]);
+  }, [sessionId, tenantId]);
 
   return activity;
 }

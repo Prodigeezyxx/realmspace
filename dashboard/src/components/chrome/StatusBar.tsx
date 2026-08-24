@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { SignOutButton } from "@/components/auth/LoginForm";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useNow } from "@/lib/hooks/useNow";
 import { Pill } from "@/components/ui/Pill";
 import { BusPill } from "@/components/chrome/BusPill";
 import { emit } from "@/lib/bus";
@@ -37,18 +38,16 @@ export function StatusBar() {
   const active = useActiveSession();
   const sessions = useSessions();
 
-  const [now, setNow] = useState<Date | null>(null);
+  // From the shared clock. This used to be `useState<Date | null>(null)` seeded
+  // by a setState inside an effect — the null start was there so the server
+  // render had no time on it, and the effect filled it in on mount. The store
+  // gives both properties without the state write, and without the extra render
+  // pass every subscriber paid for it.
+  const nowMs = useNow(1000);
+  const now = nowMs ? new Date(nowMs) : null;
   const [open, setOpen] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const switcherRef = useRef<HTMLDivElement>(null);
-
-  // Clock (effect that registers an interval is allowed by lint rule because
-  // it's syncing an external system — the wall clock — into React state).
-  useEffect(() => {
-    setNow(new Date());
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
 
   // Click-outside for the switcher dropdown
   useEffect(() => {

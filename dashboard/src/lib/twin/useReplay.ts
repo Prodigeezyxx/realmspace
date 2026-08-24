@@ -18,7 +18,13 @@
 
 import { useEffect, useState } from "react";
 
-import { fetchSessionEvents, isRemoteBusEnabled, readAll } from "@/lib/bus";
+import {
+  busEmail,
+  ensureTenantId,
+  fetchSessionEvents,
+  isRemoteBusEnabled,
+  readAll,
+} from "@/lib/bus";
 import { getTenantId } from "@/lib/tenant/context";
 import type { RealmEvent } from "@/lib/contracts";
 import type { Session } from "@/lib/session/types";
@@ -52,7 +58,12 @@ export function useReplay(session: Session): ReplayState {
     let cancelled = false;
 
     async function load() {
-      const tenantId = getTenantId();
+      // Awaited rather than read: the verified tenant only arrives with the
+      // token, and a replay built against the wrong one is an empty room.
+      const tenantId = session.isDemo
+        ? getTenantId()
+        : await ensureTenantId(busEmail());
+      if (cancelled) return;
 
       // The demo never leaves this browser, so its events are only ever local.
       const events =

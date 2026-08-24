@@ -27,8 +27,9 @@ import {
   subscribeBusStatus,
   type BusStatus,
 } from "@/lib/bus";
-import { getTenantId } from "@/lib/tenant/context";
-import { useActiveSession } from "@/lib/session/store";
+import { useTenantId } from "@/lib/tenant/useTenantId";
+import { useIsHydrated } from "@/lib/hooks/useIsHydrated";
+import { useActiveSession, useHydrated } from "@/lib/session/store";
 
 const OFF_STATE = {
   status: "off" as BusStatus,
@@ -58,15 +59,32 @@ export function BusBridge() {
   const { user } = useAuth();
   const active = useActiveSession();
   const email = user?.email ?? busEmail();
+  // Subscribed rather than read once, so the socket reconnects under the
+  // verified tenant when the token lands instead of staying on the guess it
+  // opened with — which would mirror nothing for the whole session.
+  const tenantId = useTenantId();
+  // Two different hydrations, both of which have to have happened. React's,
+  // because `useTenantId` reports the default during the hydrating render by
+  // definition — the server had no storage to read. And the session store's,
+  // because before it hydrates the active session is the demo one.
+  const reactHydrated = useIsHydrated();
+  const storeHydrated = useHydrated();
+  const ready = reactHydrated && storeHydrated;
 
   useEffect(() => {
-    if (!isRemoteBusEnabled() || !active?.id) return;
+    // Both halves of "who am I" have to have settled, or this opens a socket
+    // against a guess. Before the store hydrates, `active` is the demo session
+    // — a real id, so the `!active?.id` guard below passes — and before the
+    // token lands the tenant is the default. The backend correctly refuses that
+    // pair with a 403, the pill shows BUS DOWN, and the connection that
+    // succeeds a moment later has to clear an alarm that was never real.
+    if (!ready || !isRemoteBusEnabled() || !active?.id) return;
     return connectLiveFeed({
-      tenantId: getTenantId(),
+      tenantId,
       sessionId: active.id,
       email,
     });
-  }, [active?.id, email]);
+  }, [active?.id, email, tenantId, ready]);
 
   return null;
 }

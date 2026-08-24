@@ -11,6 +11,7 @@ import {
   Zap,
 } from "lucide-react";
 
+import { useNow } from "@/lib/hooks/useNow";
 import { EventTimeline } from "@/components/viz/EventTimeline";
 import { Heatmap } from "@/components/viz/Heatmap";
 import { TrafficChart } from "@/components/viz/TrafficChart";
@@ -65,8 +66,13 @@ export default function LivePage() {
   const realTotalSeen = stats?.totalSeen ?? 0;
   const realFps = stats?.fps ?? 0;
   const sessionStartedAt = stats?.sessionStartedAt;
+  // From the shared clock, not `Date.now()` in render. Read during render this
+  // was captured once at first paint and then never moved: an activation could
+  // run for an hour with the duration still reading the second it started, and
+  // the server and client renders disagreed about the value on top of that.
+  const now = useNow(1000);
   const sessionDurationSec = sessionStartedAt
-    ? Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000))
+    ? Math.max(0, Math.floor((now - sessionStartedAt) / 1000))
     : 0;
   const isDetectorRunning = useLiveSession((s) => s.status === "running");
 
@@ -297,7 +303,10 @@ export default function LivePage() {
             >
               <ul className="space-y-1.5">
                 {stats.activeTracks.map((t) => (
-                  <TrackRow key={t.id} track={t} />
+                  // The clock is passed down rather than read per row: forty
+                  // tracks subscribing individually is forty timers for one
+                  // number they all agree on.
+                  <TrackRow key={t.id} track={t} now={now} />
                 ))}
               </ul>
             </Panel>
@@ -496,8 +505,10 @@ function KpiTile({
   );
 }
 
-function TrackRow({ track }: { track: Track }) {
-  const lifespanSec = (Date.now() - track.firstSeen) / 1000;
+function TrackRow({ track, now }: { track: Track; now: number }) {
+  // `now` is 0 until the clock has ticked on the client, which would read as a
+  // negative lifespan. Clamped, because "in frame for -3s" is worse than "0s".
+  const lifespanSec = now ? Math.max(0, (now - track.firstSeen) / 1000) : 0;
   return (
     <li className="flex items-center gap-3 px-2.5 py-2 rounded-md hover:bg-bg-elevated transition-colors">
       <span

@@ -1,7 +1,6 @@
 "use client";
 
 import { Activity } from "lucide-react";
-import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -13,6 +12,7 @@ import {
 } from "recharts";
 
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useIsHydrated } from "@/lib/hooks/useIsHydrated";
 import { peopleSeries } from "@/lib/mock/session";
 import { useActiveSession } from "@/lib/session/store";
 
@@ -24,8 +24,10 @@ export function TrafficChart() {
   }));
   // Recharts cannot measure the container during SSR — only render after mount
   // to avoid the "width(-1) height(-1)" warning and the related hydration noise.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // The guard itself used to be a setState inside an effect, which is a second
+  // render pass for a boolean React already knows; `useIsHydrated` is the same
+  // guard read from a store.
+  const mounted = useIsHydrated();
   if (!mounted) {
     return <div className="h-44 -mx-2 -mb-2" aria-hidden />;
   }

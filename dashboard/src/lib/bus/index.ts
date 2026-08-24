@@ -34,6 +34,7 @@ export {
   connectLiveFeed,
   backfillSession,
   fetchSessionEvents,
+  ensureTenantId,
   flushOutbound,
   markLocalOnly,
   ensureToken,

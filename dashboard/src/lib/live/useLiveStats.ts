@@ -29,7 +29,7 @@ import {
 } from "@/lib/bus";
 import { computeScorecard, type Scorecard } from "@/lib/roi/scorecard";
 import { summarizeCost, type CostSummary } from "@/lib/roi/cost";
-import { getTenantId } from "@/lib/tenant/context";
+import { useTenantId } from "@/lib/tenant/useTenantId";
 import { ZONE_TYPE_TO_KIND } from "@/lib/session/publish";
 import type { RealmEvent, ZoneNode } from "@/lib/contracts";
 import type { Session } from "@/lib/session/types";
@@ -108,10 +108,14 @@ function zonesFor(session: Session): ZoneNode[] {
 export function useLiveStats(session: Session): LiveStats {
   const [stats, setStats] = useState<LiveStats>(emptyStats);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // From the store rather than read once: the verified tenant arrives with
+  // the token, after this effect first runs, and a partition keyed on the
+  // guess is empty. In the dependency list so the effect re-runs when the
+  // real one lands.
+  const tenantId = useTenantId();
 
   useEffect(() => {
     let cancelled = false;
-    const tenantId = getTenantId();
 
     const recompute = () => {
       if (cancelled) return;
@@ -177,7 +181,7 @@ export function useLiveStats(session: Session): LiveStats {
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
     };
-  }, [session]);
+  }, [session, tenantId]);
 
   return stats;
 }

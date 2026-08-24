@@ -46,13 +46,16 @@ import { describeRule, type RuleDocument, type StoredRule } from "@/lib/contract
 import { useRuleActivity } from "@/lib/rules/useRuleActivity";
 import { useRules } from "@/lib/rules/useRules";
 import { useActiveSession } from "@/lib/session/store";
-import { getTenantId } from "@/lib/tenant/context";
+import { useTenantId } from "@/lib/tenant/useTenantId";
 import { cn, formatRelative } from "@/lib/utils";
 
 export default function AgentsPage() {
   const activeSession = useActiveSession();
   const rules = useRules();
   const activity = useRuleActivity(activeSession.id);
+  // Subscribed, not read once. The verified tenant arrives with the token, so
+  // a memo keyed on the guess reads an empty partition on a first load.
+  const tenantId = useTenantId();
   const [notice, setNotice] = useState<string | null>(null);
 
   const definitions = useMemo(() => listAgents(), []);
@@ -61,8 +64,8 @@ export default function AgentsPage() {
   // operator asks for by pressing a button, and a feed that re-ran it on every
   // detection would show a number that changes while they are reading it.
   const events = useMemo(
-    () => readAll(getTenantId(), activeSession.id) as RealmEvent[],
-    [activeSession.id]
+    () => readAll(tenantId, activeSession.id) as RealmEvent[],
+    [activeSession.id, tenantId]
   );
 
   // The log's clock, not the browser's — "4m ago" on a replayed session should

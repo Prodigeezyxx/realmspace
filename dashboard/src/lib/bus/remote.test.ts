@@ -12,6 +12,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { append, clearPartition, readAll, getCursor } from "./log";
 import {
   clearToken,
+  connectLiveFeed,
+  ensureTenantId,
   ensureToken,
   flushOutbound,
   getRemoteSeq,
@@ -211,6 +213,164 @@ describe("ensureToken", () => {
 
     await ensureToken("op@floats.demo");
     expect(getTenantId()).toBe("t_from_token");
+  });
+
+  it("resolves the tenant only after the backend has verified it", async () => {
+    // The bug this exists for was invisible on the default tenant, which is the
+    // only tenant anybody develops against.
+    //
+    // `getTenantId()` answers with a guess — the default, or whatever this
+    // browser last stored — until a token exchange lands. Every caller that
+    // read it at the top of an effect got that guess, so on a first load for
+    // any other organisation the backfill compared each incoming event against
+    // the wrong tenant, dropped all of them, and the report rendered "the log
+    // is genuinely empty" over an activation full of visitors. A reload fixed
+    // it, which is how it survived to production.
+    const { getTenantId, setTenantId, DEFAULT_TENANT_ID } = await import(
+      "@/lib/tenant/context"
+    );
+    setTenantId(DEFAULT_TENANT_ID);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  ok: true,
+                  status: 200,
+                  json: async () => ({
+                    accessToken: "jwt",
+                    expiresIn: 3600,
+                    tenantId: "t_other_org",
+                  }),
+                }),
+              0
+            )
+          )
+      )
+    );
+
+    // Read synchronously, this is still the guess — which is the whole point.
+    expect(getTenantId()).toBe(DEFAULT_TENANT_ID);
+
+    await expect(ensureTenantId("op@other.example")).resolves.toBe("t_other_org");
+  });
+
+  it("notifies subscribers when the verified tenant replaces the guess", async () => {
+    // What the hooks depend on: an effect keyed on the tenant has to re-run
+    // when the real one arrives, or it stays pinned to the guess for the life
+    // of the component.
+    const { setTenantId, subscribeTenantId, DEFAULT_TENANT_ID } = await import(
+      "@/lib/tenant/context"
+    );
+    setTenantId(DEFAULT_TENANT_ID);
+
+    let notified = 0;
+    const unsubscribe = subscribeTenantId(() => notified++);
+
+    setTenantId("t_other_org");
+    expect(notified).toBe(1);
+
+    // A token refresh an hour later carries the same tenant. Notifying again
+    // would re-run every subscribed effect for a value that did not change.
+    setTenantId("t_other_org");
+    expect(notified).toBe(1);
+
+    unsubscribe();
+    setTenantId(DEFAULT_TENANT_ID);
+    expect(notified).toBe(1);
+  });
+
+  it("opens the socket against the verified tenant, not the captured one", async () => {
+    // The caller hands over whatever the tenant was when it rendered. If that
+    // was the default — a first load, before any token — the socket used to be
+    // opened against it *after* the token exchange had already established the
+    // real one, and the backend refused the pair with a 403 the operator reads
+    // as BUS DOWN.
+    const { setTenantId, DEFAULT_TENANT_ID } = await import("@/lib/tenant/context");
+    setTenantId(DEFAULT_TENANT_ID);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          accessToken: "jwt",
+          expiresIn: 3600,
+          tenantId: "t_other_org",
+        }),
+      })
+    );
+
+    const urls: string[] = [];
+    const close = connectLiveFeed({
+      tenantId: DEFAULT_TENANT_ID,
+      sessionId: S,
+      email: "op@other.example",
+      socketFactory: (url) => {
+        urls.push(url);
+        return { close() {} } as unknown as WebSocket;
+      },
+    });
+
+    await vi.waitFor(() => expect(urls).toHaveLength(1));
+    expect(urls[0]).toContain("/v1/ws/t_other_org/");
+    expect(urls[0]).not.toContain("/v1/ws/t_floats/");
+    close();
+  });
+
+  it("does not open a socket whose subscriber has already gone away", async () => {
+    // The token exchange is an await, and an effect that re-runs during it
+    // unsubscribes this attempt and starts another. Without a second check
+    // after the await, both sockets open: the newer one connects and the older
+    // one — already cleaned up — opens a moment later against whatever it
+    // captured, which is the rejected connection that appeared in the server
+    // log after an accepted one on every cold load.
+    let releaseToken: (value: unknown) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            releaseToken = () =>
+              resolve({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                  accessToken: "jwt",
+                  expiresIn: 3600,
+                  tenantId: T,
+                }),
+              });
+          })
+      )
+    );
+
+    let opened = 0;
+    const close = connectLiveFeed({
+      tenantId: T,
+      sessionId: S,
+      email: "op@floats.demo",
+      socketFactory: () => {
+        opened++;
+        return { close() {} } as unknown as WebSocket;
+      },
+    });
+
+    // Unsubscribe while the token is still in flight, then let it land.
+    close();
+    releaseToken(null);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(opened).toBe(0);
+    // The token minted while this test's exchange was in flight would otherwise
+    // satisfy the next test's `ensureToken` and its fetch would never be made.
+    clearToken();
   });
 
   it("collapses concurrent callers onto one exchange", async () => {

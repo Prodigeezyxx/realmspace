@@ -57,7 +57,6 @@ export default function FollowupsPage() {
   const [state, setState] = useState<State>({ status: "loading" });
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void fetchFollowups(session.id).then(setState);
   }, [session.id]);
 

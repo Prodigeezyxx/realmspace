@@ -918,11 +918,30 @@ this codebase deletes from reports.
       `Dockerfile` exist and no target is configured; publishing needs a hosting
       decision and credentials that are not in this repo. CI builds both halves,
       so what is missing is where to put them.
-- 🔲 **The 7 pre-existing lint errors** (3 × "impure function during render",
-      3 × "setState in effect", 1 × `prefer-const`) in `viz/`, `mock/` and
-      `twin/`. Tracked rather than suppressed: they are React-correctness rules
-      and fixing them is real work, but CI gating on a rule the repo violates
-      would be red from its first run.
+- ✅ **The 7 pre-existing lint errors, and CI now gates on lint** *(2026-08-24)*.
+
+      **Two of the seven were real bugs, not style.** `/live` computed its
+      session duration and each tracked subject's lifespan with `Date.now()`
+      during render, so both were captured at first paint and never moved — an
+      activation could run for an hour with the duration still reading the
+      second it started. Both now read a shared `useNow`, one timer for every
+      subscriber rather than one per row.
+
+      The three `setState`-in-effect errors were mount guards and an SSR-safe
+      clock, each paying a second render pass for a boolean React already knew.
+      `useIsHydrated` replaces the guards; `AuthProvider`'s `loading` became
+      **derived** rather than stored, since with no Firebase configured there
+      was never anything to wait for.
+
+      **One is a suppression, argued rather than slipped in.**
+      `twin/PrefabSelector.tsx` calls `Date.now()` inside an async click
+      handler, where reading the clock is correct; the purity rule cannot tell a
+      handler from a render. Contorting working code to satisfy a rule that has
+      misread it would leave the next reader wondering what the contortion was
+      protecting, so it is disabled at the line with the reason.
+
+      `.github/workflows/ci.yml` runs `eslint src` without `|| true` now. The
+      gate was only ever blocked by the repo violating its own rules.
 - ✅ **Group visits** *(2026-08-21)* — the blind-spot row above, and the most
       thoroughly specified unbuilt thing in the repo until now. `(:Group)` had
       been constrained in `graph/schema.py` since **migration 001** with a
