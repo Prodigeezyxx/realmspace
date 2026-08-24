@@ -503,6 +503,40 @@ class TouchpointOut(TouchpointConfig):
     trigger_count: int = 0
 
 
+class SessionSummaryOut(BaseModel):
+    """One activation in a listing. What was set, never what was measured.
+
+    The absence of a visitor count here is the design, not an oversight. The ROI
+    layers are defined once, in the browser's `lib/roi/scorecard.ts`; a count on
+    this model would be a second definition of "unique visitor" arriving by the
+    back door, and the two would diverge without anything failing. A caller that
+    wants figures for one of these sessions reads its log and runs that scorecard
+    — which is exactly what the report's benchmark does.
+
+    `revenue_influenced` and `qualified_leads` are the client's own numbers, as
+    they are everywhere else. Anything rendering them says so.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    session_id: str
+    client: str | None = None
+    campaign: str | None = None
+    venue: str | None = None
+    city: str | None = None
+    #: Strings, matching `SessionConfigIn` and what the graph actually stores.
+    #: Typing them as datetimes here would 422 the whole listing over one
+    #: session whose date the wizard wrote in some other shape — one bad row
+    #: taking out the benchmark for every other activation.
+    started_at: str | None = None
+    ends_at: str | None = None
+    engaged_threshold_seconds: float = 60.0
+    activation_cost: float | None = None
+    currency: str = "USD"
+    revenue_influenced: float | None = None
+    qualified_leads: int | None = None
+
+
 class SessionConfigOut(SessionConfigIn):
     """What comes back. Both lists are always present here — never None."""
 

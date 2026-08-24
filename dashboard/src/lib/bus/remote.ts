@@ -417,6 +417,73 @@ export async function backfillSession(
   return total;
 }
 
+/**
+ * Read a session's events into memory **without mirroring them into the log**.
+ *
+ * The opposite choice from `backfillSession` above, and both are right for what
+ * they do. The local log is a 5,000-event ring buffer that silently drops its
+ * oldest entries; anything reading a whole activation — the twin's replay, the
+ * report's benchmark — would lose the earliest dwells to trimming and nothing
+ * would say so. So these events are held for as long as the caller holds them
+ * and never enter the buffer.
+ *
+ * `types` narrows the read server-side. The benchmark computes a scorecard over
+ * several past activations, and a scorecard reads seven event types, none of
+ * them `perception.detection` — which is almost every row in a day's log. Left
+ * unfiltered it would page through hundreds of thousands of detections to
+ * compute nothing.
+ */
+export async function fetchSessionEvents(
+  tenantId: string,
+  sessionId: string,
+  options: { types?: string[]; maxPages?: number } = {}
+): Promise<RealmEvent[]> {
+  if (!isRemoteBusEnabled()) return [];
+  const token = await ensureToken(busEmail());
+  if (!token) return [];
+
+  const PAGE = 500;
+  const maxPages = options.maxPages ?? 400;
+  const typeQuery = (options.types ?? [])
+    .map((t) => `&type=${encodeURIComponent(t)}`)
+    .join("");
+
+  const out: RealmEvent[] = [];
+  let since = 0;
+
+  for (let page = 0; page < maxPages; page++) {
+    const res = await fetch(
+      `${busUrl()}/events?since_seq=${since}&limit=${PAGE}` +
+        `&session_id=${encodeURIComponent(sessionId)}${typeQuery}`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) break;
+
+    const batch = (await res.json()) as WireEvent[];
+    if (!batch.length) break;
+
+    for (const wire of batch) {
+      if (wire.tenantId !== tenantId || wire.sessionId !== sessionId) continue;
+      // Translated but not mirrored: the payload has to be in this app's shape
+      // to be read, but it must not enter the ring buffer.
+      out.push({
+        ...eventFromWire(wire),
+        seq: wire.seq,
+        eventId: wire.eventId,
+        occurredAt: wire.occurredAt,
+        recordedAt: wire.recordedAt,
+      } as RealmEvent);
+    }
+
+    // Page on `seq`, not on an offset: seq has permanent gaps where a deduped
+    // insert burned a value, so counting would skip events.
+    since = batch[batch.length - 1].seq;
+    if (batch.length < PAGE) break;
+  }
+
+  return out;
+}
+
 interface ConnectOptions {
   tenantId: string;
   sessionId: string;

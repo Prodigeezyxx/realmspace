@@ -126,6 +126,38 @@ async def test_filters_by_type_and_session(client: AsyncClient) -> None:
     assert len(r.json()) == 2
 
 
+async def test_several_types_at_once_returns_their_union(client: AsyncClient) -> None:
+    """`?type=a&type=b` is a or b, not a and b.
+
+    A row has one type, so an AND would return an empty page — and an empty page
+    is indistinguishable from "nothing happened", which is the shape of bug that
+    makes a report show a quiet day instead of a broken query.
+
+    The reader this exists for is the report's benchmark: it computes a scorecard
+    over several past activations and needs the spatial events without dragging
+    a day of `perception.detection` along, which is almost the whole log.
+    """
+    await client.post("/events", json=make_event(type="perception.detection"))
+    await client.post("/events", json=make_event(type="spatial.zone_enter"))
+    await client.post("/events", json=make_event(type="spatial.dwell"))
+
+    r = await client.get(
+        "/events", params=[("type", "spatial.zone_enter"), ("type", "spatial.dwell")]
+    )
+    assert sorted(row["type"] for row in r.json()) == [
+        "spatial.dwell",
+        "spatial.zone_enter",
+    ]
+
+    # One type still behaves exactly as it did, which every existing caller
+    # depends on.
+    r = await client.get("/events", params={"type": "perception.detection"})
+    assert [row["type"] for row in r.json()] == ["perception.detection"]
+
+    # And no type at all is still everything, rather than nothing.
+    assert len((await client.get("/events")).json()) == 3
+
+
 async def test_phase_3_types_post_over_http(client: AsyncClient) -> None:
     """The six types Phase 3 pre-registers reach the log over the real endpoint.
 

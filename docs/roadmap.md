@@ -664,7 +664,63 @@ this codebase deletes from reports.
       project wired to this checkout, so the verifier is proven against
       locally-signed tokens with a stubbed key — every check it makes runs, but
       the round trip to Google has not been exercised.
-- 🔲 **Cloud replay sync** (anonymised) + **cross-activation benchmark** dataset
+- ✅ **Cross-activation benchmark** *(2026-08-24)* — half of the old "cloud
+      replay sync + benchmark" bullet. The sync half is split out below.
+
+      **`roi-framework.md` §2 has always named this the useful one** — *"the most
+      useful benchmark is the client's own history"* — and §4 listed it as an
+      unbuilt report feature. The report shipped with one benchmark: the industry
+      3–5:1 band on the ROI pill. A client reading their second activation could
+      not see whether it beat their first.
+
+      **The backend computes no metric for it, deliberately.** `GET
+      /v1/sessions/{id}/graph` refuses in writing to re-derive the four ROI
+      layers — two definitions of "engagement rate" and nothing to notice them
+      diverging — and that refusal has to survive a feature that wants numbers
+      for several sessions at once. So the new `GET /v1/sessions` is a *listing*:
+      which activations exist, and what each was scored against. The browser runs
+      the **same `computeScorecard`** over each earlier session's log. There is a
+      test asserting the benchmark's figures are read straight off that
+      scorecard, which is what fails if somebody later turns this into a
+      server-side aggregate.
+
+      **`GET /v1/events` takes a repeatable `type`.** A scorecard reads seven
+      event types and never `perception.detection`, which is almost every row in
+      a day's log. Unfiltered, comparing three activations would page through
+      hundreds of thousands of detections to compute nothing. The union, not the
+      intersection: a row has one type, so an AND would return an empty page —
+      indistinguishable from "nothing happened", which is the shape of bug that
+      reports a broken query as a quiet day.
+
+      **Median, not mean**, so one rained-off activation cannot make an ordinary
+      one look like a triumph. **Nulls are dropped rather than counted as zero**:
+      an activation whose cost nobody entered has no ROI ratio, and scoring it 0
+      would invent a failure it never had and flatter everything beside it. Each
+      row therefore carries **its own `n`** — a prior session with no cost counts
+      towards the visitor median and not the ROI one, and the two rows must not
+      look equally well evidenced.
+
+      **Three absences are stated rather than rendered as zeros**: a client's
+      first activation (it has not declined from anything), previous activations
+      that measured nothing, and the **realmspace network median** — which needs
+      anonymised cross-tenant aggregates (`multi-tenant.md` §6), and nothing here
+      can read another tenant's data. RLS fails closed on the attempt and there
+      is no aggregator to compute it.
+
+      Not fetched for prior sessions: their zone configs. None of the four
+      compared figures reads them, and the two scorecard figures that do — entry
+      crossings and dwell-weighted attention — are out of the comparison for the
+      reason weights exist: they are agreed per activation, so a difference
+      between two of them is a difference in the agreement, not on the floor.
+- 🔲 **Cloud replay sync** (anonymised) — split from the bullet above. The
+      pattern is settled and the parts exist: `consumers/handoff_delivery.py` is
+      the worked example for a signed, claimed, cursor-driven outbound consumer,
+      and `app/erasure.py` already owns the PII vocabulary an anonymised upload
+      needs (`PII_TYPES`, `CONTACT_PII`, `DRAFT_TEXT`) minus its erasure-specific
+      `dedupe_key` rewrite. What is missing is a destination: no endpoint, no
+      credentials, and the same hosting decision the deploy pipeline waits on.
+      Built now it would be proven against a mock transport and against nothing
+      real, which is the position five CRM adapters are already in.
 - 🔲 **Billing** hooks (Stripe) + plan metering/limits
 - ✅ **Calibration UI + CV drift telemetry** *(2026-08-19)* — the third clause,
       multi-camera fusion, is split out below with its reasons.
@@ -953,7 +1009,7 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 | CV model drift | ✅ `consumers/drift.py` — `confidence_mean` and track fragmentation per camera, against the session's own first window, reset by a recalibration. `detection_rate` deliberately not emitted: it is confounded with the room emptying. Surfaced on `/ops` with both numbers, never the verdict alone. |
 | Failure states (CRM 429, consent revoked) | dead-letter + HITL, withdrawal flow — P3/P4 |
 | Attribution decay (30/60/90d) | window on outcome edge — P4 |
-| Multi-booth / cross-event aggregation | multi-tenant benchmark — P6 |
+| Multi-booth / cross-event aggregation | 🟡 the client's own history is built — `GET /v1/sessions` lists their activations and `lib/report/useBenchmark.ts` scores each one with the same `computeScorecard` the report uses. The cross-*tenant* network median is not, and needs anonymised aggregates nothing here can compute: RLS fails closed on a cross-tenant read. |
 | Two cameras, one `P-001` | ✅ every visitor is keyed `camera_id/anon_id` (`consumers/ids.person_key`) and zones belong to the camera whose frame they were drawn in. A detection with no camera is refused on a session that declares two, accepted where it cannot collide. Crossing between cameras stays two people, per `privacy.md`. |
 | Cost telemetry / unit economics | `cost.metered` meter — P3 |
 | Group visits | ✅ `consumers/grouping.py` — a pair counts on **co-movement** (their shared midpoint travelled while they stayed together) or **joint arrival and departure** (into and out of a zone within seconds of each other), never on proximity alone: three strangers queueing are close together for minutes, and a detector built on distance-and-time reports every queue as a family. Groups are connected components over confirmed pairs. |

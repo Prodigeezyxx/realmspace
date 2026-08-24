@@ -605,6 +605,54 @@ async def session_config(
     return dict(record["s"]) if record is not None else None
 
 
+async def sessions_for_tenant(
+    session: AsyncSession, *, tenant_id: str, limit: int = 50
+) -> list[dict[str, Any]]:
+    """This tenant's activations, newest first. A listing, not a report.
+
+    Deliberately carries **no measured figures** — no visitor count, no dwell,
+    no engagement rate. `routers/sessions.py` states the rule this obeys: the
+    four ROI layers are defined once, in `dashboard/src/lib/roi/scorecard.ts`,
+    and computing any of them here in a second language would give the product
+    two definitions of "engagement rate" with nothing to notice when they stop
+    agreeing. What comes back is what an operator typed in and what the wizard
+    stored — enough to say which activations exist and what each one was scored
+    against.
+
+    That is what the benchmark needs. Comparing this activation to the client's
+    own history means running the *same* scorecard over each earlier session's
+    log, and the only thing missing before this was knowing which sessions
+    there were.
+
+    Ordered by `started_at` descending, nulls last: a session created but never
+    dated is real and belongs in the list, but it is not the most recent thing
+    that happened. Bounded, because a tenant who runs weekly for two years has
+    a hundred of these and a report wants the last handful.
+    """
+    result = await session.run(
+        """
+        MATCH (s:Session {tenant_id: $tenant_id})
+        RETURN s.id                        AS id,
+               s.client                    AS client,
+               s.campaign                  AS campaign,
+               s.venue                     AS venue,
+               s.city                      AS city,
+               s.started_at                AS started_at,
+               s.ends_at                   AS ends_at,
+               s.engaged_threshold_seconds AS engaged_threshold_seconds,
+               s.activation_cost           AS activation_cost,
+               s.currency                  AS currency,
+               s.revenue_influenced        AS revenue_influenced,
+               s.qualified_leads           AS qualified_leads
+        ORDER BY s.started_at IS NULL, s.started_at DESC, s.id
+        LIMIT $limit
+        """,
+        tenant_id=tenant_id,
+        limit=limit,
+    )
+    return [dict(record) async for record in result]
+
+
 async def prune_zones(
     session: AsyncSession, *, tenant_id: str, session_id: str, keep_ids: list[str]
 ) -> int:

@@ -143,7 +143,14 @@ async def get_events(
     since_seq: int = Query(0, ge=0, description="exclusive; returns seq > since_seq"),
     limit: int = Query(100, ge=1, le=repository.MAX_LIMIT),
     session_id: str | None = Query(None),
-    type: str | None = Query(None, description="e.g. perception.detection"),
+    type: list[str] | None = Query(
+        None,
+        description=(
+            "e.g. perception.detection. Repeatable — `?type=spatial.dwell&"
+            "type=spatial.zone_enter` returns both, which is how a caller reads "
+            "the spatial events without dragging a day of detections behind them."
+        ),
+    ),
     principal: Principal = Depends(require_reader),
     session: AsyncSession = Depends(get_session),
 ) -> list[EventOut]:
@@ -164,6 +171,6 @@ async def get_events(
         since_seq=since_seq,
         limit=limit,
         session_id=session_id,
-        type=type,
+        types=type,
     )
     return [EventOut.model_validate(r) for r in rows]

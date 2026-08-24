@@ -17,7 +17,65 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-22
+## [Unreleased] — last updated 2026-08-24
+
+### Added — 2026-08-24 — `[neo4j-track]` The report can finally say "better than last time"
+
+A client reading their second activation could not tell whether it beat their
+first. The report has always carried one benchmark — the industry 3–5:1 band on
+the ROI pill — which says how they compare to a category, not to themselves.
+`roi-framework.md` has said since the beginning which of the two is worth more:
+*"the most useful benchmark is the client's own history"*.
+
+It now shows both. Under the scorecard sits a table of this activation against
+the median of their last three, on four figures: unique visitors, engagement
+rate, average dwell, and ROI ratio.
+
+**The interesting constraint was where to compute it.** The backend deliberately
+does not calculate any ROI figure — the four layers are defined once, in the
+browser, and the endpoint that could have re-derived them says in writing why it
+does not: two definitions of "engagement rate" and nothing to notice when they
+stop agreeing. Doing this the easy way would have quietly created that second
+definition, in a place nobody would think to look for one.
+
+So the backend gained a **listing** and no arithmetic: which activations this
+client has run, and what each was scored against. The browser then runs the same
+scorecard function over each earlier session's log that it runs over the current
+one. There is a test asserting those figures are read straight off that
+scorecard, and it exists to fail the day somebody decides this would be faster as
+a server-side aggregate.
+
+**Reading three activations meant not reading three activations' detections.**
+A scorecard looks at seven kinds of event and never at a detection, which is
+almost every row in a day's log — hundreds of thousands of them against a few
+thousand of everything else. `GET /events` can now be asked for several types at
+once, and asking for two returns both rather than neither: a row only has one
+type, so treating the list as an "and" would have returned an empty page, which
+is indistinguishable from a quiet day.
+
+**Median rather than average**, so one rained-off activation cannot make an
+ordinary one look like a triumph. **A missing figure is dropped, not counted as
+zero** — an activation whose cost was never entered has no ROI ratio, and
+scoring it as nought would invent a failure it never had and flatter everything
+beside it. Each row therefore says how many previous activations it actually
+rests on, because a visitor median over three and an ROI median over one should
+not look equally solid.
+
+**Three things the card says instead of showing a number.** That this is the
+client's first activation, when it is — a first is not a decline from anything.
+That previous activations exist but measured nothing comparable. And that the
+realmspace network median — this client against every other — is deliberately
+absent: it would need anonymised aggregates across tenants, and nothing in this
+system can read another tenant's data. That is the promise multi-tenancy is
+built on, so the honest move is to name the gap on the card rather than quietly
+leave a column out.
+
+One thing that came out of building it: the twin's replay and this both needed
+"read a whole session without putting it in the local ring buffer", and the twin
+already had it. It moved to the shared bus module rather than being written a
+second time, which is also how it picked up the type filter for free.
+
+5 new backend tests, 11 in the browser. Backend suite 630 passing, dashboard 166.
 
 ### Added — 2026-08-22 — `[neo4j-track]` Two cameras stop being one person
 

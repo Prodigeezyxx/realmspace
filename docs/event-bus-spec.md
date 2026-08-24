@@ -63,6 +63,13 @@ CREATE TABLE dead_letter (
 - **Idempotency:** `event_id` is UNIQUE. Re-inserting a duplicate is a no-op.
   Consumers must also be idempotent on `event_id` (upserts, not blind inserts).
 - **Replay:** a consumer replays by resetting `consumer_cursor.last_seq`.
+- **Reading by type:** `GET /events` takes `type` and it is **repeatable** —
+  `?type=spatial.dwell&type=spatial.zone_enter` returns their union. A row has
+  one type, so an intersection would always be empty, and an empty page is
+  indistinguishable from "nothing happened". Added for the report's benchmark,
+  which scores several past activations and reads seven event types, none of
+  them `perception.detection` — almost every row in a day's log, and none of it
+  looked at.
 - **Ordering:** `seq` is the single source of truth for order per tenant/session.
 - **`seq` is ordered but NOT contiguous.** `BIGSERIAL` draws its number *before*
   the conflict check, so a deduped insert burns a number and leaves a permanent

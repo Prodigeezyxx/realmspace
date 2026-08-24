@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { useMemo } from "react";
 
+import { BenchmarkCard } from "@/components/report/BenchmarkCard";
 import { OperatorNote } from "@/components/report/OperatorNote";
 import { ShareWithClient } from "@/components/report/ShareWithClient";
 import { ReportGenerator } from "@/components/report/ReportGenerator";
@@ -49,6 +50,7 @@ import {
   hourlyLeads,
   hourlyVisitors,
 } from "@/lib/report/derive";
+import { useBenchmark } from "@/lib/report/useBenchmark";
 import { useSessionReport, type SessionReport } from "@/lib/report/useSessionReport";
 import { useActiveSession } from "@/lib/session/store";
 import { formatDuration } from "@/lib/utils";
@@ -126,6 +128,10 @@ function NothingToReport({
 }
 
 function Report({ session, report }: { session: Session; report: SessionReport }) {
+  // Reads three earlier activations' logs, so it settles after this page has
+  // already rendered and carries its own loading state rather than holding the
+  // report back behind it.
+  const benchmark = useBenchmark(session, report.scorecard);
   const { scorecard, config, events } = report;
 
   const zoneMeta = useMemo(
@@ -199,6 +205,8 @@ function Report({ session, report }: { session: Session; report: SessionReport }
       <ReportGenerator report={report} />
 
       <RoiScorecard report={report} />
+
+      <BenchmarkCard benchmark={benchmark} />
 
       {/* ── Cover */}
       <header className="space-y-6">

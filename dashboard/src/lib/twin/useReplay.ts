@@ -18,8 +18,7 @@
 
 import { useEffect, useState } from "react";
 
-import { busEmail, busUrl, ensureToken, isRemoteBusEnabled, readAll } from "@/lib/bus";
-import { eventFromWire, type WireEvent } from "@/lib/bus/wire";
+import { fetchSessionEvents, isRemoteBusEnabled, readAll } from "@/lib/bus";
 import { getTenantId } from "@/lib/tenant/context";
 import type { RealmEvent } from "@/lib/contracts";
 import type { Session } from "@/lib/session/types";
@@ -32,53 +31,6 @@ export interface ReplayState {
   replay: Replay;
   /** How many events the replay was built from. */
   eventCount: number;
-}
-
-/** Bounded so a pathological log cannot spin forever behind a loading state. */
-const PAGE = 500;
-const MAX_PAGES = 400;
-
-async function fetchSessionEvents(
-  tenantId: string,
-  sessionId: string
-): Promise<RealmEvent[]> {
-  const token = await ensureToken(busEmail());
-  if (!token) return [];
-
-  const out: RealmEvent[] = [];
-  let since = 0;
-
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const res = await fetch(
-      `${busUrl()}/events?since_seq=${since}&limit=${PAGE}` +
-        `&session_id=${encodeURIComponent(sessionId)}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    if (!res.ok) break;
-
-    const batch = (await res.json()) as WireEvent[];
-    if (!batch.length) break;
-
-    for (const wire of batch) {
-      if (wire.tenantId !== tenantId || wire.sessionId !== sessionId) continue;
-      // Translated but not mirrored: the payload has to be in this app's shape
-      // to be read, but it must not enter the ring buffer.
-      out.push({
-        ...eventFromWire(wire),
-        seq: wire.seq,
-        eventId: wire.eventId,
-        occurredAt: wire.occurredAt,
-        recordedAt: wire.recordedAt,
-      } as RealmEvent);
-    }
-
-    // Page on `seq`, not on an offset: seq has permanent gaps where a deduped
-    // insert burned a value, so counting would skip events.
-    since = batch[batch.length - 1].seq;
-    if (batch.length < PAGE) break;
-  }
-
-  return out;
 }
 
 function zonesOf(session: Session): ReplayZone[] {

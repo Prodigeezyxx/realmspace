@@ -137,6 +137,57 @@ export async function fetchSessionGraph(
   }
 }
 
+/**
+ * One activation in the tenant's listing. Settings only — no measured figures.
+ *
+ * The backend deliberately returns no visitor count here: the four ROI layers
+ * are defined once, in `lib/roi/scorecard.ts`, and a count arriving on this
+ * shape would be a second definition of "unique visitor" that nothing would
+ * notice diverging. The benchmark gets its numbers by running that scorecard
+ * over each session's own log.
+ */
+export interface RemoteSessionSummary {
+  sessionId: string;
+  client: string | null;
+  campaign: string | null;
+  venue: string | null;
+  city: string | null;
+  startedAt: string | null;
+  endsAt: string | null;
+  engagedThresholdSeconds: number;
+  activationCost: number | null;
+  currency: string;
+  revenueInfluenced: number | null;
+  qualifiedLeads: number | null;
+}
+
+/**
+ * Every activation this tenant has run, newest first.
+ *
+ * `null` for "no backend", an empty array for "this client has run nothing
+ * yet" — the same distinction `fetchSessionConfig` keeps, and for the same
+ * reason: a benchmark with no history to compare against has to say so rather
+ * than render a comparison against zero.
+ */
+export async function fetchSessionList(
+  email: string,
+  limit = 50
+): Promise<RemoteSessionSummary[] | null> {
+  if (!isRemoteBusEnabled()) return null;
+  const token = await ensureToken(email);
+  if (!token) return null;
+
+  try {
+    const res = await fetch(`${busUrl()}/v1/sessions?limit=${limit}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as RemoteSessionSummary[];
+  } catch {
+    return null;
+  }
+}
+
 export interface PublishResult {
   ok: boolean;
   /** Why not, when `ok` is false. Shown to the operator, not swallowed. */

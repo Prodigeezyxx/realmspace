@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy import BigInteger, delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,6 +79,7 @@ async def read_events(
     limit: int = 100,
     session_id: str | None = None,
     type: str | None = None,
+    types: Sequence[str] | None = None,
 ) -> list[EventLog]:
     """Read the log forward from a cursor.
 
@@ -89,6 +91,15 @@ async def read_events(
 
     tenant_id is required, not optional. There is deliberately no way to call
     this without scoping to one tenant (multi-tenant.md §2).
+
+    `type` and `types` are one filter with two spellings, and the second is not
+    convenience. A reader that wants the spatial events and not the detections
+    — the report's benchmark, which computes a scorecard over several past
+    activations — would otherwise have to pull `perception.detection` too, and
+    that is almost the whole log: a day of detections against a few thousand
+    spatial events. Passing both narrows to their union rather than to nothing,
+    since a row cannot have two types and an AND would return an empty page
+    that looks exactly like "no events".
     """
     stmt = (
         select(EventLog)
@@ -98,8 +109,9 @@ async def read_events(
     )
     if session_id is not None:
         stmt = stmt.where(EventLog.session_id == session_id)
-    if type is not None:
-        stmt = stmt.where(EventLog.type == type)
+    wanted = {*(types or ()), *([type] if type is not None else ())}
+    if wanted:
+        stmt = stmt.where(EventLog.type.in_(sorted(wanted)))
 
     result = await session.execute(stmt)
     return list(result.scalars().all())

@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from neo4j import AsyncSession as GraphSession
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +56,7 @@ from app.schemas import (
     SessionConfigIn,
     SessionConfigOut,
     SessionGraphOut,
+    SessionSummaryOut,
     TouchpointOut,
     ZoneConfig,
     ZoneDwell,
@@ -322,6 +323,56 @@ async def put_session_config(
     )
 
     return _config_out(props, zones, surfaces, cameras)
+
+
+@router.get(
+    "",
+    response_model=list[SessionSummaryOut],
+    summary="List this tenant's activations, newest first",
+)
+async def list_sessions(
+    limit: int = Query(50, ge=1, le=200),
+    principal: Principal = Depends(require_reader),
+    graph: GraphSession = Depends(get_graph_session),
+) -> list[SessionSummaryOut]:
+    """Which activations this tenant has run.
+
+    Built for the report's benchmark, which compares an activation to the
+    client's own history — `roi-framework.md` §2: *"the most useful benchmark is
+    the client's own history"*. Answering that needs the four ROI layers for each
+    earlier session, and those are defined once, in the browser. So this returns
+    the **listing** and nothing derived: the caller reads each session's log and
+    runs the same scorecard it runs for the current one. A visitor count on this
+    response would be a second definition of "unique visitor", arriving where
+    nobody would think to look for one.
+
+    The tenant comes from the credential, as it does on `GET /events`. There is
+    no tenant parameter, so there is nothing to forge, and a caller cannot
+    enumerate anyone else's activations.
+
+    Declared **before** `GET /{session_id}`: FastAPI matches routes in order, and
+    the parameterised one would otherwise swallow the empty path.
+    """
+    rows = await graph_repo.sessions_for_tenant(
+        graph, tenant_id=principal.tenant_id, limit=limit
+    )
+    return [
+        SessionSummaryOut(
+            session_id=row["id"],
+            client=row.get("client"),
+            campaign=row.get("campaign"),
+            venue=row.get("venue"),
+            city=row.get("city"),
+            started_at=row.get("started_at"),
+            ends_at=row.get("ends_at"),
+            engaged_threshold_seconds=row.get("engaged_threshold_seconds") or 60.0,
+            activation_cost=row.get("activation_cost"),
+            currency=row.get("currency") or "USD",
+            revenue_influenced=row.get("revenue_influenced"),
+            qualified_leads=row.get("qualified_leads"),
+        )
+        for row in rows
+    ]
 
 
 @router.get(

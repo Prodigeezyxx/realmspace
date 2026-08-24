@@ -33,6 +33,7 @@ export { emit, type EmitOptions } from "./emit";
 export {
   connectLiveFeed,
   backfillSession,
+  fetchSessionEvents,
   flushOutbound,
   markLocalOnly,
   ensureToken,

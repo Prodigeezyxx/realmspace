@@ -845,3 +845,96 @@ async def test_a_save_that_moves_a_zone_off_a_camera_may_then_remove_it(
     assert res.status_code == 200, res.text
     assert res.json()["zones"][0]["cameraId"] is None
     assert {c["id"] for c in res.json()["cameras"]} == {"cam-1"}
+
+
+# ── the listing the report's benchmark reads ──────────────────────────────────
+
+
+async def test_sessions_are_listed_newest_first(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """A tenant's activations, in the order a report wants to compare them.
+
+    Nulls last rather than first: a session created but never dated is real and
+    belongs in the list, but it is not the most recent thing that happened.
+    """
+    for session_id, started in (
+        ("s_march", "2026-03-01T09:00:00Z"),
+        ("s_july", "2026-07-01T09:00:00Z"),
+        ("s_undated", None),
+    ):
+        await graph_repo.upsert_session(
+            graph_session,
+            tenant_id=T,
+            session_id=session_id,
+            venue="Test Hall",
+            started_at=started,
+        )
+
+    res = await operator.get("/v1/sessions")
+    assert res.status_code == 200, res.text
+    assert [s["sessionId"] for s in res.json()] == ["s_july", "s_march", "s_undated"]
+
+
+async def test_the_listing_carries_settings_and_no_measurements(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """What was agreed, never what was counted.
+
+    A visitor count here would be a second definition of "unique visitor" —
+    the one thing `GET /{id}/graph` says in writing it will not create. The
+    benchmark gets its figures by running the browser's scorecard over each
+    session's log, so this only has to say which sessions exist.
+    """
+    await graph_repo.upsert_session(
+        graph_session,
+        tenant_id=T,
+        session_id=S,
+        client="Aperture",
+        campaign="Summer Launch",
+        venue="Test Hall",
+        activation_cost=12000.0,
+        revenue_influenced=38400.0,
+        qualified_leads=42,
+        engaged_threshold_seconds=45.0,
+        currency="GBP",
+    )
+
+    row = (await operator.get("/v1/sessions")).json()[0]
+    assert row["client"] == "Aperture"
+    assert row["activationCost"] == 12000.0
+    assert row["revenueInfluenced"] == 38400.0
+    assert row["engagedThresholdSeconds"] == 45.0
+    assert row["currency"] == "GBP"
+    # The measured half is deliberately absent.
+    assert "uniquePeople" not in row
+    assert "engagementRate" not in row
+
+
+async def test_a_tenant_cannot_enumerate_another_tenants_activations(
+    operator: AsyncClient, outsider: AsyncClient, graph_session: GraphSession
+) -> None:
+    """The listing names every activation a client has run — a client list.
+
+    There is no tenant parameter to forge; the scope comes from the credential,
+    as it does on `GET /events`.
+    """
+    await graph_repo.upsert_session(
+        graph_session, tenant_id=T, session_id=S, venue="Test Hall"
+    )
+
+    assert [s["sessionId"] for s in (await operator.get("/v1/sessions")).json()] == [S]
+    assert (await outsider.get("/v1/sessions")).json() == []
+
+
+async def test_listing_the_empty_case_is_a_list_and_not_a_404(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """A tenant who has run nothing yet has run nothing, which is an answer.
+
+    The report distinguishes "we have not looked" from "there is nothing" and a
+    404 here would collapse the two.
+    """
+    res = await operator.get("/v1/sessions")
+    assert res.status_code == 200
+    assert res.json() == []
