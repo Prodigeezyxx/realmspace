@@ -19,6 +19,54 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-24
 
+### Changed — 2026-08-24 — `[neo4j-track]` The product finally looks like the brand book
+
+`brand.md` has carried two warnings since it was written: the dashboard shipped
+the wrong three typefaces and the wrong primary colour. Both are now what the
+book says — Sora for headlines, Inter for reading, IBM Plex Mono for telemetry,
+on a blue-black canvas with the brand's own accents.
+
+**The interesting part was deciding what the orange is for.** The book is blunt:
+neon orange is *"only for things that demand immediate attention … do not
+overuse"*. The obvious move — point the app's main accent at it — would have
+painted an alarm on every calm surface in the product. So the main accent became
+the book's other colour, the teal it defines for "spatial data viz, flow and
+movement", which is what that accent was already doing. Orange went to the two
+things the book actually names: the primary call to action, and a staff prompt
+telling the floor to go and do something.
+
+**Looking at the result moved that line twice.** Three controls were using the
+primary button style to show they were switched *on* — the twin's heatmap
+toggle, the session filters, and the "open" button on every session card — and
+each turned into a permanent alert the moment primary went orange. Being
+selected and demanding attention are different things that had been sharing a
+style; they have their own now. The card button was the clearest case: it
+appears once per row, so a colour meaning "urgent" on every row means nothing on
+any of them.
+
+**On paper, both brand colours are close to unreadable**, and this is the part
+that has caught us out before — a client's headline ROI figure once printed at a
+contrast ratio of 1.36:1 against white, found by looking at a page rather than
+by thinking about one. Measured: the teal is 1.91:1 and the orange 3.10:1, where
+the accessibility standard asks for 4.5:1. Both now have darker print versions
+that keep the same hue, and a script checks every colour in both the screen and
+the print sets rather than anyone eyeballing it. The report was then read in a
+forced print view to be sure.
+
+**Nineteen copies of the old colour** were sitting in places a stylesheet cannot
+reach — chart gradients, the 3D scene, the default colours new zones are created
+with. They are one shared file now, so the next time the palette moves it is two
+files rather than nine.
+
+One consequence worth recording: zone colours stay wider than the brand palette
+on purpose. Eleven kinds of zone have to be distinguishable at a glance on a
+heatmap and the book provides three colours. The single new rule is that none of
+them may sit near the orange — which retired the old sponsor colour, since after
+the re-token it read as a permanent alert on the floor plan.
+
+The name is also lowercase everywhere now, which the brand book states as its
+first rule and the app had never followed.
+
 ### Fixed — 2026-08-24 — `[neo4j-track]` A new client's first page load showed them an empty room
 
 Reading the benchmark against a live stack turned up a bug the test suite could

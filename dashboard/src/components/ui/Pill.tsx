@@ -16,6 +16,11 @@ interface PillProps {
 }
 
 const variants: Record<NonNullable<PillProps["variant"]>, string> = {
+  // Both red, and the Action colour is deliberately not used here. brand.md §3
+  // lists "live **alerts**" among its uses — alerts that are live, not
+  // liveness itself. `live` marks a recording indicator, and the twin reuses it
+  // for "replay in progress"; painting either orange makes an alarm out of a
+  // status, which is precisely the over-use the book warns against.
   live: "bg-accent-red/10 text-accent-red border-accent-red/30",
   alert: "bg-accent-red/10 text-accent-red border-accent-red/30",
   info: "bg-accent-blue/10 text-accent-blue border-accent-blue/25",

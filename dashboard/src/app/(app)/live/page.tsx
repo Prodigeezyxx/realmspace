@@ -39,6 +39,7 @@ import { LiveRoiTile } from "@/components/live/LiveRoiTile";
 import { CostTile } from "@/components/live/CostTile";
 import { InsightsPanel } from "@/components/live/InsightsPanel";
 import { StaffPromptTile } from "@/components/live/StaffPromptTile";
+import { BRAND_DATA } from "@/lib/brand";
 
 /**
  * How stale the feed is, in words.
@@ -344,7 +345,7 @@ export default function LivePage() {
                     width={220}
                     height={56}
                     stroke="var(--accent)"
-                    fill="rgba(66,250,161,0.10)"
+                    fill="rgba(0,212,170,0.10)"
                     showLast
                   />
                   <div className="mt-1 text-[10px] tabular text-text-muted flex justify-between">
@@ -408,8 +409,8 @@ function TouchpointPanel() {
             <span
               className="w-2 h-2 rounded-full"
               style={{
-                background: zone?.color ?? "#42faa1",
-                boxShadow: `0 0 10px ${zone?.color ?? "#42faa1"}`,
+                background: zone?.color ?? BRAND_DATA,
+                boxShadow: `0 0 10px ${zone?.color ?? BRAND_DATA}`,
               }}
             />
             <div className="min-w-0">
@@ -580,12 +581,12 @@ function LiveTrafficChart({ history }: { history: number[] }) {
       >
         <defs>
           <linearGradient id="liveFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#42faa1" stopOpacity={0.28} />
-            <stop offset="100%" stopColor="#42faa1" stopOpacity={0} />
+            <stop offset="0%" stopColor={BRAND_DATA} stopOpacity={0.28} />
+            <stop offset="100%" stopColor={BRAND_DATA} stopOpacity={0} />
           </linearGradient>
         </defs>
         <path d={`${path} L 100 100 L 0 100 Z`} fill="url(#liveFill)" />
-        <path d={path} stroke="#42faa1" strokeWidth="0.6" fill="none" />
+        <path d={path} stroke={BRAND_DATA} strokeWidth="0.6" fill="none" />
       </svg>
       <div className="absolute top-2 left-2 text-[10px] tabular text-text-muted">
         people in frame

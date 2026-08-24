@@ -24,6 +24,7 @@ import { useActiveSession } from "@/lib/session/store";
 import { useTwinLive } from "@/hooks/useTwinLive";
 import { useReplay } from "@/lib/twin/useReplay";
 import { cn, formatDuration } from "@/lib/utils";
+import { BRAND_DATA } from "@/lib/brand";
 
 const TwinScene = dynamic(
   () => import("@/components/twin/TwinScene").then((m) => m.TwinScene),
@@ -94,7 +95,7 @@ export default function TwinPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button
-            variant={showHeatmap ? "primary" : "secondary"}
+            variant={showHeatmap ? "selected" : "secondary"}
             size="sm"
             icon={
               showHeatmap ? <Eye size={14} /> : <EyeOff size={14} />
@@ -429,8 +430,8 @@ function TwinEmptyState() {
                   <span
                     className="w-2 h-2 rounded-full shrink-0"
                     style={{
-                      background: zone?.color ?? "#42faa1",
-                      boxShadow: `0 0 10px ${zone?.color ?? "#42faa1"}`,
+                      background: zone?.color ?? BRAND_DATA,
+                      boxShadow: `0 0 10px ${zone?.color ?? BRAND_DATA}`,
                     }}
                   />
                   <span className="flex-1 truncate">{t.name}</span>

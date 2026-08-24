@@ -15,6 +15,7 @@ import {
 } from "@/lib/twin/touchpoint-layout";
 import type { HeatmapOutput } from "@/skills/heatmap";
 import type { TwinAvatarDelta } from "@/skills/twin-sync";
+import { BRAND_DATA } from "@/lib/brand";
 
 const DEFAULT_W = session.boothSize.width;
 const DEFAULT_D = session.boothSize.depth;
@@ -449,7 +450,7 @@ function LivePeople({ avatars }: { avatars: TwinAvatarDelta[] }) {
         <PersonAvatar
           key={a.personId}
           id={a.label}
-          color="#42faa1"
+          color={BRAND_DATA}
           x={a.x}
           y={a.z}
           focused

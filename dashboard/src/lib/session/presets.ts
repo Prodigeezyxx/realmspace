@@ -21,6 +21,7 @@ import {
   Store,
 } from "lucide-react";
 
+import { BRAND_BLUE, BRAND_DATA } from "@/lib/brand";
 import type {
   PrimaryObjective,
   SessionType,
@@ -150,18 +151,33 @@ export function getTypeMeta(type: SessionType): SessionTypeMeta {
 
 // ── Zone & touchpoint catalogues ──────────────────────────────────────────
 
+/**
+ * Default colour per zone type.
+ *
+ * **Deliberately wider than the brand palette, and it has to be.** `brand.md`
+ * gives two accents and one supporting blue; there are eleven zone types here,
+ * and their whole job on a heatmap or in the twin is to be told apart at a
+ * glance. Three colours cannot do that, so the brand pair anchors the set — the
+ * entry and demo zones, the ones an operator looks at first, wear the Data
+ * colour — and the rest are chosen for separation.
+ *
+ * The one hard constraint the re-token added: **nothing here may sit near the
+ * Action orange `#FF5C00`**, because that colour now means "something needs
+ * attention" everywhere else in the product. Sponsor used to be `#ff8a4d`,
+ * which after the re-token read as a permanent alert on the floor plan.
+ */
 export const ZONE_TYPE_OPTIONS: { value: ZoneType; label: string; color: string }[] = [
-  { value: "entry",          label: "Entry",            color: "#42faa1" },
+  { value: "entry",          label: "Entry",            color: BRAND_DATA },
   { value: "reveal",         label: "Hero / Reveal",    color: "#b66bff" },
-  { value: "engagement",     label: "Engagement",       color: "#4a9eff" },
+  { value: "engagement",     label: "Engagement",       color: BRAND_BLUE },
   { value: "lounge",         label: "Lounge",           color: "#00d4ff" },
   { value: "retail",         label: "Retail",           color: "#ffc83d" },
-  { value: "sponsor",        label: "Sponsor",          color: "#ff8a4d" },
-  { value: "demo",           label: "Demo / Stage",     color: "#42faa1" },
+  { value: "sponsor",        label: "Sponsor",          color: "#f472b6" },
+  { value: "demo",           label: "Demo / Stage",     color: BRAND_DATA },
   { value: "press",          label: "Press",            color: "#ff4d4d" },
   { value: "exit",           label: "Exit",             color: "#ffd60a" },
-  { value: "privacy_masked", label: "Privacy-masked",   color: "#6e6e74" },
-  { value: "other",          label: "Other",            color: "#a8a8ad" },
+  { value: "privacy_masked", label: "Privacy-masked",   color: "#6e7180" },
+  { value: "other",          label: "Other",            color: "#a8aab5" },
 ];
 
 export const TOUCHPOINT_TYPE_OPTIONS: { value: TouchpointType; label: string }[] = [
@@ -210,10 +226,10 @@ interface TypeDefaults {
 const PRESETS: Record<SessionType, TypeDefaults> = {
   brand_activation: {
     zones: [
-      { name: "Entry Arch",   type: "entry",       capacity: 10, color: "#42faa1" },
+      { name: "Entry Arch",   type: "entry",       capacity: 10, color: BRAND_DATA },
       { name: "Hero Reveal",  type: "reveal",      capacity: 25, color: "#b66bff" },
-      { name: "Engagement",   type: "engagement",  capacity: 20, color: "#4a9eff" },
-      { name: "Sponsor Wall", type: "sponsor",     capacity: 15, color: "#ff8a4d" },
+      { name: "Engagement",   type: "engagement",  capacity: 20, color: BRAND_BLUE },
+      { name: "Sponsor Wall", type: "sponsor",     capacity: 15, color: "#f472b6" },
       { name: "Lounge",       type: "lounge",      capacity: 18, color: "#00d4ff" },
       { name: "Exit",         type: "exit",        capacity: 10, color: "#ffd60a" },
     ],
@@ -227,12 +243,12 @@ const PRESETS: Record<SessionType, TypeDefaults> = {
   },
   exhibition: {
     zones: [
-      { name: "Entry",         type: "entry",      capacity: 8,  color: "#42faa1" },
+      { name: "Entry",         type: "entry",      capacity: 8,  color: BRAND_DATA },
       { name: "Curator Intro", type: "reveal",     capacity: 15, color: "#b66bff" },
-      { name: "Gallery 1",     type: "engagement", capacity: 25, color: "#4a9eff" },
+      { name: "Gallery 1",     type: "engagement", capacity: 25, color: BRAND_BLUE },
       { name: "Gallery 2",     type: "engagement", capacity: 25, color: "#00d4ff" },
       { name: "Reading Nook",  type: "lounge",     capacity: 12, color: "#ffc83d" },
-      { name: "Bookshop",      type: "retail",     capacity: 10, color: "#ff8a4d" },
+      { name: "Bookshop",      type: "retail",     capacity: 10, color: "#f472b6" },
     ],
     touchpoints: [
       { name: "Audio Guide Trigger", type: "audio_guide", zoneName: "Entry",       triggers: ["activated"] },
@@ -243,12 +259,12 @@ const PRESETS: Record<SessionType, TypeDefaults> = {
   },
   conference: {
     zones: [
-      { name: "Registration",  type: "entry",      capacity: 50,  color: "#42faa1" },
+      { name: "Registration",  type: "entry",      capacity: 50,  color: BRAND_DATA },
       { name: "Main Stage",    type: "demo",       capacity: 500, color: "#b66bff" },
-      { name: "Breakout A",    type: "engagement", capacity: 80,  color: "#4a9eff" },
+      { name: "Breakout A",    type: "engagement", capacity: 80,  color: BRAND_BLUE },
       { name: "Breakout B",    type: "engagement", capacity: 80,  color: "#00d4ff" },
       { name: "Networking",    type: "lounge",     capacity: 120, color: "#ffc83d" },
-      { name: "Sponsor Hall",  type: "sponsor",    capacity: 100, color: "#ff8a4d" },
+      { name: "Sponsor Hall",  type: "sponsor",    capacity: 100, color: "#f472b6" },
       { name: "Press Room",    type: "press",      capacity: 30,  color: "#ff4d4d" },
     ],
     touchpoints: [
@@ -260,7 +276,7 @@ const PRESETS: Record<SessionType, TypeDefaults> = {
   },
   trade_show: {
     zones: [
-      { name: "Stand Entry",   type: "entry",      capacity: 8,  color: "#42faa1" },
+      { name: "Stand Entry",   type: "entry",      capacity: 8,  color: BRAND_DATA },
       { name: "Demo Area",     type: "demo",       capacity: 12, color: "#b66bff" },
       { name: "Meeting Pods",  type: "lounge",     capacity: 6,  color: "#00d4ff" },
       { name: "Giveaways",     type: "retail",     capacity: 6,  color: "#ffd60a" },
@@ -273,12 +289,12 @@ const PRESETS: Record<SessionType, TypeDefaults> = {
   },
   experience_centre: {
     zones: [
-      { name: "Welcome Lounge",  type: "entry",      capacity: 15, color: "#42faa1" },
-      { name: "Product Zone A",  type: "engagement", capacity: 20, color: "#4a9eff" },
+      { name: "Welcome Lounge",  type: "entry",      capacity: 15, color: BRAND_DATA },
+      { name: "Product Zone A",  type: "engagement", capacity: 20, color: BRAND_BLUE },
       { name: "Product Zone B",  type: "engagement", capacity: 20, color: "#00d4ff" },
       { name: "Demo Theatre",    type: "demo",       capacity: 40, color: "#b66bff" },
       { name: "Consultation",    type: "lounge",     capacity: 8,  color: "#ffc83d" },
-      { name: "Café",            type: "lounge",     capacity: 25, color: "#ff8a4d" },
+      { name: "Café",            type: "lounge",     capacity: 25, color: "#f472b6" },
     ],
     touchpoints: [
       { name: "Configurator",      type: "configurator", zoneName: "Product Zone A", triggers: ["started", "saved"] },
@@ -289,12 +305,12 @@ const PRESETS: Record<SessionType, TypeDefaults> = {
   },
   retail_popup: {
     zones: [
-      { name: "Window",   type: "entry",      capacity: 4,  color: "#42faa1" },
-      { name: "Entry",    type: "entry",      capacity: 10, color: "#4a9eff" },
+      { name: "Window",   type: "entry",      capacity: 4,  color: BRAND_DATA },
+      { name: "Entry",    type: "entry",      capacity: 10, color: BRAND_BLUE },
       { name: "Try-on",   type: "engagement", capacity: 15, color: "#b66bff" },
       { name: "Fitting",  type: "engagement", capacity: 6,  color: "#00d4ff" },
       { name: "Checkout", type: "retail",     capacity: 5,  color: "#ffc83d" },
-      { name: "Lounge",   type: "lounge",     capacity: 10, color: "#ff8a4d" },
+      { name: "Lounge",   type: "lounge",     capacity: 10, color: "#f472b6" },
     ],
     touchpoints: [
       { name: "AR Mirror",     type: "ar_mirror", zoneName: "Try-on",   triggers: ["viewed", "tried"] },
@@ -305,9 +321,9 @@ const PRESETS: Record<SessionType, TypeDefaults> = {
   },
   product_launch: {
     zones: [
-      { name: "Press Arrival",  type: "entry",      capacity: 30,  color: "#42faa1" },
+      { name: "Press Arrival",  type: "entry",      capacity: 30,  color: BRAND_DATA },
       { name: "Hero Reveal",    type: "reveal",     capacity: 80,  color: "#b66bff" },
-      { name: "Demo Stations",  type: "demo",       capacity: 40,  color: "#4a9eff" },
+      { name: "Demo Stations",  type: "demo",       capacity: 40,  color: BRAND_BLUE },
       { name: "VIP Lounge",     type: "lounge",     capacity: 25,  color: "#ffc83d" },
       { name: "Q&A Stage",      type: "engagement", capacity: 100, color: "#00d4ff" },
       { name: "Press Wall",     type: "press",      capacity: 15,  color: "#ff4d4d" },
@@ -321,9 +337,9 @@ const PRESETS: Record<SessionType, TypeDefaults> = {
   },
   workshop: {
     zones: [
-      { name: "Reception",  type: "entry",      capacity: 12, color: "#42faa1" },
+      { name: "Reception",  type: "entry",      capacity: 12, color: BRAND_DATA },
       { name: "Classroom",  type: "demo",       capacity: 25, color: "#b66bff" },
-      { name: "Lab",        type: "engagement", capacity: 15, color: "#4a9eff" },
+      { name: "Lab",        type: "engagement", capacity: 15, color: BRAND_BLUE },
       { name: "Breakout",   type: "lounge",     capacity: 10, color: "#00d4ff" },
     ],
     touchpoints: [
@@ -333,11 +349,11 @@ const PRESETS: Record<SessionType, TypeDefaults> = {
   },
   press_event: {
     zones: [
-      { name: "Red Carpet",  type: "entry",      capacity: 20, color: "#42faa1" },
+      { name: "Red Carpet",  type: "entry",      capacity: 20, color: BRAND_DATA },
       { name: "Photo Wall",  type: "press",      capacity: 15, color: "#ff4d4d" },
       { name: "Auditorium",  type: "demo",       capacity: 200,color: "#b66bff" },
       { name: "Reception",   type: "lounge",     capacity: 80, color: "#ffc83d" },
-      { name: "Press Lounge",type: "press",      capacity: 30, color: "#ff8a4d" },
+      { name: "Press Lounge",type: "press",      capacity: 30, color: "#f472b6" },
     ],
     touchpoints: [
       { name: "Press Desk",     type: "lead_form",   zoneName: "Reception",   triggers: ["registered"] },
@@ -347,9 +363,9 @@ const PRESETS: Record<SessionType, TypeDefaults> = {
   },
   private_event: {
     zones: [
-      { name: "Arrival",        type: "entry",      capacity: 12, color: "#42faa1" },
+      { name: "Arrival",        type: "entry",      capacity: 12, color: BRAND_DATA },
       { name: "Reception",      type: "lounge",     capacity: 60, color: "#b66bff" },
-      { name: "Main Room",      type: "demo",       capacity: 120,color: "#4a9eff" },
+      { name: "Main Room",      type: "demo",       capacity: 120,color: BRAND_BLUE },
       { name: "Private Dining", type: "lounge",     capacity: 40, color: "#ffc83d" },
     ],
     touchpoints: [

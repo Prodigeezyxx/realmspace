@@ -55,9 +55,9 @@ components · altering elements.
 cue that the user is looking at real, extracted telemetry. Sora for headlines,
 Inter for everything else.
 
-> ⚠️ **Migration note:** the current dashboard ships Plus Jakarta Sans +
-> JetBrains Mono. To align with the brand book, migrate headlines → Sora,
-> body → Inter, mono → IBM Plex Mono. Tracked in the roadmap (polish phase).
+> ✅ **Migrated 2026-08-24.** `app/layout.tsx` loads all three; `--font-head`
+> (Sora), `--font-sans` (Inter) and `--font-mono` (IBM Plex Mono) are the
+> tokens. The wordmark is set in Sora for the reason the table gives.
 
 ---
 
@@ -84,14 +84,28 @@ digital thread connecting spatial movement to insight.
   charts representing movement. This is the "telemetry" colour.
 - **Accent blue `#3B82F6`** — supporting charts / links where orange+teal aren't enough.
 
-> ⚠️ **Brand-vs-code note:** the current dashboard + MVP mindmap use a blue
-> primary (`#0F7FFF`) and a green/amber/red semantic ramp. The brand book's
-> canonical action colour is **neon orange `#FF5C00`** and data colour is
-> **teal `#00D4AA`**. Treat this file as the source of truth and re-token the
-> UI during the polish phase (see `roadmap.md`). Keep functional status colours
-> (success/warning/error) but map brand accents to orange/teal.
+> ✅ **Re-tokened 2026-08-24.** `--accent` is **Data teal**, because that is
+> what the general-purpose accent is actually used for, and `--accent-action`
+> carries **Action orange** to the two uses §3 names: primary CTAs and staff
+> prompts. Functional status colours are kept, as this section asks.
+>
+> Two things the re-token learned, recorded here because they constrain future
+> work:
+>
+> 1. **A "selected" state is not a call to action.** Three controls used the
+>    primary button style to show they were switched on, and each became a
+>    permanent alert when primary turned orange. There is a `selected` Button
+>    variant now, in the calm accent.
+> 2. **Both accents fail on paper untreated** — teal 1.91:1 and orange 3.10:1
+>    against white. The print block carries darkened, hue-preserved variants
+>    (`#007e65` and `#c44700`) clearing 4.5:1. Anything adding a colour to the
+>    palette owes the same pair.
 
-### Suggested CSS custom properties (for when we re-token the UI)
+### The CSS custom properties, as shipped
+
+`app/globals.css` is the source of truth; `lib/brand.ts` mirrors the three
+values the runtime needs where a CSS variable cannot reach — SVG paint, a
+Three.js material, and zone seed data. Keep the two in step.
 
 ```css
 :root {

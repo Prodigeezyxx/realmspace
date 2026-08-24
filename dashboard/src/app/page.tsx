@@ -30,8 +30,8 @@ export default function LandingPage() {
               <div className="absolute inset-[3px] rounded-full bg-bg-base" />
               <div className="absolute inset-[5px] rounded-full bg-accent" />
             </div>
-            <span className="text-base font-semibold tracking-tight">
-              RealmSpace
+            <span className="font-head text-base font-semibold tracking-tight">
+              realmspace
             </span>
           </Link>
 
@@ -70,10 +70,10 @@ export default function LandingPage() {
             </Link>
             <Link
               href="/live"
-              className="inline-flex items-center gap-2 bg-accent text-text-inverse h-12 pl-5 pr-2.5 rounded-full font-semibold text-[13px] hover:bg-accent-bright transition-colors shadow-[var(--glow-green)]"
+              className="inline-flex items-center gap-2 bg-accent-action text-text-inverse h-12 pl-5 pr-2.5 rounded-full font-semibold text-[13px] hover:bg-accent-action-bright transition-colors shadow-[var(--glow-action)]"
             >
-              Try RealmSpace
-              <span className="w-9 h-9 rounded-full bg-text-inverse text-accent inline-flex items-center justify-center">
+              Try realmspace
+              <span className="w-9 h-9 rounded-full bg-text-inverse text-accent-action inline-flex items-center justify-center">
                 <ArrowUpRight size={16} />
               </span>
             </Link>
@@ -111,12 +111,12 @@ export default function LandingPage() {
                   variant="primary"
                   size="lg"
                   iconAfter={
-                    <span className="w-9 h-9 -mr-3 rounded-full bg-text-inverse text-accent inline-flex items-center justify-center">
+                    <span className="w-9 h-9 -mr-3 rounded-full bg-text-inverse text-accent-action inline-flex items-center justify-center">
                       <ArrowUpRight size={16} />
                     </span>
                   }
                 >
-                  Try RealmSpace
+                  Try realmspace
                 </Button>
               </Link>
               <Link href="/report">
@@ -365,7 +365,7 @@ export default function LandingPage() {
                 <div className="absolute inset-[3px] rounded-full bg-bg-base" />
                 <div className="absolute inset-[5px] rounded-full bg-accent" />
               </div>
-              <span className="text-sm font-semibold">RealmSpace</span>
+              <span className="font-head text-sm font-semibold">realmspace</span>
             </div>
             <div className="text-xs text-text-muted">
               by Floats XR

@@ -28,7 +28,7 @@ export const notifySkill: SkillModule<NotifyOutput> = {
   async run(_input: SkillRunInput, config) {
     const channel = (config.channel as string) ?? "in_app";
     const payload: NotifyPayload = (config.message as NotifyPayload) ?? {
-      title: String(_input.trigger.payload.title ?? "RealmSpace alert"),
+      title: String(_input.trigger.payload.title ?? "realmspace alert"),
       body: String(_input.trigger.payload.body ?? "Threshold crossed"),
       zoneId: _input.trigger.payload.zoneId as string | undefined,
       metric: _input.trigger.payload.metric as string | undefined,

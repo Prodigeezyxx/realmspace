@@ -8,7 +8,7 @@
  *   • Centroid tracker (`@/lib/tracker`) for persistent IDs
  *
  * Everything runs on-device. No frame ever leaves the browser. This is the
- * real, live proof of the RealmSpace pitch — you walk in front of your
+ * real, live proof of the realmspace pitch — you walk in front of your
  * laptop, you get tracked, you get an anonymous ID, you watch the room think.
  */
 
@@ -491,7 +491,7 @@ function StartOverlay({
       {canStart && (
         <button
           onClick={onStart}
-          className="mt-6 inline-flex items-center gap-2 bg-accent text-text-inverse h-11 px-5 rounded-full font-semibold text-sm hover:bg-accent-bright transition-colors shadow-[var(--glow-green)]"
+          className="mt-6 inline-flex items-center gap-2 bg-accent-action text-text-inverse h-11 px-5 rounded-full font-semibold text-sm hover:bg-accent-action-bright transition-colors shadow-[var(--glow-action)]"
         >
           <Camera size={16} />
           Start live session

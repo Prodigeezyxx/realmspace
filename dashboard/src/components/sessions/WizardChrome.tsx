@@ -29,7 +29,7 @@ export function WizardHeader({
             <div className="absolute inset-[3px] rounded-full bg-bg-base" />
             <div className="absolute inset-[5px] rounded-full bg-accent" />
           </div>
-          <span className="text-sm font-semibold tracking-tight">RealmSpace</span>
+          <span className="font-head text-sm font-semibold tracking-tight">realmspace</span>
         </Link>
 
         <div className="hidden md:flex items-center gap-2">

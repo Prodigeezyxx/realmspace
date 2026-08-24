@@ -206,7 +206,7 @@ function LoginFormInner() {
     <div className="panel-elevated p-8 md:p-10 w-full max-w-md">
       <Pill variant="success" className="mb-6">
         <Mail size={11} />
-        Sign in to RealmSpace
+        Sign in to realmspace
       </Pill>
 
       <h1 className="text-2xl font-semibold tracking-tight">

@@ -94,7 +94,7 @@ export function StatusBar() {
               <div className="absolute inset-[3px] rounded-full bg-bg-base" />
               <div className="absolute inset-[5px] rounded-full bg-accent" />
             </div>
-            <span className="text-sm font-semibold tracking-tight">RealmSpace</span>
+            <span className="font-head text-sm font-semibold tracking-tight">realmspace</span>
           </Link>
 
           {/* Session switcher — clickable pill that drops a list */}
@@ -275,7 +275,7 @@ export function StatusBar() {
           ) : active.isDemo ? (
             <Link
               href="/sessions/new"
-              className="inline-flex items-center gap-2 bg-accent text-text-inverse h-10 pl-4 pr-2.5 rounded-full font-semibold text-xs tracking-tight hover:bg-accent-bright transition-colors shadow-[var(--glow-green)]"
+              className="inline-flex items-center gap-2 bg-accent-action text-text-inverse h-10 pl-4 pr-2.5 rounded-full font-semibold text-xs tracking-tight hover:bg-accent-action-bright transition-colors shadow-[var(--glow-action)]"
             >
               <Sparkles size={12} />
               New session

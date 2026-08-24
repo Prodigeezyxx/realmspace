@@ -95,7 +95,7 @@ export default function SessionsPage() {
         </div>
         <Link
           href="/sessions/new"
-          className="inline-flex items-center gap-2 bg-accent text-text-inverse h-12 pl-5 pr-2.5 rounded-full font-semibold text-sm hover:bg-accent-bright transition-colors shadow-[var(--glow-green)]"
+          className="inline-flex items-center gap-2 bg-accent-action text-text-inverse h-12 pl-5 pr-2.5 rounded-full font-semibold text-sm hover:bg-accent-action-bright transition-colors shadow-[var(--glow-action)]"
         >
           <Plus size={16} />
           New session
@@ -125,8 +125,11 @@ export default function SessionsPage() {
               onClick={() => setFilter(f.id)}
               className={cn(
                 "h-10 px-4 rounded-full inline-flex items-center gap-2 border text-sm font-medium transition-colors",
+                // A filter chip showing which filter is on — the same
+                // "selected, not urgent" case as the twin's heatmap toggle, so
+                // the calm accent rather than the Action colour.
                 active
-                  ? "bg-accent text-text-inverse border-accent shadow-[var(--glow-green)]"
+                  ? "bg-accent/12 text-accent border-accent/40"
                   : "bg-bg-raised border-border-subtle text-text-secondary hover:border-border-strong hover:text-text-primary"
               )}
             >
@@ -292,6 +295,12 @@ function SessionCard({
       </dl>
 
       <div className="flex items-center gap-2 pt-1">
+        {/* The calm accent, not Action. This button appears once per session
+            card, so on a list it is the *most* repeated element on the page —
+            and brand.md §3's "do not overuse" is exactly about that: a colour
+            that means "attention" on every card means nothing on any of them.
+            Opening a session is navigation. The page's one real call to
+            action, "New session", keeps the loud colour. */}
         <button
           onClick={onOpen}
           className="flex-1 inline-flex items-center justify-center gap-2 bg-accent text-text-inverse h-11 px-5 rounded-full font-semibold text-sm hover:bg-accent-bright transition-colors shadow-[var(--glow-green)]"
@@ -382,7 +391,7 @@ function EmptyState() {
       </p>
       <Link
         href="/sessions/new"
-        className="mt-6 inline-flex items-center gap-2 bg-accent text-text-inverse h-11 pl-5 pr-2.5 rounded-full font-semibold text-sm hover:bg-accent-bright transition-colors shadow-[var(--glow-green)]"
+        className="mt-6 inline-flex items-center gap-2 bg-accent-action text-text-inverse h-11 pl-5 pr-2.5 rounded-full font-semibold text-sm hover:bg-accent-action-bright transition-colors shadow-[var(--glow-action)]"
       >
         <Plus size={15} />
         New session
@@ -437,7 +446,7 @@ function ConfirmDialog({
               "h-11 px-5 rounded-full text-sm font-semibold transition-colors",
               danger
                 ? "bg-accent-red text-white hover:bg-accent-red/90"
-                : "bg-accent text-text-inverse hover:bg-accent-bright shadow-[var(--glow-green)]"
+                : "bg-accent-action text-text-inverse hover:bg-accent-action-bright shadow-[var(--glow-action)]"
             )}
           >
             {confirmLabel}

@@ -15,6 +15,7 @@ import { useMemo } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { peopleTracks } from "@/lib/mock/people";
 import { useActiveSession } from "@/lib/session/store";
+import { BRAND_DATA } from "@/lib/brand";
 
 export function Heatmap({ height = 200 }: { height?: number }) {
   const active = useActiveSession();
@@ -83,8 +84,8 @@ export function Heatmap({ height = 200 }: { height?: number }) {
           <radialGradient id="heat">
             <stop offset="0%" stopColor="#ff4d4d" stopOpacity="0.9" />
             <stop offset="35%" stopColor="#ffc83d" stopOpacity="0.65" />
-            <stop offset="70%" stopColor="#42faa1" stopOpacity="0.35" />
-            <stop offset="100%" stopColor="#42faa1" stopOpacity="0" />
+            <stop offset="70%" stopColor={BRAND_DATA} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={BRAND_DATA} stopOpacity="0" />
           </radialGradient>
         </defs>
       </svg>

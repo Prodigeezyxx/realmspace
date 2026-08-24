@@ -41,10 +41,13 @@ const PRIORITY: Record<
   StaffPrompt["priority"],
   { label: string; dot: string; ring: string }
 > = {
+  // brand.md §3 names "staff prompts" in the Action colour's list of uses, and
+  // this is the one that means *go and do something now*. Red would read as a
+  // fault in the system rather than an instruction to the floor.
   high: {
     label: "High",
-    dot: "bg-accent-red",
-    ring: "border-accent-red/40 bg-accent-red/5",
+    dot: "bg-accent-action",
+    ring: "border-accent-action/40 bg-accent-action/5",
   },
   normal: { label: "Normal", dot: "bg-accent-blue", ring: "border-border-subtle" },
   low: { label: "Low", dot: "bg-text-muted", ring: "border-border-subtle" },

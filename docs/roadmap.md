@@ -854,8 +854,48 @@ this codebase deletes from reports.
       type.
 - 🔲 **`homography` and `reader_map` calibration** — refused, not missing. Each
       lands when the thing that would read it does.
-- 🔲 **Brand re-token** UI to the brand book (Sora/Inter/IBM Plex Mono, orange
-      `#FF5C00` / teal `#00D4AA` / base `#0A0B10`) — `brand.md`
+- ✅ **Brand re-token** *(2026-08-24)* — `brand.md`'s two migration warnings,
+      which had been in that file since it was written, are closed. Fonts are
+      Sora / Inter / IBM Plex Mono; the base is `#0A0B10`; the accents are the
+      book's own.
+
+      **The mapping is not the obvious one, and the book says why.** Action
+      `#FF5C00` is defined as *"only for things that demand immediate attention
+      … do not overuse"*, while `--accent` is what almost every surface in the
+      product wears. Pointing it at orange would have made an alarm of the whole
+      UI. So `--accent` is **Data `#00D4AA`** — the book's own role for it is
+      "spatial data viz, flow/movement, secondary UI" — and a new
+      `--accent-action` carries the orange to the two things §3 actually names:
+      **primary CTAs and staff prompts.**
+
+      Looking at it moved that line twice. Three things were using the primary
+      style for something that is not a call to action — the twin's heatmap
+      toggle, the sessions filter chips, and the per-card "Open live" button —
+      and each turned into a permanent alert the moment primary went orange. The
+      first two now use a new `selected` Button variant; the third went back to
+      the calm accent, because it appears once per card and a colour meaning
+      "attention" on every row of a list means nothing on any of them.
+
+      **The print palette is where this had to be measured rather than
+      reasoned about**, since it caught the repo out before at 1.36:1. Both
+      brand accents fail on paper untreated — teal is **1.91:1** and orange
+      **3.10:1** — so each is walked down in lightness with hue held to the
+      first value clearing 4.5:1: **teal → `#007e65` (5.03:1)** and **orange →
+      `#c44700` (4.94:1)**. A script asserts every accent in both blocks, and
+      the report was read in a forced print view rather than taken on trust.
+
+      **Nineteen `#42faa1` literals** in SVG stops, a Three.js material and zone
+      seed data — places no CSS variable reaches — became one exported palette
+      in `lib/brand.ts`. Zone-type colours stay wider than the brand set on
+      purpose: eleven types have to be told apart on a heatmap and the book
+      gives three colours. The one constraint added is that none of them may sit
+      near the Action orange, which retired `#ff8a4d` for sponsor zones — it had
+      started reading as a permanent alert on the floor plan.
+
+      **`realmspace` is lowercase everywhere**, per the first hard rule in
+      `brand.md`: the header wordmark, the login form, the wizard, the document
+      title. The wordmark is set in Sora, which the book says "matches the
+      wordmark for a cohesive brand presence".
 - ✅ **Self-serve signup, real exports, and CI** *(2026-08-21)* — the "exports"
       and "onboarding" halves of this bullet. Deploy is split out below.
 

@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { useIsHydrated } from "@/lib/hooks/useIsHydrated";
 import { peopleSeries } from "@/lib/mock/session";
 import { useActiveSession } from "@/lib/session/store";
+import { BRAND_DATA } from "@/lib/brand";
 
 export function TrafficChart() {
   const active = useActiveSession();
@@ -48,8 +49,8 @@ export function TrafficChart() {
         <AreaChart data={data} margin={{ top: 6, right: 10, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="trafficFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#42faa1" stopOpacity={0.28} />
-              <stop offset="100%" stopColor="#42faa1" stopOpacity={0} />
+              <stop offset="0%" stopColor={BRAND_DATA} stopOpacity={0.28} />
+              <stop offset="100%" stopColor={BRAND_DATA} stopOpacity={0} />
             </linearGradient>
           </defs>
           <CartesianGrid stroke="#1c1c1c" vertical={false} />
@@ -71,7 +72,7 @@ export function TrafficChart() {
           />
           <Tooltip
             cursor={{
-              stroke: "#42faa1",
+              stroke: BRAND_DATA,
               strokeWidth: 1,
               strokeDasharray: "2 2",
             }}
@@ -91,7 +92,7 @@ export function TrafficChart() {
           <Area
             type="monotone"
             dataKey="people"
-            stroke="#42faa1"
+            stroke={BRAND_DATA}
             strokeWidth={1.75}
             fill="url(#trafficFill)"
           />
