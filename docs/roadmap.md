@@ -1130,15 +1130,127 @@ this codebase deletes from reports.
       is what §3 already means by Viewer. A link is a new *unauthenticated* read
       path into tenant data and wants its own security design.
 
-**Acceptance:** a third-party operator self-serves signup → activation → report,
-fully isolated, billed, on-brand.
+**Acceptance:** 🟡 **walked end to end 2026-08-25**, in a browser against a live
+stack. Three of the four clauses hold; "billed" cannot until a payment provider
+exists, and is recorded below as what it actually is.
 
-**Not verified end to end, and one clause cannot be yet.** Signup, isolation,
-the report and the brand are all built; "billed" is not, and will not be until a
-payment provider exists. What the plan limits above give is the enforcement a
-bill would be enforcing — a tenant on a tier, refused what the tier does not
-include — with no money moving. Worth stating rather than letting the ✅s above
-imply the phase is closed.
+The run found **seven defects**, five of them in the path a first customer
+walks. That is the point of doing it: every ✅ above is a bullet's own claim
+about its own work, and nothing had ever walked the join between them.
+
+- **Self-serve signup → activation → report.** ✅ A new organisation created
+  through the login form's own screen, an activation configured through the
+  five-step wizard, a scripted floor of nine visitors seeded over `POST
+  /v1/events`, and `/report` rendered from it. Every figure traces: 9 unique and
+  9 entry crossings; 3 pass-bys; **peak 2** in a zone; **44.4%** engaged (four
+  visitors past the 60s threshold the operator set); **58s** average dwell and
+  **1,208** dwell-weighted attention, both `1208 / 21` over the seeded dwells;
+  **$4,500** per engaged visit and **$18,000** per qualified lead against the
+  operator's `$18,000` cost; funnel 9 → 8 → 4. Surface interactions render `0*`
+  and the ROI ratio is blank with its reason, as they should — nothing emits
+  `surface.interaction` and no influenced revenue was supplied. The page says
+  *"computed from 71 events in this session's log"*, and there were 71.
+- **Fully isolated.** ✅ A second organisation, signed up the same way, asked for
+  the first's activation four ways and got nothing rather than an error:
+  `GET /v1/sessions/{id}` **404**, `GET /events` **[]**, `…/graph` **0 people**,
+  `GET /v1/ledger/{id}` **empty**, `GET /v1/sessions` **[]**. The Postgres half
+  is RLS; the graph half is application-enforced, and both held. In the browser
+  the second organisation's console showed only the code-seeded demo — after the
+  fix below.
+- **Billed.** 🟡 **Metered and limited, not billed**, and the distinction is the
+  honest one. `GET /v1/plan` showed the new organisation on **Booth** with its
+  ceilings; a second camera was refused **402** — *"the Booth plan allows 1
+  camera per activation; this would make 2. The Pavilion plan allows 4."* — and
+  the refused save left the cost, the threshold, the zones and the touchpoints
+  untouched. `python -m app.plans set … pavilion` lifted it and the same request
+  returned 200. No money moved and nothing invoiced: Stripe is still 🔲.
+- **On-brand.** ✅ Read off the rendered page rather than judged: `--accent`
+  `#00d4aa`, `--accent-action` `#ff5c00`, canvas `#0a0b10`, all three faces
+  doing their jobs (Sora on the display heading, Inter for reading, IBM Plex
+  Mono on telemetry), the wordmark and the document title lowercase. Forcing the
+  print block flips the page to white on black with the walked-down accents —
+  teal `#007e65`, orange `#c44700` — which a **committed test** now asserts
+  rather than a claim in this file.
+
+**What this run does not cover**, stated rather than left to be assumed: the
+Firebase round trip to Google (no project is wired to this checkout, so the
+signup was the local email path the backend keeps for exactly that case); a
+*filmed* activation, since the floor was scripted and P1's acceptance already
+proved camera → event → graph with a measured latency; and a real payment.
+
+**The seven defects, and what happened to each.** Five were fixed because they
+stopped a clause being true; two are recorded.
+
+1. **A self-served signup was unreachable.** With no Firebase project the login
+   screen rendered one sentence telling the reader to configure Firebase — so
+   `POST /v1/auth/signup` existed and nothing in the product could call it, in
+   the only mode this repo can run. The backend deliberately keeps an
+   email-only path for this case (`local` issues and warns, every other
+   environment answers 503); the browser was the half that disagreed. **Fixed:**
+   a local-development panel that creates an organisation, deliberately not
+   dressed up as a login because nothing here verifies a password.
+2. **A signed-up operator was silently returned to the demo tenant.** The token
+   lived in a module variable and every caller but the login form asked for
+   `NEXT_PUBLIC_BUS_EMAIL`, so the first page reload re-exchanged a new customer
+   into `t_floats`. Inert wherever Firebase is configured, since the backend
+   derives the address from the verified token. **Fixed:** the signed-in
+   identity is remembered beside the tenant, `busEmail()` is the default it was
+   always described as, and sign-out forgets it.
+3. **Every organisation on a machine shared one list of activations.** The
+   browser's session store used a single storage key, so a brand-new tenant's
+   first screen showed another client's activations — names, venues, zone and
+   camera counts, footfall targets. No server data crossed. **Fixed:**
+   partitioned per tenant and re-read when the verified tenant lands.
+4. **A partial save wiped the numbers the report divides by.** `POST
+   /v1/sessions` set all eighteen session properties on every call, and two real
+   callers post partial saves — `useCalibration` sends `{sessionId, cameras}` to
+   declare a camera and `{sessionId, zones}` to assign one. So **declaring a
+   second camera mid-activation erased the activation cost, the engagement
+   threshold, the attribution model, the client and the dates**, with the report
+   still rendering, quietly, without them. **Fixed:** the handler sends only the
+   fields a request actually set and the write is `SET s += $props`, so an
+   omitted field is left alone and an explicit null still clears it. Three tests.
+5. **The client's name never reached the backend.** The wizard's first screen
+   labels a field *Brand / Client* and stored it as `brand`; only the separate
+   *End client (optional)* was published. An operator who filled in the field
+   marked Client got a client report with no client on it. **Fixed** in the
+   order the wizard's own review step already used.
+6. **`NaN` on a client's report.** One earlier activation whose dwell payloads
+   the scorecard could not read averages to `NaN`, and a single such value
+   poisoned the whole benchmark row — *"Average dwell 58s · NaNs · NaN%"* beside
+   two real activations, in a card whose own design says absences are stated
+   rather than rendered. **Fixed:** non-finite values are dropped exactly as
+   nulls are, and `n` counts what actually contributed.
+7. **Peak zone occupancy was counted in log order, not event time.** A running
+   ±1 over the log answers "how many were in a zone at once" only if the log
+   happens to be sorted by when things happened, which a producer appending one
+   visitor's whole journey at a time — or a batch replayed after an outage —
+   breaks. Three people who overlapped read as **1**. **Fixed:** that one pass
+   walks `occurredAt`; everything else in the scorecard is a set or a sum and is
+   order-independent.
+
+**Two more, recorded rather than fixed**, because neither stops a clause:
+
+- 🔲 **The wizard's Continue button disables itself with no reason given.** Step
+  3 requires a space template, the page has already seeded zones so it looks
+  complete, and the only signal is a greyed-out button. A wizard that refuses to
+  advance should say what is missing.
+- 🔲 **A brand-new organisation sees the seeded demo activation.** It is
+  labelled DEMO, lives in code and is the laptop demo's whole point — but a
+  paying customer's first screen showing a fictional activation is a product
+  decision somebody should make deliberately rather than inherit.
+
+**One thing the run got right by accident, and it is worth keeping.** The first
+seeding script wrote camelCase payloads, which is the browser's dialect and not
+the one `event-bus-spec.md` §3 pins for producers. The backend **refused every
+one of them**: `graph_writer` reads `payload["anon_id"]` and a missing key
+raises, so they retried and landed in the dead-letter queue — 319 rows on that
+tenant by the end, which is the queue doing exactly its job. The browser, handed
+the same events, rendered `NaN`. That asymmetry is the sharper version of
+defect 6 above: the two halves of this system disagree about what a malformed
+payload is, and only one of them fails loudly. (The rows were deleted with the
+rest of the run's data before being read; the cause is read off
+`consumers/graph_writer.py`, not off the queue.)
 
 ---
 

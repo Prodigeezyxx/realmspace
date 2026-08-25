@@ -128,15 +128,33 @@ function LoginFormInner() {
     }
   }
 
+  /**
+   * No Firebase, but a backend: the local development path.
+   *
+   * This branch used to be one sentence telling the reader to go and configure
+   * Firebase, which made `multi-tenant.md` §4 step 1 unreachable in the only
+   * mode this repo can actually run — `POST /v1/auth/signup` existed and
+   * nothing in the product could call it. The backend deliberately keeps an
+   * email-only path *for exactly this case* (`app/routers/auth.py`: `local`
+   * issues on an address and warns loudly, every other environment answers
+   * 503), so the browser refusing to offer one was the half that disagreed.
+   *
+   * With no backend either, the original message is still right: there is
+   * nothing here to have an account *on*, and the laptop demo walks straight
+   * past this screen anyway (`AuthGate`).
+   */
   if (!isFirebaseConfigured()) {
-    return (
-      <div className="panel-elevated p-8 text-center">
-        <p className="text-sm text-text-secondary">
-          Add Firebase env vars to <code>.env.local</code> (see{" "}
-          <code>firebase.env.example</code>).
-        </p>
-      </div>
-    );
+    if (!isRemoteBusEnabled()) {
+      return (
+        <div className="panel-elevated p-8 text-center">
+          <p className="text-sm text-text-secondary">
+            Add Firebase env vars to <code>.env.local</code> (see{" "}
+            <code>firebase.env.example</code>).
+          </p>
+        </div>
+      );
+    }
+    return <LocalOrgForm next={next} />;
   }
 
   if (needsOrg) {
@@ -296,7 +314,13 @@ function LoginFormInner() {
           </p>
         )}
 
-        <Button type="submit" fullWidth disabled={busy}>
+        {/* `Button` defaults to `secondary`, so omitting the variant left the
+            one call to action on the sign-in screen wearing the calm colour —
+            while the organisation panel three hundred lines up, added at the
+            same time, has always been `primary`. brand.md §3 puts "primary
+            CTAs" first on Action orange's short list. Found by the Phase 6
+            acceptance's on-brand pass. */}
+        <Button type="submit" variant="primary" fullWidth disabled={busy}>
           {busy ? <Loader2 className="animate-spin" size={16} /> : null}
           {mode === "signin" ? "Sign in" : "Create account"}
         </Button>
@@ -318,6 +342,132 @@ function LoginFormInner() {
           ← Back to home
         </Link>
       </p>
+    </div>
+  );
+}
+
+/**
+ * Sign up, or continue, on a stack with no Firebase project.
+ *
+ * Deliberately not dressed up as a login. There is no password because nothing
+ * here verifies one: the backend accepts a bare address only in its `local`
+ * environment, says so in its own logs, and refuses it everywhere else. Making
+ * this look like the real sign-in screen would be the more dangerous kindness —
+ * somebody would eventually believe it.
+ *
+ * Two ways through, and they are different acts. **Create an organisation** is
+ * `multi-tenant.md` §4 step 1, the thing this branch existed to make
+ * unreachable. **Continue as the configured identity** is the seeded
+ * `NEXT_PUBLIC_BUS_EMAIL` account the demo has always used, named on the button
+ * rather than assumed, because "which organisation am I in" is the question
+ * every empty screen in this product turns out to be.
+ */
+function LocalOrgForm({ next }: { next: string }) {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [orgName, setOrgName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function createOrg(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const result = await signUpOrganisation(email.trim(), orgName.trim());
+    setBusy(false);
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
+    router.replace(next);
+  }
+
+  async function continueAs(address: string) {
+    setBusy(true);
+    setError(null);
+    const token = await ensureToken(address);
+    setBusy(false);
+    if (!token) {
+      setError(
+        `The backend does not know ${address}. Create an organisation for it above.`
+      );
+      return;
+    }
+    router.replace(next);
+  }
+
+  return (
+    <div className="panel-elevated p-8 md:p-10 w-full max-w-md">
+      <Pill variant="info" className="mb-6">
+        <Building2 size={11} />
+        Local development
+      </Pill>
+
+      <h1 className="text-2xl font-semibold tracking-tight">
+        Create your organisation
+      </h1>
+      <p className="text-sm text-text-secondary mt-2 leading-relaxed">
+        No Firebase project is configured, so there is nobody to verify. This
+        backend accepts a plain address in its <code>local</code> environment
+        only, and answers <code>503</code> anywhere else.
+      </p>
+
+      <form onSubmit={createOrg} className="space-y-4 mt-6">
+        <label className="block text-sm">
+          <span className="text-text-muted text-[11px] uppercase tracking-wider">
+            Email
+          </span>
+          <input
+            type="email"
+            required
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="mt-1.5 w-full h-11 px-4 rounded-lg bg-bg-elevated border border-border-subtle focus:border-accent/50 outline-none"
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="text-text-muted text-[11px] uppercase tracking-wider">
+            Organisation
+          </span>
+          <input
+            type="text"
+            required
+            value={orgName}
+            onChange={(e) => setOrgName(e.target.value)}
+            className="mt-1.5 w-full h-11 px-4 rounded-lg bg-bg-elevated border border-border-subtle focus:border-accent/50 outline-none"
+          />
+        </label>
+
+        {error && (
+          <p className="text-sm text-accent-red leading-relaxed" role="alert">
+            {error}
+          </p>
+        )}
+
+        <Button type="submit" variant="primary" fullWidth disabled={busy}>
+          {busy ? <Loader2 className="animate-spin" size={16} /> : null}
+          Create organisation
+        </Button>
+      </form>
+
+      <div className="flex items-center gap-3 my-6">
+        <span className="flex-1 h-px bg-border-subtle" />
+        <span className="text-[11px] uppercase tracking-wider text-text-muted">
+          or
+        </span>
+        <span className="flex-1 h-px bg-border-subtle" />
+      </div>
+
+      <Button
+        type="button"
+        variant="secondary"
+        fullWidth
+        disabled={busy}
+        onClick={() => void continueAs(busEmail())}
+      >
+        Continue as {busEmail()}
+      </Button>
     </div>
   );
 }

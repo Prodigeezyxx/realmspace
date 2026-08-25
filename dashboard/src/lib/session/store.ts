@@ -8,15 +8,47 @@
  *
  * The demo session (Lagos Showroom) is always present and is the default
  * active session on first load.
+ *
+ * ## Partitioned by tenant
+ *
+ * The storage key carries the tenant, and it has to. This was a single global
+ * key, so every organisation signing in on the same machine shared one list of
+ * activations: a newly signed-up operator's very first screen showed another
+ * client's sessions — names, venues, zone and camera counts, footfall targets.
+ * Found by the Phase 6 acceptance's isolation pass, on a browser that had
+ * previously been the demo tenant.
+ *
+ * No server data ever crossed: events, the graph and every figure on a report
+ * come from the backend, where the tenant is derived from a verified credential
+ * and Postgres RLS fails closed. What leaked was this browser's own list, which
+ * is exactly the class of thing `bus/log.ts` already partitions per
+ * `(tenant, session)`.
+ *
+ * The verified tenant arrives *after* first render (`tenant/context.ts` says so
+ * in as many words, which is why it is subscribable), so the store re-reads
+ * when it lands rather than hydrating once and keeping whatever it guessed.
  */
 
 import { useCallback, useSyncExternalStore } from "react";
 
 import { DEMO_SESSION } from "@/lib/mock/session";
+import { getTenantId, subscribeTenantId } from "@/lib/tenant/context";
 
 import type { Session, SessionDraft, SessionStatus } from "./types";
 
-const LS_KEY = "realmspace.store.v1";
+const LS_PREFIX = "realmspace.store.v1";
+
+/**
+ * Where this tenant's sessions live.
+ *
+ * The unsuffixed key is deliberately not reused for the default tenant. It
+ * holds whatever the shared store accumulated before this partitioning existed
+ * — sessions belonging to whoever used the browser — and adopting it for one
+ * organisation would hand that pile to them.
+ */
+function storageKey(): string {
+  return `${LS_PREFIX}:${getTenantId()}`;
+}
 
 interface PersistShape {
   sessions: Session[];
@@ -75,18 +107,26 @@ function persist() {
     activeId: state.activeId,
   };
   try {
-    window.localStorage.setItem(LS_KEY, JSON.stringify(payload));
+    window.localStorage.setItem(storageKey(), JSON.stringify(payload));
   } catch {
     /* quota / private mode — ignore */
   }
 }
 
-let hasHydrated = false;
+let hydratedFor: string | null = null;
 function hydrate() {
-  if (hasHydrated || typeof window === "undefined") return;
-  hasHydrated = true;
+  if (typeof window === "undefined") return;
+  // Keyed on the tenant rather than a boolean: the first call runs against the
+  // guessed tenant, and the verified one arriving later has to re-read.
+  if (hydratedFor === getTenantId()) return;
+  hydratedFor = getTenantId();
+  state = {
+    sessions: [DEMO_SESSION],
+    activeId: DEMO_SESSION.id,
+    hydrated: false,
+  };
   try {
-    const raw = window.localStorage.getItem(LS_KEY);
+    const raw = window.localStorage.getItem(storageKey());
     if (raw) {
       const parsed = JSON.parse(raw) as PersistShape;
       const userSessions = (parsed.sessions ?? []).filter(Boolean);
@@ -105,9 +145,12 @@ function hydrate() {
   emit();
 }
 
-// Hydrate as soon as this module is imported on the client.
+// Hydrate as soon as this module is imported on the client, and again when the
+// backend says which organisation this actually is. Without the second the
+// first load of any tenant but the stored one reads somebody else's list.
 if (typeof window !== "undefined") {
   hydrate();
+  subscribeTenantId(hydrate);
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────

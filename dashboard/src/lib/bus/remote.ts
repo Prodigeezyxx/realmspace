@@ -94,16 +94,6 @@ export function isRemoteBusEnabled(): boolean {
 }
 
 /**
- * The identity to present to the bus when Firebase has not signed anyone in.
- *
- * Local development runs without Firebase configured, and `python -m
- * app.auth.seed` creates `admin@floats.demo` by default — so this makes the two
- * halves line up out of the box. It is not a security boundary and is not
- * pretending to be one: the backend's token endpoint currently trusts whatever
- * email it is handed, which its own README flags as still open. Once a signed-in
- * user exists, their email is used instead.
- */
-/**
  * The signed-in user's Firebase ID token, or null if nobody is signed in.
  *
  * `getIdToken()` returns a cached token and refreshes it only when it is close
@@ -122,8 +112,86 @@ async function currentIdToken(): Promise<string | null> {
   }
 }
 
+/**
+ * The identity to present to the bus when nobody has signed in on this browser.
+ *
+ * A **default**, not an override — which is the distinction the comment that
+ * used to sit here got wrong, having claimed that "once a signed-in user exists,
+ * their email is used instead" when nothing carried one. `resolveEmail` below is
+ * what makes that sentence true.
+ *
+ * Local development runs without Firebase configured and `python -m
+ * app.auth.seed` creates `admin@floats.demo`, so the two halves line up out of
+ * the box. It is not a security boundary: with Firebase configured the backend
+ * verifies an ID token and derives the address from it, ignoring this entirely.
+ */
 export function busEmail(): string {
   return process.env.NEXT_PUBLIC_BUS_EMAIL || "admin@floats.demo";
+}
+
+/* ── who this browser last signed in as ──────────────────────────────────── */
+
+const IDENTITY_KEY = "rs:busIdentity";
+
+/**
+ * The address this browser actually signed in or signed up with.
+ *
+ * `busEmail()` is an *environment default* — the seeded `admin@floats.demo` on
+ * `t_floats` — and every caller in the app but the login form passes it, because
+ * they have no opinion about who is using the browser. The token that signup
+ * adopts lives in a module variable, so before this existed a self-served
+ * operator was silently re-exchanged into the demo organisation on the first
+ * page reload, or an hour later when the token lapsed. Their own activation
+ * would render as somebody else's empty one.
+ *
+ * With Firebase configured none of this bites: `currentIdToken()` carries the
+ * real identity and `POST /v1/auth/token` derives the address from the verified
+ * token, ignoring whatever is in the body. It is the local path — the only one
+ * this repo can run, since no Firebase project is wired to it — where the
+ * environment default was overriding a real person.
+ *
+ * Stored beside the tenant (`tenant/context.ts`) and for the same reason: the
+ * verified answer has to outlive the page that received it.
+ */
+function rememberIdentity(email: string) {
+  if (!hasWindow() || !email) return;
+  try {
+    window.localStorage.setItem(IDENTITY_KEY, email);
+  } catch {
+    /* a browser refusing storage still works, it just forgets on reload */
+  }
+}
+
+function rememberedIdentity(): string | null {
+  if (!hasWindow()) return null;
+  try {
+    return window.localStorage.getItem(IDENTITY_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function forgetIdentity() {
+  if (!hasWindow()) return;
+  try {
+    window.localStorage.removeItem(IDENTITY_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Which address to actually authenticate as.
+ *
+ * A caller naming something other than the environment default is stating an
+ * identity — that is the login form, and it wins, including when somebody signs
+ * in as a *different* person on the same browser. Everyone else is passing
+ * `busEmail()` because they have nothing to say about it, and for them a
+ * remembered sign-in beats the default.
+ */
+function resolveEmail(requested: string): string {
+  if (requested && requested !== busEmail()) return requested;
+  return rememberedIdentity() || requested || busEmail();
 }
 
 /* ── credentials ─────────────────────────────────────────────────────────── */
@@ -145,7 +213,8 @@ let inFlightToken: Promise<string | null> | null = null;
  * refuses it in every other environment (`app/routers/auth.py`). A dev stack
  * with no Firebase project configured would otherwise be unrunnable.
  */
-async function fetchToken(email: string): Promise<string | null> {
+async function fetchToken(requested: string): Promise<string | null> {
+  const email = resolveEmail(requested);
   const idToken = await currentIdToken();
   const res = await fetch(`${busUrl()}/v1/auth/token`, {
     method: "POST",
@@ -184,6 +253,10 @@ async function fetchToken(email: string): Promise<string | null> {
 
   // The verified tenant wins over whatever this browser had stored.
   setTenantId(body.tenantId);
+  // And the address that got us here, so the next exchange — after a reload, or
+  // an hour from now — asks for the same person rather than the environment's
+  // default. See `rememberIdentity`.
+  rememberIdentity(email);
   return token;
 }
 
@@ -239,6 +312,29 @@ export async function ensureToken(email: string): Promise<string | null> {
  * watch is not there. Naming the organisation is the confirmation that this is
  * a new company and not a missing invitation.
  */
+/**
+ * The reason, out of whatever shape FastAPI used to say it.
+ *
+ * A refusal this endpoint makes is nearly always something the person typing
+ * can fix — an address that is already registered, a name that is only
+ * whitespace, a domain the validator will not take. Pydantic reports those as
+ * an *array* of field errors rather than a string, so a check for a string
+ * detail fell through to "Could not create the organisation (422)": a code,
+ * for a mistake with an obvious correction, on the first screen a new customer
+ * ever sees.
+ */
+function detailOf(body: unknown, fallback: string): string {
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => (item as { msg?: unknown })?.msg)
+      .filter((msg): msg is string => typeof msg === "string");
+    if (messages.length) return messages.join("; ");
+  }
+  return fallback;
+}
+
 export async function signUpOrganisation(
   email: string,
   orgName: string
@@ -257,12 +353,7 @@ export async function signUpOrganisation(
 
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    return {
-      error:
-        typeof body?.detail === "string"
-          ? body.detail
-          : `Could not create the organisation (${res.status}).`,
-    };
+    return { error: detailOf(body, `Could not create the organisation (${res.status}).`) };
   }
 
   // Adopt it exactly as `fetchToken` does — signup returns a token so this is
@@ -271,6 +362,10 @@ export async function signUpOrganisation(
   token = body.accessToken;
   tokenExpiresAt = Date.now() + (body.expiresIn - 60) * 1000;
   setTenantId(body.tenantId);
+  // The whole point of signing up is that this browser is now somebody. Without
+  // this the new organisation lasts exactly as long as the module variable
+  // above, and the first reload hands them the demo tenant.
+  rememberIdentity(email);
   publish({ status: "live", detail: null });
 
   return { tenantId: body.tenantId };
@@ -280,6 +375,10 @@ export async function signUpOrganisation(
 export function clearToken() {
   token = null;
   tokenExpiresAt = 0;
+  // Forget who this was, or the next person to use the browser signs in as the
+  // last one — the same shape of bug as the in-flight promise below, one layer
+  // up: state that outlives the session it belonged to.
+  forgetIdentity();
   // The in-flight exchange too. Left behind, the very next `ensureToken` is
   // handed the promise this call was meant to discard — so a sign-out that
   // raced a token refresh would hand the new identity the old one's token.

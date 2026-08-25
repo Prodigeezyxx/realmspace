@@ -154,28 +154,28 @@ async def put_session_config(
             noun_singular="camera per activation",
         )
 
+    # **Only the properties this request actually set.**
+    #
+    # The handler used to hand over all eighteen on every call, so a partial
+    # save nulled everything it did not mention — and two real callers post
+    # partial saves. `useCalibration.declare()` sends `{sessionId, cameras}` to
+    # add a camera and `assignZone()` sends `{sessionId, zones}`, so declaring a
+    # second camera mid-activation erased the activation cost the ROI ratio
+    # divides by, the engagement threshold, the attribution model, the client
+    # and the dates — with the report still rendering, quietly, without them.
+    #
+    # `model_fields_set` is what keeps "omitted" and "explicitly null"
+    # different: the first leaves the stored value alone, the second clears it,
+    # which is how an operator removes a cost they typed by mistake.
+    props = {
+        field: getattr(config, field)
+        for field in config.model_fields_set & set(graph_repo.SESSION_DEFAULTS)
+    }
     props = await graph_repo.upsert_session(
         graph,
         tenant_id=principal.tenant_id,
         session_id=config.session_id,
-        client=config.client,
-        campaign=config.campaign,
-        venue=config.venue,
-        city=config.city,
-        started_at=config.started_at,
-        ends_at=config.ends_at,
-        booth_width_m=config.booth_width_m,
-        booth_depth_m=config.booth_depth_m,
-        camera_count=config.camera_count,
-        engaged_threshold_seconds=config.engaged_threshold_seconds,
-        activation_cost=config.activation_cost,
-        currency=config.currency,
-        attribution_model=config.attribution_model,
-        attribution_window_days=config.attribution_window_days,
-        revenue_influenced=config.revenue_influenced,
-        qualified_leads=config.qualified_leads,
-        anonymous_handoffs=config.anonymous_handoffs,
-        insight_interval_minutes=config.insight_interval_minutes,
+        props=props,
     )
 
     if config.zones is not None:

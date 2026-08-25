@@ -74,6 +74,53 @@ describe("Reach — footfall", () => {
   });
 });
 
+describe("Reach — peak zone occupancy", () => {
+  /**
+   * A running +1/−1 over the log answers "how many were in a zone at once" only
+   * if the log is in the order things happened. A producer that appends one
+   * visitor's whole journey before starting the next — or a batch replayed
+   * after an outage — breaks that, and the report tells a client one person was
+   * in the room when three were. Found by the Phase 6 acceptance run.
+   */
+  function at(type: RealmEventType, payload: Record<string, unknown>, iso: string) {
+    seq++;
+    return {
+      seq,
+      eventId: `e-${seq}`,
+      tenantId: "t_test",
+      sessionId: "s_1",
+      type,
+      payload: payload as never,
+      occurredAt: Date.parse(iso),
+      recordedAt: 0,
+    } as RealmEvent;
+  }
+
+  it("counts overlap by when it happened, not by where it landed in the log", () => {
+    // Two visitors, appended one complete journey at a time. In log order the
+    // counter never exceeds 1; in event time they are in the room together.
+    const events = [
+      at("spatial.zone_enter", { anonId: "P1", zoneId: "z_mirror" }, "2026-08-03T10:00:00Z"),
+      at("spatial.zone_exit", { anonId: "P1", zoneId: "z_mirror" }, "2026-08-03T10:05:00Z"),
+      at("spatial.zone_enter", { anonId: "P2", zoneId: "z_mirror" }, "2026-08-03T10:02:00Z"),
+      at("spatial.zone_exit", { anonId: "P2", zoneId: "z_mirror" }, "2026-08-03T10:03:00Z"),
+    ];
+
+    expect(computeScorecard(events, { zones: ZONES }).reach.peakZoneConcurrency).toBe(2);
+  });
+
+  it("does not count two visits that never overlapped", () => {
+    const events = [
+      at("spatial.zone_enter", { anonId: "P1", zoneId: "z_mirror" }, "2026-08-03T10:00:00Z"),
+      at("spatial.zone_exit", { anonId: "P1", zoneId: "z_mirror" }, "2026-08-03T10:01:00Z"),
+      at("spatial.zone_enter", { anonId: "P2", zoneId: "z_mirror" }, "2026-08-03T10:02:00Z"),
+      at("spatial.zone_exit", { anonId: "P2", zoneId: "z_mirror" }, "2026-08-03T10:03:00Z"),
+    ];
+
+    expect(computeScorecard(events, { zones: ZONES }).reach.peakZoneConcurrency).toBe(1);
+  });
+});
+
 describe("Engagement", () => {
   it("weights dwell by the zone's configured weight", () => {
     const events = [

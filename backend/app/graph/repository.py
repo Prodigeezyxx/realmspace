@@ -251,29 +251,38 @@ async def link_interacted_with(
     )
 
 
+#: Every scalar property a Session node carries, with the value a *new* session
+#: gets when the caller says nothing. A create fills these in; an update leaves
+#: out whatever the caller did not mention. See `upsert_session`.
+SESSION_DEFAULTS: dict[str, Any] = {
+    "client": None,
+    "campaign": None,
+    "venue": None,
+    "city": None,
+    "started_at": None,
+    "ends_at": None,
+    "booth_width_m": None,
+    "booth_depth_m": None,
+    "camera_count": None,
+    "engaged_threshold_seconds": 60.0,
+    "activation_cost": None,
+    "currency": "USD",
+    "attribution_model": "influenced",
+    "attribution_window_days": 90,
+    "revenue_influenced": None,
+    "qualified_leads": None,
+    "anonymous_handoffs": False,
+    "insight_interval_minutes": 10,
+}
+
+
 async def upsert_session(
     session: AsyncSession,
     *,
     tenant_id: str,
     session_id: str,
-    client: str | None = None,
-    campaign: str | None = None,
-    venue: str | None = None,
-    city: str | None = None,
-    started_at: str | None = None,
-    ends_at: str | None = None,
-    booth_width_m: float | None = None,
-    booth_depth_m: float | None = None,
-    camera_count: int | None = None,
-    engaged_threshold_seconds: float = 60.0,
-    activation_cost: float | None = None,
-    currency: str = "USD",
-    attribution_model: str = "influenced",
-    attribution_window_days: int = 90,
-    revenue_influenced: float | None = None,
-    qualified_leads: int | None = None,
-    anonymous_handoffs: bool = False,
-    insight_interval_minutes: int = 10,
+    props: dict[str, Any] | None = None,
+    **fields: Any,
 ) -> dict[str, Any]:
     """Create or update a Session node (data-model.md → `(:Session {...})`).
 
@@ -301,50 +310,52 @@ async def upsert_session(
 
     They must never be presented as measured. Anything rendering them says where
     they came from.
+
+    ## `props` carries only what the caller actually set
+
+    This used to take one keyword per property and `SET` all eighteen on every
+    call, so a partial update **nulled everything it did not mention**. That is
+    not a hypothetical: `dashboard/src/lib/ops/useCalibration.ts` posts
+    `{sessionId, cameras}` to declare a camera and `{sessionId, zones}` to
+    assign one — so declaring a camera mid-activation silently erased the
+    activation cost the ROI ratio divides by, the engagement threshold the
+    engagement rate counts against, the attribution model, the client name and
+    the dates. The report kept rendering, with the numbers gone. Found by the
+    Phase 6 acceptance run.
+
+    `SET s += $props` is what fixes it, and it gives the right answer to the
+    question the old shape could not even ask. A key **absent** from the map is
+    left alone; a key present and null is **removed**, which is how an operator
+    clears a cost they had entered by mistake. The router builds the map from
+    Pydantic's `model_fields_set`, so "omitted" and "explicitly null" stay
+    different all the way down.
+
+    On create, `SESSION_DEFAULTS` fills the rest — a session with no
+    `currency` or no `engaged_threshold_seconds` would divide by nothing.
     """
+    # Two spellings of one thing. `props` is the router's, built from the fields
+    # a request actually set; the keyword form is the ergonomic one for
+    # consumers and tests, where naming a property *is* setting it.
+    props = {**(props or {}), **fields}
+
+    unknown = set(props) - set(SESSION_DEFAULTS)
+    if unknown:
+        # A typo'd key would otherwise be written as a property nothing reads,
+        # and the field it was meant to be would keep its old value — an update
+        # that reports success and changes nothing.
+        raise ValueError(f"not session properties: {', '.join(sorted(unknown))}")
     result = await session.run(
         """
         MERGE (s:Session {tenant_id: $tenant_id, id: $session_id})
-        SET s.client                    = $client,
-            s.campaign                  = $campaign,
-            s.venue                     = $venue,
-            s.city                      = $city,
-            s.started_at                = $started_at,
-            s.ends_at                   = $ends_at,
-            s.booth_width_m             = $booth_width_m,
-            s.booth_depth_m             = $booth_depth_m,
-            s.camera_count              = $camera_count,
-            s.engaged_threshold_seconds = $engaged_threshold_seconds,
-            s.activation_cost           = $activation_cost,
-            s.currency                  = $currency,
-            s.attribution_model         = $attribution_model,
-            s.attribution_window_days   = $attribution_window_days,
-            s.revenue_influenced        = $revenue_influenced,
-            s.qualified_leads           = $qualified_leads,
-            s.anonymous_handoffs        = $anonymous_handoffs,
-            s.insight_interval_minutes  = $insight_interval_minutes
+        ON CREATE SET s += $defaults
+        SET s += $props
         RETURN s
         """,
         tenant_id=tenant_id,
         session_id=session_id,
-        client=client,
-        campaign=campaign,
-        venue=venue,
-        city=city,
-        started_at=started_at,
-        ends_at=ends_at,
-        booth_width_m=booth_width_m,
-        booth_depth_m=booth_depth_m,
-        camera_count=camera_count,
-        engaged_threshold_seconds=engaged_threshold_seconds,
-        activation_cost=activation_cost,
-        currency=currency,
-        attribution_model=attribution_model,
-        attribution_window_days=attribution_window_days,
-        revenue_influenced=revenue_influenced,
-        qualified_leads=qualified_leads,
-        anonymous_handoffs=anonymous_handoffs,
-        insight_interval_minutes=insight_interval_minutes,
+        # Applied before `$props` so an explicit value in the same call wins.
+        defaults=SESSION_DEFAULTS,
+        props=props,
     )
     record = await result.single()
     return dict(record["s"])

@@ -19,6 +19,72 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-25
 
+### Fixed — 2026-08-25 — `[neo4j-track]` We walked in as a new customer, and found seven things
+
+Phase 6 is judged on one sentence: *a third-party operator signs themselves up,
+runs an activation, and gets a report — isolated, billed, on-brand.* Nobody had
+ever done it. Every tick in the roadmap above is a piece of work vouching for
+itself; none of them had walked the joins in between. So we did, in a browser,
+against a real stack, as somebody who had never used the product.
+
+**Three of the four hold. Seven things were broken, five of them on the path a
+first customer walks.**
+
+**You could not sign yourself up at all.** The account screen showed a single
+line of developer instructions and nothing else, so the sign-up the backend had
+been ready for since August had no way to be reached.
+
+**Signing up put you back in the demo company on the next page refresh.** Your
+new organisation lasted exactly as long as the tab stayed open. Then the app
+quietly went back to the built-in demo account and showed you its data instead
+of yours.
+
+**Everyone using the same computer shared one list of activations.** A brand-new
+customer's very first screen listed another client's events — names, venues,
+zone and camera counts, footfall targets. Nothing from the server ever crossed
+between them; this was the app's own local list, which had never been separated
+per company.
+
+**Adding a second camera deleted the numbers the report divides by.** This is
+the worst of the seven. Declaring a camera part-way through an event wiped the
+activation's cost, its engagement threshold, its attribution model, the client's
+name and the dates — and the report carried on rendering as though nothing had
+happened, just without them. Nothing failed, nothing warned; the figures simply
+stopped being there.
+
+**The client's name never left the browser.** The wizard's first screen has a
+field labelled *Brand / Client*. Whatever you typed there was never sent, so the
+client report came out with no client on it.
+
+**A client's report could print the word `NaN`.** One earlier activation whose
+data the scorecard could not read was enough to poison the comparison against
+their own history: "Average dwell 58s · NaNs · NaN%" next to two real events.
+That card's whole design is that a missing figure says so; this one shouted
+nonsense instead.
+
+**"Peak in zones" said one when three people were in the room.** It counted
+arrivals and departures in the order they were filed rather than the order they
+happened — fine for a camera streaming live, wrong for anything that catches up
+after a dropout.
+
+All seven are fixed except two we wrote down instead: the wizard's Continue
+button greys itself out without saying what is missing, and a new customer still
+sees the built-in demo activation on their first screen. Neither stops the
+product working; both are somebody's decision rather than a bug.
+
+**What the report now says, and why we believe it.** Nine visitors, three
+pass-bys, 44.4% engaged past the threshold the operator set, 58s average dwell,
+$4,500 per engaged visit against an $18,000 activation. Every one of those was
+checked by hand against the events behind it. The things it cannot know — the
+ROI ratio, the touchpoint interactions, the sentiment — are blank and say why,
+which is the rule this report has been held to since it stopped inventing
+numbers.
+
+**"Billed" is the one clause that does not hold**, and it will not until there
+is a payment provider. What exists is the enforcement a bill would be enforcing:
+a customer on the entry tier, told in plain words that their plan allows one
+camera and which plan allows four. No money moves.
+
 ### Added — 2026-08-25 — `[neo4j-track]` The pricing sheet is now a constraint, not a document
 
 Every organisation is on a plan, and the plan actually stops things. Until today

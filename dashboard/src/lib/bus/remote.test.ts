@@ -18,6 +18,7 @@ import {
   flushOutbound,
   getRemoteSeq,
   mirror,
+  signUpOrganisation,
 } from "./remote";
 import type { WireEvent } from "./wire";
 
@@ -390,5 +391,84 @@ describe("ensureToken", () => {
     ]);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("who this browser authenticates as", () => {
+  /**
+   * The bug this covers made the Phase 6 acceptance criterion unverifiable: a
+   * third-party operator who self-served a signup was silently re-exchanged
+   * into the seeded demo organisation on the first page reload, because the
+   * token lived in a module variable and every caller but the login form asks
+   * for `busEmail()` — the environment default.
+   */
+  const ENV_EMAIL = "admin@floats.demo";
+
+  function tokenFor(tenantId: string) {
+    return vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ accessToken: "jwt", expiresIn: 3600, tenantId }),
+    });
+  }
+
+  function sentEmail(fetchMock: ReturnType<typeof vi.fn>, call = 0): string {
+    return JSON.parse(fetchMock.mock.calls[call][1].body).email;
+  }
+
+  it("re-authenticates as the person who signed up, not the environment", async () => {
+    const signup = tokenFor("t_new_org");
+    vi.stubGlobal("fetch", signup);
+    await signUpOrganisation("founder@newco.test", "NewCo");
+
+    expect(window.localStorage.getItem("rs:busIdentity")).toBe(
+      "founder@newco.test"
+    );
+
+    // Model a reload: the module's cached token is gone, localStorage is not.
+    // `clearToken` is sign-out and forgets both deliberately, so the identity is
+    // put back — that is the half a reload keeps.
+    clearToken();
+    window.localStorage.setItem("rs:busIdentity", "founder@newco.test");
+
+    // Every screen but the login form asks with the environment's address,
+    // because none of them has an opinion about who is using the browser.
+    const refresh = tokenFor("t_new_org");
+    vi.stubGlobal("fetch", refresh);
+    await ensureToken(ENV_EMAIL);
+
+    expect(sentEmail(refresh)).toBe("founder@newco.test");
+  });
+
+  it("lets somebody sign in as a different person on the same browser", async () => {
+    window.localStorage.setItem("rs:busIdentity", "founder@newco.test");
+    const fetchMock = tokenFor("t_other");
+    vi.stubGlobal("fetch", fetchMock);
+
+    // The login form names an address. That is a statement of identity and it
+    // has to beat what the browser remembers, or nobody can ever switch.
+    await ensureToken("someone.else@other.test");
+
+    expect(sentEmail(fetchMock)).toBe("someone.else@other.test");
+  });
+
+  it("falls back to the environment when nobody has ever signed in", async () => {
+    const fetchMock = tokenFor(T);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await ensureToken(ENV_EMAIL);
+
+    expect(sentEmail(fetchMock)).toBe(ENV_EMAIL);
+  });
+
+  it("forgets the identity on sign-out", async () => {
+    const fetchMock = tokenFor("t_new_org");
+    vi.stubGlobal("fetch", fetchMock);
+    await ensureToken("founder@newco.test");
+
+    // Otherwise the next person to use this browser is the last one.
+    clearToken();
+
+    expect(window.localStorage.getItem("rs:busIdentity")).toBeNull();
   });
 });

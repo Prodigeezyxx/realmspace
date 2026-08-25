@@ -152,10 +152,23 @@ export function computeScorecard(
 
   // Zone occupancy via enter/exit deltas. Moving A→B is exit-then-enter, so it
   // nets to zero; entering the first zone is +1 and leaving every zone is −1.
+  //
+  // Walked in **event-time** order, not log order, and that is the whole of the
+  // correctness here. A running counter over the log answers "how many were in
+  // a zone at once" only if the log happens to be sorted by when things
+  // happened — which it usually is, and is not for a producer that appends one
+  // visitor's whole journey before the next, or for a batch replayed after an
+  // outage. Ordered by seq, three people who overlapped on the floor read as
+  // peak 1: a number about the room, wrong, on the client's report. Found by
+  // the Phase 6 acceptance run.
+  //
+  // Everything else here is a set or a sum and is order-independent, which is
+  // why this is the only pass that needs it.
+  const inTimeOrder = [...events].sort((a, b) => a.occurredAt - b.occurredAt);
   let concurrent = 0;
   let peak = 0;
 
-  for (const e of events) {
+  for (const e of inTimeOrder) {
     switch (e.type) {
       case "spatial.zone_enter": {
         const p = e.payload as ZoneMovePayload;

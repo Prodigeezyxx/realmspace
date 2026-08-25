@@ -129,9 +129,19 @@ export function benchmarkFigures(scorecard: Scorecard): BenchmarkFigures {
  * Nulls are dropped rather than counted as zero. An activation whose cost was
  * never entered has no ROI ratio; treating that as 0 would invent a failure it
  * never had and make everything after it look better by comparison.
+ *
+ * **`NaN` is dropped for the same reason, and it was reaching the page.** A
+ * prior activation whose dwell payloads the scorecard could not read averages
+ * to `NaN`, and one such value poisoned the whole median — a client's report
+ * showing "Average dwell 58s · NaNs · NaN%" beside two real activations. Found
+ * by the Phase 6 acceptance run. An uncomputable prior is an *absence*, which
+ * this row already knows how to say; `n` counts what actually contributed, so
+ * the reader can see the median thinned.
  */
 export function median(values: (number | null | undefined)[]): number | null {
-  const present = values.filter((v): v is number => v != null).sort((a, b) => a - b);
+  const present = values
+    .filter((v): v is number => v != null && Number.isFinite(v))
+    .sort((a, b) => a - b);
   if (!present.length) return null;
   const mid = Math.floor(present.length / 2);
   const value =
@@ -172,7 +182,7 @@ export function buildBenchmark(
       // cost contributes to the visitor median and not to the ROI one, and a
       // reader has to be able to see that the two rows rest on different
       // amounts of evidence.
-      n: values.filter((v) => v != null).length,
+      n: values.filter((v) => v != null && Number.isFinite(v)).length,
     };
   });
 

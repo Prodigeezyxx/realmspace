@@ -219,7 +219,13 @@ export function sessionToWire(session: Session) {
   const m = session.measurement ?? {};
   return {
     sessionId: session.id,
-    client: session.client ?? null,
+    // `brand` is the wizard's "Brand / Client" — the name on the front of the
+    // report — and `client` is its "End client (optional), if different from
+    // the brand". Only the second was being sent, so an operator who filled in
+    // the field labelled *Client* on the very first screen got a client report
+    // with no client on it. The wizard's own review step already reads them in
+    // this order (`brand || client`). Found by the Phase 6 acceptance run.
+    client: session.client ?? session.brand ?? null,
     campaign: session.name,
     venue: session.venue,
     city: session.city ?? null,

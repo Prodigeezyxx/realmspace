@@ -118,6 +118,15 @@ describe("median", () => {
   it("is null when nothing is present at all", () => {
     expect(median([null, undefined])).toBeNull();
   });
+
+  it("drops NaN, which one bad prior activation is enough to produce", () => {
+    // An earlier activation whose dwell payloads the scorecard could not read
+    // averages to NaN, and one of those poisons the whole row: a client's
+    // report reading "Average dwell 58s · NaNs · NaN%" beside two real
+    // activations. An uncomputable prior is an absence, not a measurement.
+    expect(median([4, NaN, 6])).toBe(5);
+    expect(median([NaN])).toBeNull();
+  });
 });
 
 describe("buildBenchmark", () => {

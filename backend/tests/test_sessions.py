@@ -480,6 +480,76 @@ async def test_omitting_zones_leaves_them_alone(
     assert body["activationCost"] == 500
 
 
+async def test_a_partial_save_leaves_the_measurement_parameters_alone(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """The mirror of the test above, and the more dangerous direction.
+
+    `useCalibration` posts `{sessionId, cameras}` to declare a camera and
+    `{sessionId, zones}` to assign one — neither carries a cost or a threshold.
+    The handler used to write all eighteen properties on every call, so adding a
+    second camera mid-activation erased the activation cost the ROI ratio
+    divides by, the engagement threshold the engagement rate counts against,
+    the attribution model, the client and the dates. Nothing raised; the report
+    kept rendering without them.
+    """
+    await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            None,
+            client="Halden Audio",
+            venue="Mayfield Depot",
+            activationCost=18000,
+            engagedThresholdSeconds=45,
+            attributionModel="first_touch",
+        ),
+    )
+
+    # Exactly what the calibration screen sends.
+    added = await operator.post(
+        "/v1/sessions",
+        json={"sessionId": S, "cameras": [{"id": "cam-1", "label": "Front"}]},
+    )
+    assert added.status_code == 200, added.text
+
+    body = (await operator.get(f"/v1/sessions/{S}")).json()
+    assert body["activationCost"] == 18000
+    assert body["engagedThresholdSeconds"] == 45
+    assert body["attributionModel"] == "first_touch"
+    assert body["client"] == "Halden Audio"
+    assert body["venue"] == "Mayfield Depot"
+
+
+async def test_an_explicit_null_still_clears_a_parameter(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """Omitted and null are different, and both have to work.
+
+    An operator who typed a cost by mistake has to be able to remove it, or the
+    fix above would trade one silent wrong number for another.
+    """
+    await operator.post("/v1/sessions", json=config_body(None, activationCost=18000))
+    await operator.post("/v1/sessions", json={"sessionId": S, "activationCost": None})
+
+    body = (await operator.get(f"/v1/sessions/{S}")).json()
+    assert body["activationCost"] is None
+
+
+async def test_a_new_session_gets_the_defaults_it_divides_by(
+    operator: AsyncClient, graph_session: GraphSession
+) -> None:
+    """A session created with almost nothing still has a currency and a
+    threshold — the report divides by both."""
+    res = await operator.post("/v1/sessions", json={"sessionId": S})
+    assert res.status_code == 200, res.text
+
+    body = res.json()
+    assert body["currency"] == "USD"
+    assert body["engagedThresholdSeconds"] == 60.0
+    assert body["attributionModel"] == "influenced"
+    assert body["attributionWindowDays"] == 90
+
+
 async def test_zones_come_back_in_funnel_order(
     operator: AsyncClient, graph_session: GraphSession
 ) -> None:
