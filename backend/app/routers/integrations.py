@@ -58,7 +58,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import crm, repository, secrets
+from app import crm, plans, repository, secrets
 from app.auth.principal import Principal, require_admin
 from app.crm.base import AdapterError
 from app.db import get_session
@@ -216,6 +216,26 @@ async def put_integration(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         ) from exc
+
+    # New-vs-replace, as in `routers/rules.py`: reconnecting a CRM already
+    # stored must not be refused for being one over. Revoked rows count, because
+    # `revoke_integration` leaves the row and an admin can reactivate it.
+    #
+    # No `gtm.md` tier states an integration count, so every plan carries `None`
+    # and this never fires today. It is written now because the check is where
+    # the number goes — a limit added later with no call site is a config key
+    # nothing reads.
+    held, is_replacement = await repository.integration_slots(
+        session, tenant_id=principal.tenant_id, provider=provider
+    )
+    if not is_replacement:
+        plans.enforce(
+            plan=await plans.plan_for(session, principal.tenant_id),
+            limit_name="max_integrations",
+            requested=held + 1,
+            noun="integrations",
+            noun_singular="integration",
+        )
 
     row = await repository.upsert_integration(
         session,

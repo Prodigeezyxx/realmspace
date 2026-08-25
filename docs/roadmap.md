@@ -721,7 +721,102 @@ this codebase deletes from reports.
       credentials, and the same hosting decision the deploy pipeline waits on.
       Built now it would be proven against a mock transport and against nothing
       real, which is the position five CRM adapters are already in.
-- 🔲 **Billing** hooks (Stripe) + plan metering/limits
+- ✅ **Plan limits** *(2026-08-25)* — the enforceable half of the billing
+      bullet. Stripe is split out below.
+
+      **`multi-tenant.md` §5 has named four of these since Phase 1 and none
+      existed.** A tenant on any tier could declare eight cameras, arm forty
+      rules, connect five CRMs and read a year of log, so the `gtm.md` tier
+      table was a document rather than a constraint. `tenant.plan` (migration
+      0012), `app/plans.py` as the one place that says what a tier allows, and
+      refusals at the four write paths that can exceed one.
+
+      **Only what the pricing sheet writes down is enforced**, the same rule
+      `roi-framework.md` imposes on revenue and P3's cost tile imposed on spend.
+      Every number is a phrase in `gtm.md` quoted beside it:
+
+      - **Booth** — 1 camera, 30 days.
+      - **Pavilion** — 4 cameras, 90 days, 2 agents.
+      - **Campaign**, **Partner kit** — the rows state no count of anything.
+
+      Everything unlisted is unlimited **and not enforced**. Two of those
+      silences are the pricing sheet's rather than the code's, and are asserted
+      by a test so
+      filling one in has to be a decision: **Booth has no agent cap while
+      Pavilion is capped at two** (the row names "2 custom agents" and no other
+      row mentions agents at all, so the literal reading inverts the ladder),
+      and **no tier states an integration count**, so that limit never fires.
+      The keys are carried anyway — the check that reads one is where the number
+      goes, and a limit added later with no call site is a config key nothing
+      reads.
+
+      **Ask usage is reported as unknown, not zero.** The only record of an Ask
+      is the `cost.metered` event `routers/ask.py` writes, and it writes one
+      only when the provider reported tokens — which the deterministic provider
+      never does while open decision 2 is open. A counter reading zero for real
+      traffic is worse than no counter.
+
+      **Retention is a read window, not a purge.** Reads clamp and say so
+      (`X-Retention-Floor`); no log row is deleted. Measured on `occurred_at`,
+      not `received_at`, like every other event-time decision here — a batch
+      buffered through an outage should not earn extra retention for arriving
+      late. Applied by **routers only**: `repository.read_events` is what all
+      sixteen consumers poll with, and clamping it would make the tracker skip
+      events and a replay build a different graph. There is a test named for
+      that.
+
+      **Two client-facing readers are refused the clamp, and the reason is the
+      same in both.** `GET /v1/handoffs` is a delivery cursor whose contract is
+      "no gap and no duplicate", and it reads *every* withdrawal to redact
+      withdrawn leads — a floor would hide an old withdrawal and un-redact a
+      name somebody asked us to remove. `GET /v1/ledger/{session}` is the audit
+      artifact, built from the log precisely because an auditor asks what was
+      known and when, and it redacts from the same tenant-wide read. In both the
+      failure mode is a privacy regression rather than a withheld feature.
+
+      **New signups land on Booth; every organisation that already existed was
+      backfilled to Pavilion.** Putting them all on the entry tier would start
+      refusing the four-camera sessions and the recorded session every phase
+      acceptance above was verified against — a regression dressed as a feature.
+      A tenant with no registry row predates migration 0011 and resolves to the
+      same tier, or the same organisation would be on two plans depending on
+      whether anybody had written its name down.
+
+      **Changing a plan is not an endpoint**, and `GET /v1/plan` has no upgrade
+      button. A self-serve upgrade with no payment path is a free upgrade; the
+      thing that should own it is the Stripe webhook below. Until then it is
+      `python -m app.plans set`. What the endpoint and its `/ops` panel do is
+      stop a **402** being the first time an operator hears a limit exists —
+      the failure the report's dead "Export PDF" button already taught us, where
+      they find out in front of the client.
+
+      **402, not 403.** `requires()` owns 403 and means "your role may not",
+      whose remedy is to ask an admin. This means "your plan does not include",
+      whose remedy is commercial, and the detail names the tier, the cap, the
+      usage and the cheapest tier that would allow it.
+
+      One bug found by writing the tests first, and it is the one a real
+      operator hits before anything else: `PUT` is create-or-replace, so a count
+      taken on every write refuses somebody **editing their own second rule** for
+      being the third. Fixing it also had to avoid `get_rule` — `upsert_rule`
+      returns its entity from a Core `RETURNING`, so loading the row first put a
+      stale instance in the identity map and the edit reported the old name back
+      while having saved correctly.
+- 🔲 **Billing** hooks (Stripe) + plan *metering* — the other half. The meter
+      itself has existed since P3 (`app/cost.py`, derived ids so a replay cannot
+      inflate a bill) and the limits are above; what is missing is a payment
+      provider, which is a credential this repo does not have. Plan changes wait
+      with it: there is deliberately no endpoint that moves a tenant between
+      tiers, because the one that should is the Stripe webhook.
+- 🔲 **Retention purge** — split from the limits above, which clamp *reads*. The
+      event log is append-only and `consumers/erasure.py` is the one thing that
+      touches a stored row, deliberately and only to redact a name. A purge is a
+      second destructive path over a client's system of record, it breaks the
+      replay reproducibility every consumer's derived ids depend on, and it needs
+      the same "refuse until the retraction has landed" ordering the erasure job
+      argues for. Until it exists, a client's data is *retained* past the window
+      they bought and merely unreadable to them, which is stated here rather
+      than left to be discovered.
 - ✅ **Calibration UI + CV drift telemetry** *(2026-08-19)* — the third clause,
       multi-camera fusion, is split out below with its reasons.
 
@@ -1037,6 +1132,13 @@ this codebase deletes from reports.
 
 **Acceptance:** a third-party operator self-serves signup → activation → report,
 fully isolated, billed, on-brand.
+
+**Not verified end to end, and one clause cannot be yet.** Signup, isolation,
+the report and the brand are all built; "billed" is not, and will not be until a
+payment provider exists. What the plan limits above give is the enforcement a
+bill would be enforcing — a tenant on a tier, refused what the tier does not
+include — with no money moving. Worth stating rather than letting the ✅s above
+imply the phase is closed.
 
 ---
 

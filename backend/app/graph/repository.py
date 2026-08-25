@@ -628,6 +628,12 @@ async def sessions_for_tenant(
     dated is real and belongs in the list, but it is not the most recent thing
     that happened. Bounded, because a tenant who runs weekly for two years has
     a hundred of these and a report wants the last handful.
+
+    The plan's retention window is **not** applied here. `started_at` is a
+    string on the node (see `upsert_session`), so a Cypher comparison against a
+    datetime is a silent wrong answer and `datetime(s.started_at)` throws on a
+    malformed one. `routers/sessions.py` filters the result instead, where an
+    unparseable date can keep its session rather than break a listing.
     """
     result = await session.run(
         """
@@ -783,6 +789,35 @@ def _unflatten(flat: list[float] | None) -> list[list[float]] | None:
     if not flat:
         return None
     return [[flat[i], flat[i + 1]] for i in range(0, len(flat) - 1, 2)]
+
+
+async def max_cameras_for_tenant(session: AsyncSession, *, tenant_id: str) -> int:
+    """The most cameras any one of this tenant's activations declares.
+
+    The plan limit is per activation — `gtm.md` sells "a single camera kit", not
+    one camera per organisation for ever — so a client who ran a one-camera
+    booth in March and another in April is inside Booth, and a total would say
+    otherwise.
+
+    Both halves are counted for the reason `put_session_config` checks both:
+    `camera_count` is the integer the twin and the drift panel read, the
+    `(:Camera)` nodes are what zones are keyed on, and a session that set one
+    and not the other is ordinary.
+    """
+    result = await session.run(
+        """
+        MATCH (s:Session {tenant_id: $tenant_id})
+        OPTIONAL MATCH (c:Camera {tenant_id: $tenant_id, session_id: s.id})
+        WITH s, count(c) AS declared
+        RETURN coalesce(max(
+            CASE WHEN coalesce(s.camera_count, 0) > declared
+                 THEN s.camera_count ELSE declared END
+        ), 0) AS most
+        """,
+        tenant_id=tenant_id,
+    )
+    record = await result.single()
+    return int(record["most"]) if record else 0
 
 
 async def cameras_for_session(

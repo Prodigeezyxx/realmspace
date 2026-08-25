@@ -80,6 +80,7 @@ async def read_events(
     session_id: str | None = None,
     type: str | None = None,
     types: Sequence[str] | None = None,
+    occurred_after: dt.datetime | None = None,
 ) -> list[EventLog]:
     """Read the log forward from a cursor.
 
@@ -100,6 +101,15 @@ async def read_events(
     spatial events. Passing both narrows to their union rather than to nothing,
     since a row cannot have two types and an AND would return an empty page
     that looks exactly like "no events".
+
+    `occurred_after` is the plan's retention window and is passed by **routers
+    only** — see `app/plans.retention_floor`. No consumer passes it, and none
+    should: retention is how far back a client may read their own log, not how
+    far back this system may process it, and clamping the shape every consumer
+    polls with would make the tracker skip events and a replay build a different
+    graph. It is a parameter here rather than a filter at the call site because
+    dropping rows after the query would silently shorten a page and make `limit`
+    and the `seq` cursor disagree.
     """
     stmt = (
         select(EventLog)
@@ -112,6 +122,8 @@ async def read_events(
     wanted = {*(types or ()), *([type] if type is not None else ())}
     if wanted:
         stmt = stmt.where(EventLog.type.in_(sorted(wanted)))
+    if occurred_after is not None:
+        stmt = stmt.where(EventLog.occurred_at >= occurred_after)
 
     result = await session.execute(stmt)
     return list(result.scalars().all())
@@ -546,6 +558,50 @@ async def list_rules(
         stmt = stmt.where(Rule.enabled.is_(True))
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+async def rule_slots(
+    session: AsyncSession, *, tenant_id: str, rule_id: str
+) -> tuple[int, bool]:
+    """`(how many rules this tenant holds, whether rule_id is one of them)`.
+
+    Two scalars rather than `get_rule` plus `list_rules`, and that is not
+    micro-optimisation. `upsert_rule` returns the ORM entity from a Core
+    `RETURNING`, so loading the same row first puts a **stale** instance in the
+    identity map and the upsert hands it back unchanged — an edit that saved
+    correctly and reported the old values. Counting touches no entity.
+
+    Used by the plan's agent limit (`app/plans.py`), which needs both: the cap
+    applies to a new rule, and PUT is create-or-replace, so editing the second
+    of two rules on a two-agent plan must not be refused for being the third.
+    """
+    row = (
+        await session.execute(
+            select(
+                func.count(Rule.rule_id),
+                func.count(Rule.rule_id).filter(Rule.rule_id == rule_id),
+            ).where(Rule.tenant_id == tenant_id)
+        )
+    ).one()
+    return int(row[0]), bool(row[1])
+
+
+async def integration_slots(
+    session: AsyncSession, *, tenant_id: str, provider: str
+) -> tuple[int, bool]:
+    """The same pair for `tenant_integration`, and for the same two reasons —
+    `upsert_integration` also returns its entity from a Core RETURNING."""
+    row = (
+        await session.execute(
+            select(
+                func.count(TenantIntegration.provider),
+                func.count(TenantIntegration.provider).filter(
+                    TenantIntegration.provider == provider
+                ),
+            ).where(TenantIntegration.tenant_id == tenant_id)
+        )
+    ).one()
+    return int(row[0]), bool(row[1])
 
 
 async def get_rule(

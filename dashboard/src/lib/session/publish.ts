@@ -295,10 +295,17 @@ export async function publishSessionConfig(
     // 422 carries the specific reason — a pixel polygon, a two-point zone, a
     // duplicate id. Passing it through matters: these are operator mistakes
     // with a fix, not internal errors.
+    //
+    // 402 is a plan limit (`app/plans.py`), and its detail is already a
+    // sentence written for the person reading it — which tier they are on, what
+    // it allows, and which tier would allow this. Shown verbatim rather than
+    // JSON-stringified, because "the Booth plan allows 1 cameras…" wrapped in
+    // quotes reads like a bug in this app rather than a term of their contract.
     let reason = `bus rejected the session (${res.status})`;
     try {
       const body = await res.json();
-      if (body?.detail) reason = JSON.stringify(body.detail);
+      if (typeof body?.detail === "string") reason = body.detail;
+      else if (body?.detail) reason = JSON.stringify(body.detail);
     } catch {
       /* keep the status-code message */
     }

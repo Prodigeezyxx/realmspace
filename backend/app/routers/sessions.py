@@ -39,13 +39,14 @@ nothing.
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from neo4j import AsyncSession as GraphSession
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import repository
+from app import plans, repository
 from app.auth.principal import Principal, require_operator, require_reader, utcnow
 from app.db import get_session
 from app.graph import repository as graph_repo
@@ -133,6 +134,26 @@ async def put_session_config(
     milder one: if the append fails, the zones are correct and the tracker picks
     them up when the TTL expires.
     """
+    # The plan check goes before the first write, not after it. `upsert_session`
+    # rewrites the session's measurement parameters, so a save refused halfway
+    # would have already changed the numbers the report divides by.
+    #
+    # `camera_count` and `cameras` are both counted because either alone can
+    # carry a booth past its tier: the integer is what the twin and the drift
+    # panel read, the list is what zones are keyed on, and a save that sets one
+    # and not the other is ordinary.
+    declared_cameras = max(
+        config.camera_count or 0, len(config.cameras) if config.cameras else 0
+    )
+    if declared_cameras:
+        plans.enforce(
+            plan=await plans.plan_for(session, principal.tenant_id),
+            limit_name="max_cameras",
+            requested=declared_cameras,
+            noun="cameras per activation",
+            noun_singular="camera per activation",
+        )
+
     props = await graph_repo.upsert_session(
         graph,
         tenant_id=principal.tenant_id,
@@ -325,6 +346,25 @@ async def put_session_config(
     return _config_out(props, zones, surfaces, cameras)
 
 
+def _within(started_at: object, floor: dt.datetime) -> bool:
+    """Is this activation inside the retention window?
+
+    An **undated** session is kept: it is a configured activation nobody has
+    run, and it holds no measurement to retain. So is one whose `started_at`
+    does not parse — hiding a client's activation because of a date format is a
+    worse failure than showing one a few days past the window.
+    """
+    if not started_at:
+        return True
+    try:
+        when = dt.datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt.timezone.utc)
+    return when >= floor
+
+
 @router.get(
     "",
     response_model=list[SessionSummaryOut],
@@ -333,6 +373,7 @@ async def put_session_config(
 async def list_sessions(
     limit: int = Query(50, ge=1, le=200),
     principal: Principal = Depends(require_reader),
+    session: AsyncSession = Depends(get_session),
     graph: GraphSession = Depends(get_graph_session),
 ) -> list[SessionSummaryOut]:
     """Which activations this tenant has run.
@@ -356,6 +397,20 @@ async def list_sessions(
     rows = await graph_repo.sessions_for_tenant(
         graph, tenant_id=principal.tenant_id, limit=limit
     )
+
+    # The plan's retention window. An activation older than it has no readable
+    # events (`GET /events` clamps on the same floor), so listing it would hand
+    # the benchmark an activation that scores as nothing — indistinguishable
+    # from one that genuinely measured nothing, which the benchmark states
+    # rather than renders as a zero.
+    #
+    # Filtered here rather than in Cypher because `started_at` is a string on
+    # the node: an unparseable one keeps its session, which is the mild
+    # direction to fail on a listing.
+    floor = plans.retention_floor(await plans.plan_for(session, principal.tenant_id))
+    if floor is not None:
+        rows = [row for row in rows if _within(row.get("started_at"), floor)]
+
     return [
         SessionSummaryOut(
             session_id=row["id"],

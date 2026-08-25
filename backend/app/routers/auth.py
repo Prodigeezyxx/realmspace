@@ -94,6 +94,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import plans
 from app.auth import firebase, tokens
 from app.auth.models import AuthUser, Tenant
 from app.db import get_session
@@ -344,7 +345,17 @@ async def signup(
     tenant_id = _tenant_id_from(body.org_name)
     user_id = f"u_{secrets.token_hex(6)}"
 
-    session.add(Tenant(tenant_id=tenant_id, name=body.org_name, created_by=user_id))
+    session.add(
+        Tenant(
+            tenant_id=tenant_id,
+            name=body.org_name,
+            created_by=user_id,
+            # The entry tier, stated rather than left to the column default:
+            # what a self-serve signup gets is a commercial decision and should
+            # be readable here, not only in a migration. `app/plans.py`.
+            plan=plans.DEFAULT_PLAN,
+        )
+    )
     session.add(
         AuthUser(
             user_id=user_id,

@@ -182,10 +182,35 @@ Multi-tenant makes them enforceable:
 - **Metering:** per-activation, per-camera, Ask-the-Room queries, enrichment
   credits, LLM tokens (via `cost.metered` events → `roi-framework.md` unit
   economics).
+  ✅ **Built** — `backend/app/cost.py`, with the `event_id` derived from the
+  cause so a replay cannot inflate a client's spend. Its callers are every
+  dispatched rule action (`action_unit`) and a model-backed Ask (`llm_tokens`).
+  The gap is Ask: with no provider configured the deterministic answers report
+  no tokens, so they leave no record at all — which is why `GET /v1/plan`
+  reports Ask usage as *unknown* rather than zero.
 - **Plan limits:** cameras, retention window, # agents, # integrations per tier.
-- **Partner revenue share:** white-label tenants with an 80/20 split flag.
+  ✅ **Built** — `tenant.plan` (migration 0012) and `backend/app/plans.py`, the
+  one place that says what a tier allows. Enforced at `POST /v1/sessions`
+  (cameras), `PUT /v1/rules/{id}` (agents), `PUT /v1/integrations/{provider}`
+  (integrations), and as a **read window** on `GET /events` and the activation
+  listing. Refusals are **402**, not 403: 403 means "your role may not" and its
+  remedy is an admin, while this means "your plan does not include" and its
+  remedy is commercial.
+  Only the numbers `gtm.md` states are enforced — two tiers say nothing about
+  agents and none says anything about integrations, and inventing a default
+  there would be inventing a commercial term. `roadmap.md`'s Phase 6 bullet
+  carries the grid and the two silences.
+  Retention clamps reads and deletes nothing; a purge is its own 🔲 with its
+  reasons. `GET /v1/handoffs` and `GET /v1/ledger/{id}` are deliberately exempt
+  — both redact from a tenant-wide read of withdrawals, and a floor there would
+  hide a withdrawal and un-redact a name.
+- **Partner revenue share:** white-label tenants with an 80/20 split flag. 🔲 —
+  waits on the provider below, being a division of money nothing yet collects.
 - **Provider:** Stripe (recommended) behind a thin billing abstraction; not in
-  the MVP hot path.
+  the MVP hot path. 🔲 — the credential does not exist in this repo. Changing a
+  tenant's plan is deliberately **not** an endpoint until it does: a self-serve
+  upgrade with no payment path is a free upgrade. `python -m app.plans set`
+  is the operator action in the meantime.
 
 ---
 

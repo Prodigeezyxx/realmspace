@@ -857,10 +857,16 @@ async def test_sessions_are_listed_newest_first(
 
     Nulls last rather than first: a session created but never dated is real and
     belongs in the list, but it is not the most recent thing that happened.
+
+    Dated **relative to now** rather than with literals. The listing is clamped
+    to the plan's retention window (`app/plans.py`), and fixed dates would put
+    this test's activations outside it as the calendar moved — passing today and
+    failing in November for a reason that has nothing to do with ordering.
     """
+    now = dt.datetime.now(dt.timezone.utc)
     for session_id, started in (
-        ("s_march", "2026-03-01T09:00:00Z"),
-        ("s_july", "2026-07-01T09:00:00Z"),
+        ("s_march", (now - dt.timedelta(days=60)).isoformat()),
+        ("s_july", (now - dt.timedelta(days=7)).isoformat()),
         ("s_undated", None),
     ):
         await graph_repo.upsert_session(

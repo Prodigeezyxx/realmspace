@@ -117,6 +117,16 @@ export function useRules() {
       if (res.status === 403) {
         return "Saving a rule arms an action in the room — that needs an operator account.";
       }
+      if (res.status === 402) {
+        // A plan limit (`app/plans.py`) — `gtm.md` calls a rule a "custom
+        // agent" and caps them per tier. The detail already names the tier, the
+        // cap and the tier that would lift it, so it is shown as written rather
+        // than wrapped in this app's own phrasing or its raw JSON.
+        const body = await res.json().catch(() => null);
+        return typeof body?.detail === "string"
+          ? body.detail
+          : "This organisation's plan does not allow another agent.";
+      }
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         return `The bus refused it (${res.status}). ${body}`.trim();

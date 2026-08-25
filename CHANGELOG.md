@@ -17,7 +17,62 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-24
+## [Unreleased] — last updated 2026-08-25
+
+### Added — 2026-08-25 — `[neo4j-track]` The pricing sheet is now a constraint, not a document
+
+Every organisation is on a plan, and the plan actually stops things. Until today
+a client on the cheapest tier could run eight cameras, arm forty agents, connect
+five CRMs and read back a year of data — the tiers in `gtm.md` existed only on
+the pricing page.
+
+**What each tier now allows**, taken word for word from that page: Booth is one
+camera and thirty days of readable data; Pavilion is four cameras, ninety days
+and two custom agents; Campaign and Partner state no limits and so have none.
+
+**Nothing was invented to fill the gaps, and there are two.** The pricing page
+names "2 custom agents" for Pavilion and says nothing about agents on any other
+tier — read literally that leaves Booth *uncapped* while Pavilion is capped at
+two, which is upside down. And no tier mentions integrations at all, so that
+limit never fires. Both are recorded as blanks waiting for a number rather than
+guessed at, because a limit we chose ourselves would look exactly like one a
+client had agreed to. Filling either in is now a one-line change with a test
+that fails to make sure somebody notices.
+
+**Being refused says what to do about it.** A save that would exceed a limit
+comes back naming the tier the client is on, what it allows, what they were
+trying to do, and which tier would allow it — and it uses a different code from
+"your account cannot do this", because one of those is fixed by asking an admin
+and the other by talking to us.
+
+**And a limit is never a surprise.** There is a plan panel on the operations
+screen showing usage against every ceiling, so nobody discovers a cap halfway
+through setting up on the morning of an event. It has no upgrade button: taking
+money is the half of this that is still unbuilt, and a button wired to nothing is
+the mistake the report's dead "Export PDF" already taught us.
+
+**The retention limit hides data rather than deleting it, and that is stated
+plainly.** A client past their window can no longer read those events back, but
+the events are still there. Deleting them is a second thing that can destroy a
+client's records, it would break the guarantee that re-running the system over
+its own history produces the same answers, and it needs the careful ordering the
+GDPR erasure job already argues for. So it is written down as unbuilt rather
+than half-done.
+
+**Two screens deliberately ignore the window.** The lead pull-down and the
+attribution ledger both read every withdrawal in order to strip names from
+people who asked to be removed. Cutting them off at thirty days would hide an old
+withdrawal and put a name back — the opposite of what a retention limit is for.
+
+**Existing organisations were moved to Pavilion, not Booth.** Everything already
+built and demonstrated runs four cameras; putting it all on the entry tier would
+have broken the product to enforce a rule nobody had bought yet. New sign-ups get
+the entry tier.
+
+**One bug, found by writing the test before the code**, and it is the one a real
+operator would hit first: because saving a rule is the same action as editing
+one, counting on every save refused somebody editing their *own* second agent for
+being a third.
 
 ### Changed — 2026-08-24 — `[neo4j-track]` The product finally looks like the brand book
 

@@ -27,6 +27,7 @@ import secrets
 
 from sqlalchemy import select
 
+from app import plans
 from app.auth.models import ApiKey, AuthUser, Tenant
 from app.auth.tokens import generate_api_key, issue_token
 from app.db import SessionLocal
@@ -44,7 +45,18 @@ async def seed(tenant_id: str, email: str, role: str) -> None:
         # the odd one out on every screen that reads an organisation's name.
         if (await session.get(Tenant, tenant_id)) is None:
             session.add(
-                Tenant(tenant_id=tenant_id, name=tenant_id, created_by=None)
+                Tenant(
+                    tenant_id=tenant_id,
+                    name=tenant_id,
+                    created_by=None,
+                    # Not the signup default. A dev tenant on the entry tier
+                    # would be refused the four-camera sessions and the recorded
+                    # demo activation every phase acceptance in `roadmap.md` was
+                    # verified against, so a local checkout would fail at the
+                    # wizard for a reason that has nothing to do with the code
+                    # being worked on. `python -m app.plans set` to test a limit.
+                    plan=plans.LEGACY_PLAN,
+                )
             )
 
         existing = (

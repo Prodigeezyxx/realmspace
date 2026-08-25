@@ -38,6 +38,7 @@ import {
   useDriftEvents,
   type DriftFinding,
 } from "@/lib/ops/useDriftEvents";
+import { describeLimit, usePlan, type PlanLimit } from "@/lib/ops/usePlan";
 import {
   useStrandedDispatches,
   type StrandedDispatch,
@@ -123,6 +124,108 @@ export default function OpsPage() {
 
       <StrandedSection />
       <DriftSection />
+      <PlanSection />
+    </div>
+  );
+}
+
+/**
+ * What this organisation's plan allows, and how close they are to it.
+ *
+ * The fourth section and the only one that is not about something going wrong.
+ * It is here because the alternative is worse: a save refused with a 402 on the
+ * morning of an activation, from a limit nobody had been shown. The same
+ * argument the report's dead export button settled — the operator should not
+ * find out in front of the client.
+ *
+ * There is no upgrade button. Changing a plan needs a payment path and the
+ * Stripe half of `roadmap.md`'s billing bullet is unbuilt, so a control here
+ * would be wired to nothing.
+ */
+function PlanSection() {
+  const { status, plan, detail, refresh } = usePlan();
+
+  // Quiet when there is no backend. An operator running the demo on a laptop
+  // has no organisation and no bill, and a panel saying so would be furniture.
+  if (status === "loading" || status === "offline") return null;
+
+  return (
+    <>
+      <div className="flex items-end justify-between gap-4 flex-wrap border-t border-border-hairline pt-6">
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight">Plan</h2>
+          <p className="text-sm text-text-secondary mt-1 max-w-2xl leading-relaxed">
+            What this organisation&rsquo;s tier allows. A save that would exceed
+            one of these is refused, so it is worth knowing before the doors
+            open.
+          </p>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<RefreshCw size={14} />}
+          onClick={() => void refresh()}
+        >
+          Refresh
+        </Button>
+      </div>
+
+      {status === "error" && (
+        <EmptyState
+          variant="page"
+          icon={<Info size={20} />}
+          title="Could not read the plan"
+          hint={detail ?? undefined}
+        />
+      )}
+
+      {status === "ready" && plan && (
+        <Panel
+          title={plan.label}
+          subtitle={
+            plan.retentionDays === null
+              ? "No retention limit on this tier."
+              : `${plan.retentionDays} days of your own log are readable back.`
+          }
+        >
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <LimitTile label="Cameras per activation" limit={plan.cameras} />
+            <LimitTile label="Agents" limit={plan.agents} />
+            <LimitTile label="Integrations" limit={plan.integrations} />
+            <LimitTile label="Ask questions" limit={plan.asks} />
+          </div>
+          {plan.asks.note && (
+            <p className="text-xs text-text-muted mt-4 leading-relaxed">
+              {plan.asks.note}
+            </p>
+          )}
+        </Panel>
+      )}
+    </>
+  );
+}
+
+/**
+ * One limit.
+ *
+ * "no limit set" rather than "unlimited": for most of these the tier states no
+ * number, which is a silence in the pricing sheet and not a generous term. The
+ * distinction is `describeLimit`'s, kept out of here so it can be tested.
+ */
+function LimitTile({ label, limit }: { label: string; limit: PlanLimit }) {
+  const { text, atCap } = describeLimit(limit);
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-[0.16em] text-text-muted mb-1">
+        {label}
+      </div>
+      <div
+        className={`text-lg font-semibold tabular-nums ${
+          atCap ? "text-accent-action" : ""
+        }`}
+      >
+        {text}
+      </div>
     </div>
   );
 }

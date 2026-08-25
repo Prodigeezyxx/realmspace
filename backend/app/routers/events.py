@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import repository
+from app import plans, repository
 from app.auth.principal import Principal, get_principal, require_reader
 from app.db import get_session
 from app.schemas import EventIn, EventOut
@@ -140,6 +140,7 @@ async def post_events(
     summary="Read the log forward from a cursor",
 )
 async def get_events(
+    response: Response,
     since_seq: int = Query(0, ge=0, description="exclusive; returns seq > since_seq"),
     limit: int = Query(100, ge=1, le=repository.MAX_LIMIT),
     session_id: str | None = Query(None),
@@ -165,6 +166,14 @@ async def get_events(
 
     Device credentials are refused here — see `Principal.may_read`.
     """
+    # The plan's retention window (`gtm.md`: 30 days on Booth, 90 on Pavilion).
+    # A clamped page has to *say* it was clamped: an empty one is otherwise
+    # indistinguishable from a quiet activation, which is the same shape of bug
+    # as the `type` filter that returned an empty page for an AND.
+    floor = plans.retention_floor(await plans.plan_for(session, principal.tenant_id))
+    if floor is not None:
+        response.headers["X-Retention-Floor"] = floor.isoformat()
+
     rows = await repository.read_events(
         session,
         tenant_id=principal.tenant_id,
@@ -172,5 +181,6 @@ async def get_events(
         limit=limit,
         session_id=session_id,
         types=type,
+        occurred_after=floor,
     )
     return [EventOut.model_validate(r) for r in rows]

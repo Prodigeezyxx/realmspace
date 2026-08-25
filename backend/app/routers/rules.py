@@ -40,7 +40,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import repository
+from app import plans, repository
 from app.auth.principal import Principal, require_reader, require_rule_author
 from app.db import get_session
 from app.schemas import RuleIn, RuleOut
@@ -102,6 +102,23 @@ async def put_rule(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"ruleId in the body ({body.rule_id!r}) is not the one in the "
             f"path ({rule_id!r})",
+        )
+
+    # `gtm.md` calls a rule a "custom agent" and caps them per tier. The count
+    # only applies to a **new** rule: PUT is create-or-replace, and editing the
+    # second of two rules on a two-agent plan must not be refused for being the
+    # third. Disabled rules count — a disabled rule is one the operator can arm
+    # without asking anybody.
+    held, is_replacement = await repository.rule_slots(
+        session, tenant_id=principal.tenant_id, rule_id=rule_id
+    )
+    if not is_replacement:
+        plans.enforce(
+            plan=await plans.plan_for(session, principal.tenant_id),
+            limit_name="max_agents",
+            requested=held + 1,
+            noun="agents",
+            noun_singular="agent",
         )
 
     row = await repository.upsert_rule(

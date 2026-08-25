@@ -43,6 +43,7 @@ from app.routers import (
     ledger,
     live,
     outcomes,
+    plan,
     rules,
     sessions,
     users,
@@ -160,6 +161,7 @@ app.include_router(ledger.router)
 app.include_router(dead_letters.router)
 app.include_router(dispatches.router)
 app.include_router(consumers.router)
+app.include_router(plan.router)
 app.include_router(rules.router)
 app.include_router(integrations.router)
 # Users are org administration, beside integrations: multi-tenant.md §3

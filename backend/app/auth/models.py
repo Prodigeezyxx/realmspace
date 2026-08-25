@@ -60,6 +60,12 @@ class Tenant(Base):
     #: two rows are written in one transaction, and either order would leave one
     #: of them pointing at something that does not exist yet.
     created_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Which `gtm.md` tier this organisation is on (migration 0012). What it
+    #: means is in `app/plans.py`; a CHECK constraint keeps a typo out, because
+    #: an unrecognised plan must be a refusal rather than an exemption.
+    plan: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'booth'")
+    )
 
     __table_args__ = (Index("tenant_created_by_idx", "created_by"),)
 
