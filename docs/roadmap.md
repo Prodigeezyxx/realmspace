@@ -110,6 +110,35 @@ median (233ms worst) while traffic is continuous**, which is an activation, and
 quiet**, when the consumers have backed off to their idle interval. Both inside
 budget.
 
+**Re-measured 2026-08-27**, because the figures above had stood unrepeated since
+Phase 1 while five phases and sixteen more consumers were built on top of them.
+Twelve runs, each the median of five walk-ins through the real poll loops:
+
+| | |
+|---|---|
+| Median of the twelve run-medians | **246ms** |
+| Best / worst run-median | 117ms / 703ms |
+| Individual samples across all runs | **37–809ms** |
+| Runs inside the 500ms criterion | **11 of 12** |
+
+**Inside the criterion, and slower than Phase 1 recorded.** Two things account
+for the gap and neither is a regression anybody chose. The stack now runs
+**inside a Linux VM** (colima), which the compose file's own header says was not
+the original arrangement — a dev machine that had been through
+`backend/README.md` ran Postgres and Neo4j natively via brew. The VM sat at 145%
+CPU throughout, and it is the databases the test needs, so this is the floor for
+this machine rather than an idle baseline. And there are **seventeen consumers
+polling the log now** where Phase 1 had two.
+
+**The one run over budget was a machine stall, not a slow path.** All five of its
+samples read 685–809ms together; scheduling jitter moves samples apart, not as a
+block. Recorded rather than dropped, because an 8% chance of a whole-second stall
+is a real property of measuring on a laptop and is exactly why the test gates on
+a regression ceiling and not on this number — see the header of that file.
+
+**What this does not re-verify:** the camera leg. The 157ms figure above came
+from YOLO over a real clip, and no clip was run today.
+
 The other clauses, on one recorded session: a `Person` node and `DWELLED_IN`
 edges for both zones (7.5s at Entry Arch, 5.5s at Mirror Room) from a real
 camera; `/live` showing 1 unique visitor, 7s average dwell and 70 events from

@@ -92,6 +92,26 @@ numbers are printed on every run either way.
 
 6 new tests; 259 dashboard and 654 backend pass, types, lint and build clean.
 
+**And then the promise was actually re-checked**, since the figures in
+`roadmap.md` had stood unrepeated since Phase 1 while five phases were built on
+top of them. Twelve runs against the 500ms criterion, each the median of five
+visitors: **246ms median run, 117ms best, 11 of 12 inside the criterion.**
+
+It is inside the promise and slower than Phase 1 recorded (110ms), and the two
+reasons are worth writing down rather than leaving as a mystery. The databases
+now run **inside a Linux VM** on this machine, where the original measurement
+had them installed natively — the VM held 145% CPU throughout, and it is the
+databases the test needs, so that is this machine's floor rather than an idle
+one. And **seventeen consumers poll the log now** where Phase 1 had two.
+
+The single run that missed had all five of its samples land together at
+685–809ms, which is a machine stalling rather than a slow path — jitter moves
+samples apart, not as a block. It is recorded rather than dropped, because that
+is precisely the thing a gating test must not be judged on.
+
+Not re-checked, and stated: the camera leg. Phase 1's 157ms came from YOLO over
+a real clip and no clip was run.
+
 ### Fixed — 2026-08-27 — `[neo4j-track]` The two things a first customer hits
 
 The Phase 6 walkthrough fixed five things and wrote two down. These are those
