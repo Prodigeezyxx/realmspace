@@ -11,15 +11,19 @@
  * on a laptop that saw the bad run would keep computing from it forever.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  append,
+  appendMany,
   clearPartition,
   headSeq,
   OUTBOUND_CURSOR,
   readAll,
   setCursor,
+  subscribe,
 } from "./log";
+import type { RealmEventInput } from "@/lib/contracts";
 
 const T = "t_test";
 
@@ -44,6 +48,11 @@ function seedLegacyPartition(sessionId: string, count: number) {
 
 beforeEach(() => {
   window.localStorage.clear();
+  // The in-memory partition cache outlives localStorage.clear(), so a partition
+  // written by one test would still be cached for the next.
+  for (const id of ["s_batch", "s_one", "s_two", "s_mirrored", "s_pending", "s_later"]) {
+    clearPartition(T, id);
+  }
 });
 
 describe("sweeping a stale format", () => {
@@ -87,5 +96,84 @@ describe("sweeping a stale format", () => {
     seedLegacyPartition("s_later", 2);
     setCursor(OUTBOUND_CURSOR, T, "s_later", 2);
     expect(readAll(T, "s_later")).toHaveLength(2);
+  });
+});
+
+describe("appending a batch", () => {
+  /** One dwell, ready to append. */
+  function input(over: Partial<RealmEventInput> = {}): RealmEventInput {
+    return {
+      eventId: "e-1",
+      tenantId: T,
+      sessionId: "s_batch",
+      type: "spatial.dwell",
+      payload: { anonId: "P-1", zoneId: "z_a", durationSec: 30 },
+      occurredAt: 1_754_215_200_000,
+      ...over,
+    };
+  }
+
+  it("writes to storage once, not once per event", () => {
+    // The whole point. `persist()` serialises the entire partition, so N
+    // appends is N stringifications of an array growing to N — which is what
+    // killed the vitest worker on every CI run from the day CI was added.
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    appendMany(
+      Array.from({ length: 50 }, (_, i) => input({ eventId: `e-${i}` }))
+    );
+
+    const partitionWrites = setItem.mock.calls.filter(([k]) =>
+      String(k).startsWith("rs:eventlog:t_test::s_batch")
+    );
+    expect(partitionWrites).toHaveLength(1);
+    expect(readAll(T, "s_batch")).toHaveLength(50);
+    setItem.mockRestore();
+  });
+
+  it("assigns seq in order, exactly as one-at-a-time appends would", () => {
+    appendMany([input({ eventId: "a" }), input({ eventId: "b" }), input({ eventId: "c" })]);
+    expect(readAll(T, "s_batch").map((e) => e.seq)).toEqual([1, 2, 3]);
+    expect(headSeq(T, "s_batch")).toBe(3);
+  });
+
+  it("dedupes within the batch and against what is already logged", () => {
+    // A backfill overlaps the socket, so a page can carry an event this browser
+    // already has — the property that makes the two safe to run in any order.
+    append(input({ eventId: "already" }));
+
+    const written = appendMany([
+      input({ eventId: "already" }),
+      input({ eventId: "fresh" }),
+      input({ eventId: "fresh" }),
+    ]);
+
+    expect(written.map((e) => e.eventId)).toEqual(["fresh"]);
+    expect(readAll(T, "s_batch")).toHaveLength(2);
+  });
+
+  it("fans out once per genuinely new event", () => {
+    const seen: string[] = [];
+    const off = subscribe((e) => seen.push(e.eventId));
+    append(input({ eventId: "already" }));
+    appendMany([input({ eventId: "already" }), input({ eventId: "fresh" })]);
+    off();
+
+    expect(seen).toEqual(["already", "fresh"]);
+  });
+
+  it("keeps partitions apart when a batch spans sessions", () => {
+    appendMany([
+      input({ eventId: "a", sessionId: "s_one" }),
+      input({ eventId: "b", sessionId: "s_two" }),
+    ]);
+    expect(readAll(T, "s_one").map((e) => e.eventId)).toEqual(["a"]);
+    expect(readAll(T, "s_two").map((e) => e.eventId)).toEqual(["b"]);
+  });
+
+  it("writes nothing for an empty batch", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    expect(appendMany([])).toEqual([]);
+    expect(setItem).not.toHaveBeenCalled();
+    setItem.mockRestore();
   });
 });

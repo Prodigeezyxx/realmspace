@@ -13,6 +13,7 @@
 export * as bus from "./log";
 export {
   append,
+  appendMany,
   read,
   readAll,
   replay,

@@ -35,6 +35,7 @@
 import { getFirebaseAuth } from "@/lib/firebase/client";
 import {
   append,
+  appendMany,
   read,
   getCursor,
   setCursor,
@@ -513,6 +514,39 @@ function accept(wire: WireEvent, translated: RealmEventInput): boolean {
 }
 
 /**
+ * Mirror a page of wire events, writing to the local log **once**.
+ *
+ * The socket delivers one at a time and `mirror()` stays the entry point for
+ * that. A backfill does not: it pages up to 200 × 500 events, and `append()`
+ * serialises the whole partition on every call — so mirroring a real
+ * activation's history one event at a time is quadratic, in a customer's
+ * browser, on the load path of `/report`. Same refusal, same quarantine, same
+ * cursor rule; only the write is batched.
+ *
+ * Returns how many of them were readable.
+ */
+function mirrorPage(wires: WireEvent[]): number {
+  const readable: RealmEventInput[] = [];
+  let highest = 0;
+
+  for (const wire of wires) {
+    const translated = eventFromWire(wire);
+    if (accept(wire, translated)) readable.push(translated);
+    // Refused events move the cursor too — see the note on `mirror`.
+    highest = Math.max(highest, wire.seq);
+  }
+
+  if (readable.length) appendMany(readable);
+
+  const { tenantId, sessionId } = wires[0];
+  if (highest > getRemoteSeq(tenantId, sessionId)) {
+    setRemoteSeq(tenantId, sessionId, highest);
+    publish({ lastSeq: highest });
+  }
+  return readable.length;
+}
+
+/**
  * Mirror one wire event into the local log and advance the remote cursor.
  * Returns whether it was readable — a refused event is quarantined, not logged.
  *
@@ -549,8 +583,9 @@ export function mirror(wire: WireEvent): boolean {
  * later, on someone else's laptop — and the local log is empty. Without this the
  * report would show an empty state for a session with thousands of events in it.
  *
- * Reuses `mirror()`, so it is idempotent against whatever the socket already
- * delivered and the two can run in any order. Returns how many events were read.
+ * Shares `mirrorPage()`'s translation, refusal and cursor rules with the socket,
+ * so it is idempotent against whatever the socket already delivered and the two
+ * can run in any order. Returns how many events were read.
  *
  * Pages on `seq` rather than an offset: `seq` has permanent gaps (a deduped
  * insert burns a value), so paging by count would skip events.
@@ -587,12 +622,13 @@ export async function backfillSession(
     const batch = (await res.json()) as WireEvent[];
     if (!batch.length) break;
 
-    for (const wire of batch) {
-      // The server filters by session, but the log is partitioned by
-      // (tenant, session) and a mismatch here would write into the wrong
-      // partition — worth one comparison rather than trusting the query.
-      if (wire.tenantId === verified && wire.sessionId === sessionId) mirror(wire);
-    }
+    // The server filters by session, but the log is partitioned by
+    // (tenant, session) and a mismatch here would write into the wrong
+    // partition — worth one comparison rather than trusting the query.
+    const mine = batch.filter(
+      (wire) => wire.tenantId === verified && wire.sessionId === sessionId
+    );
+    if (mine.length) mirrorPage(mine);
     total += batch.length;
     since = batch[batch.length - 1].seq;
     if (batch.length < PAGE) break;

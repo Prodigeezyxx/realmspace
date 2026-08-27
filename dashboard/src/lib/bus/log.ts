@@ -177,18 +177,18 @@ function genId(): string {
 }
 
 /**
- * Append an event to the log. Idempotent: if `eventId` was already appended to
- * this partition, this is a no-op and returns the existing event.
+ * The append itself, without writing to storage.
+ *
+ * Split out so a batch can be written once rather than once per event — see
+ * `appendMany`. Returns null when the event was a duplicate and nothing new was
+ * added, so the caller knows whether there is anything to persist or fan out.
  */
-export function append<P = RealmEventPayload>(
-  input: RealmEventInput<P>
-): RealmEvent<P> {
-  const part = loadPartition(input.tenantId, input.sessionId);
-  const eventId = input.eventId ?? genId();
-
-  if (part.seenIds.has(eventId)) {
-    return part.events.find((e) => e.eventId === eventId) as RealmEvent<P>;
-  }
+function appendOne<P = RealmEventPayload>(
+  part: Partition,
+  input: RealmEventInput<P>,
+  eventId: string
+): RealmEvent<P> | null {
+  if (part.seenIds.has(eventId)) return null;
 
   const now = Date.now();
   const event: RealmEvent<P> = {
@@ -204,18 +204,85 @@ export function append<P = RealmEventPayload>(
 
   part.events.push(event as RealmEvent);
   part.seenIds.add(eventId);
-  persist(input.tenantId, input.sessionId, part);
+  return event;
+}
 
-  // fan out to live subscribers (idempotent-safe: only fires on real append)
+/** fan out to live subscribers (idempotent-safe: only fires on a real append) */
+function announce(event: RealmEvent) {
   subscribers.forEach((s) => {
     try {
-      s(event as RealmEvent);
+      s(event);
     } catch {
       /* subscriber errors never break the producer */
     }
   });
+}
 
+/**
+ * Append an event to the log. Idempotent: if `eventId` was already appended to
+ * this partition, this is a no-op and returns the existing event.
+ */
+export function append<P = RealmEventPayload>(
+  input: RealmEventInput<P>
+): RealmEvent<P> {
+  const part = loadPartition(input.tenantId, input.sessionId);
+  const eventId = input.eventId ?? genId();
+  const event = appendOne<P>(part, input, eventId);
+  if (!event) {
+    return part.events.find((e) => e.eventId === eventId) as RealmEvent<P>;
+  }
+
+  persist(input.tenantId, input.sessionId, part);
+  announce(event as RealmEvent);
   return event;
+}
+
+/**
+ * Append a run of events, writing to storage **once**.
+ *
+ * `persist()` serialises the whole partition, so appending N events one at a
+ * time is N stringifications of an array growing to N — quadratic, and it is
+ * not theoretical. `seedDemoSession` writes ~1,200 events in a loop, which is
+ * on the order of 180MB of transient strings per seed; `seed-demo.test.ts`
+ * seeds fifteen times, and the vitest worker died of it on every CI run from
+ * the day CI was added. `backfillSession` is the same shape on a real load
+ * path: up to 200 pages of 500 events, in a customer's browser, on `/report`.
+ *
+ * Same dedupe, same seq assignment and the same per-event fan-out as `append`.
+ * Only the write is batched, and duplicates within the batch are dropped
+ * exactly as duplicates against the stored log are.
+ *
+ * Returns the events that were genuinely new, in order.
+ */
+export function appendMany<P = RealmEventPayload>(
+  inputs: RealmEventInput<P>[]
+): RealmEvent<P>[] {
+  if (!inputs.length) return [];
+
+  const written: RealmEvent<P>[] = [];
+  // Partitioned, because a batch may legitimately span sessions and each
+  // partition has its own storage key, seq and dedupe set.
+  const touched = new Map<string, { tenantId: string; sessionId: string; part: Partition }>();
+
+  for (const input of inputs) {
+    const part = loadPartition(input.tenantId, input.sessionId);
+    touched.set(key(input.tenantId, input.sessionId), {
+      tenantId: input.tenantId,
+      sessionId: input.sessionId,
+      part,
+    });
+    const event = appendOne<P>(part, input, input.eventId ?? genId());
+    if (event) written.push(event);
+  }
+
+  // Persist before announcing, so a subscriber that reads the log sees exactly
+  // what a reload would — the same order `append` has always had.
+  for (const { tenantId, sessionId, part } of touched.values()) {
+    persist(tenantId, sessionId, part);
+  }
+  for (const event of written) announce(event as RealmEvent);
+
+  return written;
 }
 
 /** Read events after a seq cursor (0 = from the beginning), optionally filtered. */

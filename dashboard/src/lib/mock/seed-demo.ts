@@ -32,7 +32,7 @@
  * than replaying yesterday with new timestamps.
  */
 
-import { append, clearPartition, markLocalOnly, read } from "@/lib/bus";
+import { appendMany, clearPartition, markLocalOnly, read } from "@/lib/bus";
 import type { RealmEventInput } from "@/lib/contracts";
 import { DEMO_SESSION } from "./session";
 
@@ -253,7 +253,9 @@ export function seedDemoSession(tenantId: string, now: number = Date.now()): num
   // Chronological, so the log reads like a day rather than like a loop over
   // visitors — enter/exit deltas depend on the ordering being real.
   events.sort((a, b) => (a.occurredAt ?? 0) - (b.occurredAt ?? 0));
-  for (const e of events) append(e);
+  // One write, not 1,200. `persist()` serialises the whole partition, so
+  // appending a day of visitors one at a time is quadratic — see `appendMany`.
+  appendMany(events);
 
   // Never let the demo out of this browser. The outbound flush walks the same
   // log, so without this the next real emit() would post 140 invented visitors
