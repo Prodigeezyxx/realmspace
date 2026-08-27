@@ -30,6 +30,7 @@ import {
   useSessions,
 } from "@/lib/session/store";
 import { useLiveSession } from "@/lib/live-session/store";
+import { useFirstRun } from "@/lib/session/useFirstRun";
 import { cn } from "@/lib/utils";
 
 export function StatusBar() {
@@ -37,6 +38,11 @@ export function StatusBar() {
   const pathname = usePathname();
   const active = useActiveSession();
   const sessions = useSessions();
+  // An organisation with nothing of its own is looking at the seeded demo, and
+  // the header is the one place its name and venue sit above every screen. It
+  // says what it is rather than reading as this client's activation — see
+  // `components/chrome/FirstRunGate.tsx`.
+  const showingSample = useFirstRun() === "first-run" && active.isDemo;
 
   // From the shared clock. This used to be `useState<Date | null>(null)` seeded
   // by a setState inside an effect — the null start was there so the server
@@ -122,11 +128,11 @@ export function StatusBar() {
                   className="text-text-muted shrink-0"
                 />
                 <span className="text-sm font-medium truncate">
-                  {active.name}
+                  {showingSample ? "Sample activation" : active.name}
                 </span>
               </span>
               <span className="hidden md:inline text-xs text-text-muted truncate">
-                · {active.venue}
+                · {showingSample ? "invented figures, not yours" : active.venue}
               </span>
               <ChevronDown
                 size={14}

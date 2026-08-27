@@ -19,6 +19,95 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-27
 
+### Fixed — 2026-08-27 — `[neo4j-track]` The two things a first customer hits
+
+The Phase 6 walkthrough fixed five things and wrote two down. These are those
+two. Both are on the path somebody walks in their first ten minutes.
+
+**The wizard would not let you continue and would not say why.** Step 3 needs a
+space template. The zones are already there — they arrived from the experience
+type you picked two screens earlier — so the page looks finished, and the only
+sign that anything is wrong is a Continue button that has gone grey. There was
+nothing to read and nowhere to look.
+
+It says what it is waiting on now, beside the button you just failed to press:
+*"Choose a space template above. The zones below came from the experience type
+you picked — the template is what gives them a footprint to sit in."* The
+sentence has to mention the zones, because their being there is the whole reason
+the refusal looked like a fault.
+
+The other three steps had the same silent refusal for different fields, and now
+name whichever one is actually missing — the venue but not the start time, a
+name but not the type, and how many touchpoints are still unnamed.
+
+**A brand-new customer's first screen was somebody else's activation.** Sign up,
+and you landed on the built-in demo: another client's name, another client's
+venue, and a set of figures for an event that never happened. It is labelled,
+and it lives in code so the laptop demo works with no backend at all — but it
+should not be the first thing a paying customer sees.
+
+The demo stays exactly where it was, in the list and one click away in the
+switcher. What changed is what an organisation with nothing of its own is shown:
+*"Nothing measured here yet"*, and an invitation to set up its first activation.
+Anybody who would rather look around the sample first can, from a link that says
+what the sample is.
+
+**The careful part is who does not see that.** "This browser has never seen an
+activation" and "this organisation has never run one" are different claims, and
+only the server can settle the second. So the screen appears only when the
+backend confirms it, and never when the answer could not be read — an operator
+on a second laptop, or one whose wifi dropped, must not be told their work does
+not exist.
+
+#### The detail
+
+- **`lib/session/wizard-validation.ts`** — `blockedReason(step, draft)` returns
+  the sentence, or null. Pure, so it is tested without rendering a five-step
+  form. `WizardFooter` takes the reason and **derives** `disabled` from it, so a
+  step cannot refuse to advance without one existing. The reason is never hidden
+  at any width: one that disappears on a narrow screen is the defect again.
+- **`lib/session/useFirstRun.ts`** — three conditions, and the third is the
+  careful one: a backend is configured, the local store holds no activation of
+  this tenant's own, **and** `fetchSessionList` returns `[]`. That function
+  already separated `null` ("could not tell") from `[]` ("has run nothing") for
+  the benchmark, which is exactly the distinction needed here — a `null` never
+  gates. The decision is a pure `firstRunStatus()`; the hook is plumbing. It
+  re-asks when the **verified** tenant lands, since the value starts as a guess
+  and a gate deciding before then would decide for the wrong organisation.
+- **`components/chrome/FirstRunGate.tsx`** — wraps the app's `<main>`.
+  `/sessions/new` is never gated (it is the way out), nor `/sessions` (its own
+  empty state and the demo filter already exist) nor `/ops` (a new organisation
+  may need to read its plan first). "Still checking" renders the page, because a
+  flash of a first-run screen on every load for an established client would be a
+  worse lie than the one this replaces.
+- **`components/chrome/StatusBar.tsx`** — while the gate holds, the header names
+  the seeded activation as *"Sample activation · invented figures, not yours"*
+  rather than putting a fictional client and venue above every screen.
+- **Not done, deliberately:** making `useActiveSession()` nullable. It is
+  eighteen call sites, each needing its own designed empty state. The complaint
+  is about the first screen, and the first screen is one component.
+
+#### How it was checked
+
+Walked in a browser against a live stack, as a new customer:
+
+- Signed up **Harbourline** through the login screen. Landed on *"Nothing
+  measured here yet"*, not on Lagos Showroom, with the header reading "Sample
+  activation". `/sessions` and `/ops` still opened, and the demo was still in the
+  list with its DEMO badge.
+- Ran the wizard and read the reason at each step: *"Choose an experience type
+  and a name for this activation"* → narrowing to *"Choose a name…"* the moment
+  a type was picked → *"Fill in the venue"* → the step-3 sentence, above a full
+  list of seeded zones → *"One touchpoint has no name"*. Picking a template
+  cleared it and Continue lit.
+- Launched, and the gate was gone: `/live` and `/report` showed Harbourline's
+  own activation with honest zeros.
+- Signed back in as the seeded demo tenant, which has activations on the backend
+  and none in this browser's store. Nothing changed for it — the case where the
+  server knows about work this browser has never seen.
+
+17 new tests; 253 pass, lint clean, production build green.
+
 ### Fixed — 2026-08-27 — `[neo4j-track]` The dashboard now refuses a broken event instead of quietly guessing
 
 The last thing the Phase 6 walkthrough wrote down was that the two halves of

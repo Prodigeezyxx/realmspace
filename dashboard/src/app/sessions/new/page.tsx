@@ -47,6 +47,7 @@ import { getPrefab } from "@/lib/prefabs";
 import { busEmail } from "@/lib/bus";
 import { publishSessionConfig } from "@/lib/session/publish";
 import { sessionActions } from "@/lib/session/store";
+import { blockedReason } from "@/lib/session/wizard-validation";
 import type {
   Camera,
   Measurement,
@@ -173,19 +174,23 @@ export default function NewSessionPage() {
 
   const typeMeta = type ? getTypeMeta(type) : null;
 
-  // Validation per step
-  const canAdvance = useMemo(() => {
-    if (step === 1) return Boolean(type && name.trim());
-    if (step === 2) return Boolean(venue.trim() && startAtLocal);
-    if (step === 3)
-      return (
-        Boolean(prefabId) &&
-        zones.length > 0 &&
-        zones.every((z) => z.name.trim())
-      );
-    if (step === 4) return touchpoints.every((t) => t.name.trim());
-    return true;
-  }, [step, type, name, venue, startAtLocal, prefabId, zones, touchpoints]);
+  // Why this step will not advance — the sentence, not a boolean. The rules
+  // live in `lib/session/wizard-validation.ts` so they can be read and tested
+  // without rendering a five-step form.
+  const blocked = useMemo(
+    () =>
+      blockedReason(step, {
+        type,
+        name,
+        venue,
+        startAtLocal,
+        prefabId,
+        zones,
+        touchpoints,
+      }),
+    [step, type, name, venue, startAtLocal, prefabId, zones, touchpoints]
+  );
+  const canAdvance = blocked === null;
 
   function selectPrefab(id: string) {
     const applied = applyPrefabToDraft(id, {
@@ -976,7 +981,7 @@ export default function NewSessionPage() {
         back={step > 1 ? back : undefined}
         next={step < TOTAL_STEPS ? next : undefined}
         finish={step === TOTAL_STEPS ? launch : undefined}
-        nextDisabled={!canAdvance}
+        blockedReason={blocked}
       />
     </div>
   );

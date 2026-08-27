@@ -129,11 +129,21 @@ export function WizardStep({
 
 // ── Bottom action bar ────────────────────────────────────────────────────
 
+/**
+ * The wizard's footer, and the one place that decides whether it will advance.
+ *
+ * `blockedReason` is the source and `disabled` is derived from it, not the
+ * other way round — so a step cannot refuse to advance without saying why. The
+ * Phase 6 acceptance walk found the version where it could: step 3 greyed the
+ * button out and left the operator to guess, on a screen that already looked
+ * complete. `nextDisabled` stays for callers that have no reason to give.
+ */
 export function WizardFooter({
   back,
   next,
   finish,
   nextDisabled,
+  blockedReason,
   nextLabel = "Continue",
   finishLabel = "Launch session",
 }: {
@@ -141,9 +151,12 @@ export function WizardFooter({
   next?: () => void;
   finish?: () => void;
   nextDisabled?: boolean;
+  /** Why this step cannot advance. Rendered beside the button, never swallowed. */
+  blockedReason?: string | null;
   nextLabel?: string;
   finishLabel?: string;
 }) {
+  const disabled = nextDisabled || Boolean(blockedReason);
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-bg-base via-bg-base to-transparent pt-6 pb-6 px-5">
       <div className="max-w-[1400px] mx-auto flex items-center justify-between">
@@ -157,11 +170,20 @@ export function WizardFooter({
             </button>
           )}
         </div>
-        <div>
+        <div className="flex items-center gap-4 min-w-0">
+          {blockedReason && (
+            // Beside the button rather than under the offending field: the
+            // operator is looking at the button they just failed to press.
+            // Never hidden at any width — a reason that disappears on a narrow
+            // screen is the defect this replaced.
+            <p className="text-sm text-text-secondary text-right max-w-md leading-snug">
+              {blockedReason}
+            </p>
+          )}
           {finish ? (
             <button
               onClick={finish}
-              disabled={nextDisabled}
+              disabled={disabled}
               className="inline-flex items-center gap-2 bg-accent text-text-inverse h-12 pl-6 pr-2.5 rounded-full font-semibold text-sm hover:bg-accent-bright transition-colors shadow-[var(--glow-green)] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {finishLabel}
@@ -172,7 +194,7 @@ export function WizardFooter({
           ) : (
             <button
               onClick={next}
-              disabled={nextDisabled}
+              disabled={disabled}
               className="inline-flex items-center gap-2 bg-accent text-text-inverse h-12 pl-6 pr-2.5 rounded-full font-semibold text-sm hover:bg-accent-bright transition-colors shadow-[var(--glow-green)] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {nextLabel}

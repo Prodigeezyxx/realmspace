@@ -1229,16 +1229,36 @@ stopped a clause being true; two are recorded.
    walks `occurredAt`; everything else in the scorecard is a set or a sum and is
    order-independent.
 
-**Two more, recorded rather than fixed**, because neither stops a clause:
+**Two more, recorded rather than fixed** at the time, because neither stopped a
+clause. **Both closed 2026-08-27:**
 
-- 🔲 **The wizard's Continue button disables itself with no reason given.** Step
-  3 requires a space template, the page has already seeded zones so it looks
-  complete, and the only signal is a greyed-out button. A wizard that refuses to
-  advance should say what is missing.
-- 🔲 **A brand-new organisation sees the seeded demo activation.** It is
-  labelled DEMO, lives in code and is the laptop demo's whole point — but a
-  paying customer's first screen showing a fictional activation is a product
-  decision somebody should make deliberately rather than inherit.
+- ✅ **The wizard's Continue button disables itself with no reason given**
+  *(closed 2026-08-27)*. `lib/session/wizard-validation.ts` returns the sentence
+  rather than a boolean, and `WizardFooter` **derives** `disabled` from it — so a
+  step cannot refuse to advance without saying why. Step 3's message has to
+  mention the zones (*"the zones below came from the experience type you
+  picked"*), because `selectType()` seeds them two screens earlier and their
+  being there is what makes the refusal look like a fault. The other three steps
+  had the same silent disable and now name whichever field is actually missing.
+- ✅ **A brand-new organisation sees the seeded demo activation**
+  *(closed 2026-08-27)*. **The decision made: the demo stays, and stops being
+  first.** It is still in the list, still badged, still one click away in the
+  switcher, and a deployment with no backend is untouched — that is the laptop
+  demo. What changed is that an organisation with nothing of its own gets a
+  first-run screen and an invitation to set one up.
+
+  **The careful half is who does *not* see it.** "This browser has never seen an
+  activation" and "this organisation has never run one" are different claims,
+  and only the server settles the second, so the screen appears only when
+  `fetchSessionList` returns `[]` — never on a `null`, which is what that
+  function already returns for a failed read. An operator on a second laptop
+  must not be told their work does not exist; it is the same failure shape as
+  reporting a broken pipeline as a quiet day. `lib/session/useFirstRun.ts` keeps
+  the decision pure and re-asks when the **verified** tenant lands.
+
+  **Not done, deliberately:** making `useActiveSession()` nullable. Eighteen
+  call sites, each needing its own empty state, to fix a complaint about one
+  screen.
 
 **One thing the run got right by accident, and it is worth keeping.** The first
 seeding script wrote camelCase payloads, which is the browser's dialect and not

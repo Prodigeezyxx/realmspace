@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 
+import { FirstRunGate } from "@/components/chrome/FirstRunGate";
 import { NavRail } from "@/components/chrome/NavRail";
 import { StatusBar } from "@/components/chrome/StatusBar";
 import { LiveSessionProvider } from "@/components/live/LiveSessionProvider";
@@ -13,7 +14,9 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <StatusBar />
         <div className="flex flex-1 min-h-0">
           <NavRail />
-          <main className="flex-1 min-w-0 overflow-x-hidden">{children}</main>
+          <main className="flex-1 min-w-0 overflow-x-hidden">
+            <FirstRunGate>{children}</FirstRunGate>
+          </main>
         </div>
       </div>
     </LiveSessionProvider>
