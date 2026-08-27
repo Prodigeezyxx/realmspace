@@ -56,3 +56,22 @@ export {
   payloadToWire,
   type WireEvent,
 } from "./wire";
+
+/**
+ * `quarantine.ts` holds the events this browser refused as unreadable — the
+ * client-side counterpart of the backend's dead-letter queue. Read by `/report`,
+ * which has to say when a figure was computed from fewer events than arrived,
+ * and by `/ops`, which shows the two queues side by side.
+ */
+export {
+  readRefused,
+  listRefusedSessions,
+  getRefusalVersion,
+  refusalSnapshot,
+  type RefusedSession,
+  recordRefusal,
+  summariseRefusals,
+  subscribeRefusals,
+  clearRefusals,
+  type RefusedEvent,
+} from "./quarantine";

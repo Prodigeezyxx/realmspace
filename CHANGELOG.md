@@ -17,7 +17,107 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-25
+## [Unreleased] — last updated 2026-08-27
+
+### Fixed — 2026-08-27 — `[neo4j-track]` The dashboard now refuses a broken event instead of quietly guessing
+
+The last thing the Phase 6 walkthrough wrote down was that the two halves of
+this system disagree about what a broken event is, and only one of them says so.
+
+The backend refuses one outright. An event whose payload is missing something it
+needs is retried, set aside in the failed-events queue, and shown on `/ops` for
+somebody to look at. Nothing is lost and nothing is guessed.
+
+The dashboard did the opposite. Handed the same event, it carried on. A visit
+with no duration on it was added to the average anyway — which turned the
+average, and every figure computed from it, into the word `NaN`. A visitor with
+no id was added to the count of unique visitors as though they were a person.
+Neither of those looked like a failure. They looked like a report.
+
+Both halves refuse now, and the browser says what it refused and why.
+
+**What an operator sees.** A new panel on `/ops`, beside the queue that has
+always been there: *Events this browser could not read*, grouped by what was
+wrong with them and counted. And one line on the report itself, in the same list
+that already explains every missing figure — *"5 events could not be read and
+are excluded from every figure here (4 × spatial.dwell, 1 × spatial.zone_enter).
+They are still on the backend's log."* The number a client is shown is either
+computed from readable events or absent with its reason, never averaged with
+something nobody could read.
+
+**Two things it deliberately does not do.** It does not throw the event away:
+the real one is on the backend's log, which is where anybody investigating
+should look. And it does not keep what the event said — only which field was
+missing. That list lives in the browser, where an erasure request cannot reach
+it, so a broken payload with somebody's name in it must not be copied there.
+
+**One thing it does that is not visible.** A browser that saw the bad run has
+those events saved locally, and they would never be re-checked. Those saved
+copies are dropped and fetched again from the backend — except where the browser
+is holding events it has not managed to send yet, which exist nowhere else and
+are left alone. On the machine this was tested on, that guard fired for real:
+one activation was holding two unsent events and was kept exactly as it was.
+
+#### The detail
+
+- **`dashboard/src/lib/contracts/validate.ts`** — a required-field table per
+  event type and `validatePayload`. Only the fields a reader dereferences
+  (`roi/scorecard.ts`, `report/derive.ts`, `live/derive.ts`, `twin/replay.ts`);
+  a field nobody reads cannot produce a wrong figure by being absent. Presence,
+  non-empty strings, **finite** numbers — `NaN` is the one value that passes
+  `typeof x === "number"`, survives arithmetic and takes a whole scorecard with
+  it, which is the shape defect 6 of the Phase 6 walk took on a client's report.
+  **An unknown type passes**: the taxonomy is additive (`event-bus-spec.md` §3)
+  and a browser that predates a producer must not refuse it.
+  Drift between the table and the interfaces is a **compile error**, not a
+  review item — each list is `satisfies readonly RequiredKeys<Payload>[]`, so
+  listing a field the contract marks optional stops the build. Verified by
+  making one optional and watching `tsc` refuse it.
+- **The two inbound doors**, both of which already funnelled through
+  `eventFromWire`: `mirror()` (the live socket and `backfillSession`) and
+  `fetchSessionEvents()` (the report's benchmark and the twin, neither of which
+  goes through the local log — a check that guarded only the first would have
+  left both exactly as wrong as before). Judged **after** translation, on this
+  app's dialect, or every snake_case event the real backend sends would be
+  refused. **The remote cursor still advances on a refusal**: it records what
+  this browser has seen, not what it accepted, and holding it back would
+  re-request the same unreadable event forever.
+- **`emit()` throws**, in the shape of the consent redline already in that
+  function. Every caller is our own code with a fixed payload shape and there is
+  no high-rate producer in the browser, so this is a programming error that
+  belongs in a test rather than a runtime condition on a floor — and the
+  alternative is this app emitting the malformation it has just started
+  refusing to read.
+- **`lib/bus/quarantine.ts`** — capped at 100 per activation, idempotent on
+  `eventId` (a backfill overlaps the socket, so the same bad event arrives more
+  than once and must not be counted twice), and storing the envelope and the
+  reasons only.
+- **`lib/bus/log.ts`** — a format version, and a sweep that drops mirrored
+  partitions written before the check existed. The local log is a mirror, so a
+  cleared partition costs nothing: `backfillSession` pages it back, this time
+  through the validation. The guard is the exception `remote.ts` has always
+  named — there is no second outbox, the local log *is* the buffer — so a
+  partition whose outbound cursor is behind its head is left alone and
+  reconsidered on a later load.
+
+#### How it was checked
+
+- **Against a live stack**, on the backend's own output. Five events posted to
+  `POST /v1/events`, all five accepted by the bus; the graph writer parked three
+  in `dead_letter` (`KeyError: 'anon_id'`, `KeyError: 'duration'`, and one of
+  our own seeding mistakes). Running the browser's real boundary over
+  `GET /events`: **before, 3 unique visitors — one of them `undefined` — with
+  `NaN` average dwell and `NaN` attention. After, 1 visitor, 92s, 276, $1,000
+  per engaged visit.** Every figure finite, and the two unreadable events named.
+- **By eye**, in a browser: the `/ops` panel grouping five refusals by reason
+  with their counts, clearing one activation's record and watching the header
+  count follow it, and the report's own line naming the five.
+- **The over-refusal guard.** `bus/contract.test.ts` runs the validator over
+  every event in the verbatim capture of real backend output and asserts **zero**
+  refusals. That file is the only place the real payloads are written down, and
+  being stricter than the producers is the way this fails — it would drop real
+  events off a client's report and look exactly like a quiet day.
+- 32 new tests; 236 pass, lint clean, production build green.
 
 ### Fixed — 2026-08-25 — `[neo4j-track]` We walked in as a new customer, and found seven things
 

@@ -13,6 +13,7 @@ import {
   type RealmEventPayload,
   type RealmEventType,
   isPiiEventType,
+  validatePayload,
 } from "@/lib/contracts";
 import { append as logAppend } from "./log";
 import { flushOutbound, isRemoteBusEnabled } from "./remote";
@@ -38,7 +39,8 @@ export interface EmitOptions {
 
 /**
  * Emit a typed event onto the durable bus, scoped to the active tenant+session.
- * Throws if a PII event is emitted without consent proof (fail closed).
+ * Throws if a PII event is emitted without consent proof (fail closed), or if
+ * the payload is one no reader in this app could use.
  */
 export function emit<P = RealmEventPayload>(
   type: RealmEventType,
@@ -50,6 +52,24 @@ export function emit<P = RealmEventPayload>(
     // else that carries PII must present proof.
     throw new Error(
       `[realmspace] refused to emit PII event "${type}" without consent proof — see docs/consent-and-identity.md`
+    );
+  }
+
+  // The producer half of the refusal `bus/remote.ts` applies to everything
+  // arriving from the backend. Symmetry is the point: this app must not emit
+  // the malformation it has just started refusing to read, and a `spatial.dwell`
+  // with no `zoneId` would be dead-lettered by the backend the moment it was
+  // posted — silently, from the browser's point of view.
+  //
+  // A throw rather than a quarantine, in the shape of the consent redline
+  // above, because every caller here is our own code with a fixed payload
+  // shape. There is no high-rate producer in the browser: this is a programming
+  // error, and it should surface in a test rather than on a floor.
+  const check = validatePayload(type, payload);
+  if (!check.ok) {
+    throw new Error(
+      `[realmspace] refused to emit "${type}": ${check.reasons.join(", ")} — ` +
+        `see lib/contracts/validate.ts`
     );
   }
 

@@ -33,12 +33,23 @@
  */
 
 import { getFirebaseAuth } from "@/lib/firebase/client";
-import { append, read, getCursor, setCursor, headSeq } from "./log";
+import {
+  append,
+  read,
+  getCursor,
+  setCursor,
+  headSeq,
+  OUTBOUND_CURSOR,
+} from "./log";
 import { eventFromWire, eventToWire, type WireEvent } from "./wire";
+import { recordRefusal } from "./quarantine";
 import { getTenantId, setTenantId } from "@/lib/tenant/context";
-import type { RealmEvent } from "@/lib/contracts";
+import {
+  validatePayload,
+  type RealmEvent,
+  type RealmEventInput,
+} from "@/lib/contracts";
 
-const OUTBOUND_CURSOR = "remote-bus";
 const REMOTE_SEQ_PREFIX = "rs:remoteseq:";
 
 export type BusStatus = "off" | "connecting" | "live" | "retrying" | "error";
@@ -472,20 +483,62 @@ function setRemoteSeq(tenantId: string, sessionId: string, seq: number) {
 }
 
 /**
+ * Is this event readable by the code that will read it?
+ *
+ * The backend refuses a payload it cannot use — `graph_writer.py` raises on a
+ * missing `anon_id`, the event is retried and parked in `dead_letter`. This
+ * browser used to accept the same event and turn it into a phantom visitor and
+ * a `NaN` dwell on a client's report. Both halves of the system now agree about
+ * what a malformed payload is; see `contracts/validate.ts`.
+ *
+ * Refusals go to the quarantine rather than the console, because "some events
+ * were not counted" is a fact about a client's report and has to be sayable on
+ * the report itself.
+ */
+function accept(wire: WireEvent, translated: RealmEventInput): boolean {
+  // Validated on the *translated* payload: the check has to judge what a reader
+  // will actually see, not the snake_case the producer sent.
+  const check = validatePayload(wire.type, translated.payload);
+  if (check.ok) return true;
+
+  recordRefusal(wire.tenantId, wire.sessionId, {
+    eventId: wire.eventId,
+    seq: wire.seq,
+    type: wire.type,
+    reasons: check.reasons,
+    occurredAt: wire.occurredAt,
+    refusedAt: Date.now(),
+  });
+  return false;
+}
+
+/**
  * Mirror one wire event into the local log and advance the remote cursor.
+ * Returns whether it was readable — a refused event is quarantined, not logged.
  *
  * Exported because it is the whole inbound contract in one function, and a test
  * that drives it directly is worth more than one that fakes a WebSocket.
+ *
+ * **The cursor still advances on a refusal.** It records what this browser has
+ * *seen*, not what it accepted, and holding it back would re-request the same
+ * unreadable event forever instead of moving past it. The event is not lost:
+ * it is on the server's log, and in the quarantine with its reasons.
  */
-export function mirror(wire: WireEvent): void {
-  append(eventFromWire(wire));
+export function mirror(wire: WireEvent): boolean {
+  const translated = eventFromWire(wire);
+  const readable = accept(wire, translated);
+  if (readable) append(translated);
+
   // Only ever forwards. A replay frame after a reconnect can legitimately
   // contain events older than the cursor if the server capped the window;
   // moving the cursor backwards there would re-request them forever.
+  //
+  // Advanced for a refused event too — see the note above.
   if (wire.seq > getRemoteSeq(wire.tenantId, wire.sessionId)) {
     setRemoteSeq(wire.tenantId, wire.sessionId, wire.seq);
     publish({ lastSeq: wire.seq });
   }
+  return readable;
 }
 
 /**
@@ -595,10 +648,15 @@ export async function fetchSessionEvents(
 
     for (const wire of batch) {
       if (wire.tenantId !== tenantId || wire.sessionId !== sessionId) continue;
+      // Same refusal as the socket's. This path feeds the report's benchmark
+      // and the twin, neither of which goes through the local log, so a check
+      // that only guarded `mirror()` would leave this one wide open.
+      const translated = eventFromWire(wire);
+      if (!accept(wire, translated)) continue;
       // Translated but not mirrored: the payload has to be in this app's shape
       // to be read, but it must not enter the ring buffer.
       out.push({
-        ...eventFromWire(wire),
+        ...translated,
         seq: wire.seq,
         eventId: wire.eventId,
         occurredAt: wire.occurredAt,

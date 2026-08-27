@@ -9,18 +9,22 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { computeScorecard } from "@/lib/roi/scorecard";
 import { append, clearPartition, readAll, getCursor } from "./log";
+import { readRefused, summariseRefusals } from "./quarantine";
 import {
   clearToken,
   connectLiveFeed,
   ensureTenantId,
   ensureToken,
+  fetchSessionEvents,
   flushOutbound,
   getRemoteSeq,
   mirror,
   signUpOrganisation,
 } from "./remote";
-import type { WireEvent } from "./wire";
+import { eventFromWire, type WireEvent } from "./wire";
+import type { RealmEvent } from "@/lib/contracts";
 
 const T = "t_test";
 const S = "s_1";
@@ -116,6 +120,150 @@ describe("mirror", () => {
     mirror(wireEvent({ seq: 7, eventId: "e-7" }));
     mirror(wireEvent({ seq: 3, eventId: "e-3" }));
     expect(getRemoteSeq(T, S)).toBe(7);
+  });
+});
+
+describe("an event this browser cannot read", () => {
+  it("is refused rather than logged", () => {
+    const readable = mirror(
+      wireEvent({ eventId: "e-bad", type: "spatial.dwell", payload: { anon_id: "P-1" } })
+    );
+
+    expect(readable).toBe(false);
+    expect(readAll(T, S)).toHaveLength(0);
+  });
+
+  it("is quarantined with what was wrong, and not with what it said", () => {
+    mirror(
+      wireEvent({
+        eventId: "e-bad",
+        type: "spatial.dwell",
+        payload: { anon_id: "P-1", duration: 92 },
+      })
+    );
+
+    expect(readRefused(T, S)).toEqual([
+      {
+        eventId: "e-bad",
+        seq: 1,
+        type: "spatial.dwell",
+        reasons: ["zoneId is missing"],
+        occurredAt: 1_754_215_200_000,
+        refusedAt: expect.any(Number),
+      },
+    ]);
+  });
+
+  it("still advances the remote cursor", () => {
+    // The cursor records what this browser has *seen*. Holding it back on a
+    // refusal would re-request the same unreadable event forever instead of
+    // moving past it — and the event is not lost: it is on the server's log.
+    mirror(wireEvent({ seq: 9, eventId: "e-bad", payload: { zone_id: "z_a" } }));
+    expect(getRemoteSeq(T, S)).toBe(9);
+  });
+
+  it("is judged after translation, not before", () => {
+    // The payload arrives snake_case and `person_id` is the spec's accepted
+    // alias for `anon_id`. Validating the raw wire payload would refuse every
+    // event the real backend sends.
+    const readable = mirror(
+      wireEvent({
+        type: "perception.detection",
+        payload: { person_id: "P-1", bbox: [0, 0, 1, 1], confidence: 0.9 },
+      })
+    );
+    expect(readable).toBe(true);
+    expect(readRefused(T, S)).toEqual([]);
+  });
+
+  it("is kept out of the non-mirrored read as well", async () => {
+    // `fetchSessionEvents` feeds the report's benchmark and the twin, neither
+    // of which goes through the local log — a check that guarded only `mirror`
+    // would leave both of them exactly as wrong as before.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/v1/auth/token")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ accessToken: "jwt", expiresIn: 3600, tenantId: T }),
+          } as unknown as Response;
+        }
+        return {
+          ok: true,
+          json: async () => [
+            wireEvent({ seq: 1, eventId: "ok", payload: { anon_id: "P-1", zone_id: "z_a" } }),
+            wireEvent({ seq: 2, eventId: "bad", payload: { zone_id: "z_a" } }),
+          ],
+        } as unknown as Response;
+      })
+    );
+
+    const events = await fetchSessionEvents(T, S);
+
+    expect(events.map((e) => e.eventId)).toEqual(["ok"]);
+    expect(summariseRefusals(T, S).count).toBe(1);
+  });
+});
+
+describe("the failure this was built for", () => {
+  it("no longer reaches the scorecard", () => {
+    // Two payloads a reader cannot use, of the two shapes that mattered: one
+    // with no person on it, and one whose duration is under a name nothing
+    // reads. Both were accepted before, and neither raised.
+    const events = [
+      wireEvent({
+        seq: 1,
+        eventId: "ok-1",
+        type: "spatial.zone_enter",
+        payload: { anon_id: "P-1", zone_id: "z_a" },
+      }),
+      wireEvent({
+        seq: 2,
+        eventId: "ok-2",
+        type: "spatial.dwell",
+        payload: { anon_id: "P-1", zone_id: "z_a", duration: 92 },
+      }),
+      wireEvent({
+        seq: 3,
+        eventId: "bad-1",
+        type: "spatial.zone_enter",
+        payload: { zone_id: "z_a" },
+      }),
+      wireEvent({
+        seq: 4,
+        eventId: "bad-2",
+        type: "spatial.dwell",
+        payload: { anon_id: "P-2", zone_id: "z_a", duration_ms: 92_000 },
+      }),
+    ];
+
+    // What the old boundary did: translate and log everything.
+    const unfiltered = events.map((wire, i) => ({
+      ...eventFromWire(wire),
+      seq: i + 1,
+      eventId: wire.eventId,
+      occurredAt: wire.occurredAt,
+      recordedAt: wire.recordedAt,
+    })) as RealmEvent[];
+    const before = computeScorecard(unfiltered);
+    expect(before.reach.uniqueVisitors).toBe(3); // P-1, P-2, and `undefined`
+    expect(Number.isNaN(before.engagement.avgDwellSec)).toBe(true);
+
+    // What it does now.
+    for (const wire of events) mirror(wire);
+    const after = computeScorecard(readAll(T, S));
+
+    expect(after.reach.uniqueVisitors).toBe(1);
+    expect(after.engagement.avgDwellSec).toBe(92);
+    expect(summariseRefusals(T, S)).toEqual({
+      count: 2,
+      byType: [
+        { type: "spatial.zone_enter", count: 1 },
+        { type: "spatial.dwell", count: 1 },
+      ],
+    });
   });
 });
 

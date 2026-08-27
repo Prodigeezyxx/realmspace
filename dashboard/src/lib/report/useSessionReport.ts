@@ -27,6 +27,7 @@ import {
   ensureTenantId,
   isRemoteBusEnabled,
   readAll,
+  summariseRefusals,
 } from "@/lib/bus";
 import {
   fetchSessionConfig,
@@ -175,6 +176,21 @@ export function useSessionReport(session: Session): SessionReport {
       if ((config?.revenueInfluenced ?? measurement.revenueInfluenced) == null) {
         missing.push(
           "No influenced revenue has been provided by the client. Attributed revenue arrives with the CRM phase."
+        );
+      }
+      // Events this browser refused as unreadable (`lib/bus/quarantine.ts`).
+      // They are not on this report's figures, and the difference between "9
+      // visitors came" and "9 visitors were readable" is exactly the kind of
+      // thing this list exists to say out loud. `/ops` has the detail.
+      const refused = summariseRefusals(tenantId, session.id);
+      if (refused.count) {
+        const types = refused.byType
+          .map((t) => `${t.count} × ${t.type}`)
+          .join(", ");
+        missing.push(
+          `${refused.count} event${refused.count === 1 ? "" : "s"} could not be read ` +
+            `and ${refused.count === 1 ? "is" : "are"} excluded from every figure here ` +
+            `(${types}). They are still on the backend's log — see /ops.`
         );
       }
 

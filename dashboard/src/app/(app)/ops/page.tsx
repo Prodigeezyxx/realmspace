@@ -19,6 +19,7 @@ import {
   AlertTriangle,
   Camera,
   Check,
+  FileWarning,
   HelpCircle,
   Info,
   RefreshCw,
@@ -39,6 +40,10 @@ import {
   type DriftFinding,
 } from "@/lib/ops/useDriftEvents";
 import { describeLimit, usePlan, type PlanLimit } from "@/lib/ops/usePlan";
+import {
+  useRefusedEvents,
+  type RefusedSession,
+} from "@/lib/ops/useRefusedEvents";
 import {
   useStrandedDispatches,
   type StrandedDispatch,
@@ -123,6 +128,7 @@ export default function OpsPage() {
         ))}
 
       <StrandedSection />
+      <RefusedSection />
       <DriftSection />
       <PlanSection />
     </div>
@@ -245,6 +251,120 @@ function LimitTile({ label, limit }: { label: string; limit: PlanLimit }) {
  * on nothing. An operator who can see 0.55 against 0.90 can disagree with the
  * threshold; one who can only see "critical" can only believe it or not.
  */
+/**
+ * Events the backend accepted and this browser could not read.
+ *
+ * The other half of the queue above, and the two are here together on purpose.
+ * The Phase 6 acceptance walk found the halves of this system disagreeing about
+ * what a malformed payload is: the backend raised, retried and parked 319
+ * events; the browser took the same events and rendered `NaN` on a client's
+ * report. Both refuse now, and a refusal that only one of them can see is how
+ * that disagreement went unnoticed for a phase.
+ *
+ * Hidden when empty, like the two sections around it — a healthy screen should
+ * not look like a list of things to check.
+ */
+function RefusedSection() {
+  const { items, count, forget } = useRefusedEvents();
+  if (!count) return null;
+
+  return (
+    <section className="space-y-6 pt-4">
+      <div className="border-t border-border-hairline pt-6">
+        <Pill variant="warn" className="mb-2">
+          <FileWarning size={11} />
+          {`${count} ${count === 1 ? "event" : "events"} not counted`}
+        </Pill>
+        <h2 className="text-xl font-semibold tracking-tight">
+          Events this browser could not read
+        </h2>
+        <p className="text-sm text-text-secondary mt-1 max-w-2xl leading-relaxed">
+          The backend accepted these and they are still on its log — what failed
+          is the payload, which is missing something every figure on the report
+          divides by. They are excluded rather than averaged in, because a dwell
+          with no duration counts as a visitor who stayed no time and a person
+          with no id counts as a visitor nobody can name.
+        </p>
+      </div>
+
+      {items.map((item) => (
+        <RefusedItem
+          key={item.sessionId}
+          item={item}
+          onForget={() => forget(item.sessionId)}
+        />
+      ))}
+    </section>
+  );
+}
+
+function RefusedItem({
+  item,
+  onForget,
+}: {
+  item: RefusedSession;
+  onForget: () => void;
+}) {
+  // Grouped by what was wrong, not listed one per event. A producer sending the
+  // wrong dialect sends it for every event it writes, so the untouched list is
+  // the same sentence three hundred times — which is the shape of queue the
+  // header of this page says gets ignored within a week.
+  const byReason = new Map<string, { count: number; latest: number }>();
+  for (const e of item.refused) {
+    const label = `${e.type} · ${e.reasons.join(", ")}`;
+    const prev = byReason.get(label);
+    byReason.set(label, {
+      count: (prev?.count ?? 0) + 1,
+      latest: Math.max(prev?.latest ?? 0, e.refusedAt),
+    });
+  }
+  const rows = [...byReason.entries()].sort((a, b) => b[1].count - a[1].count);
+
+  return (
+    <Panel
+      title={
+        <span className="flex items-center gap-2">
+          <Pill variant="warn">{item.refused.length}</Pill>
+          {item.sessionId}
+        </span>
+      }
+      subtitle={`most recently ${new Date(
+        Math.max(...item.refused.map((e) => e.refusedAt))
+      ).toLocaleString()}`}
+      action={
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<X size={14} />}
+          onClick={onForget}
+        >
+          Clear
+        </Button>
+      }
+    >
+      <div className="space-y-2">
+        {rows.map(([label, { count }]) => (
+          <div
+            key={label}
+            className="flex items-baseline justify-between gap-4 text-sm"
+          >
+            <span className="font-mono text-xs text-text-secondary">{label}</span>
+            <span className="tabular-nums text-text-secondary shrink-0">
+              &times;{count}
+            </span>
+          </div>
+        ))}
+        <p className="text-xs text-text-muted pt-2 leading-relaxed">
+          Only the field names are kept here, never the values — this list lives
+          in the browser, which an erasure request cannot reach. The events
+          themselves are on the backend&rsquo;s log. Clearing forgets the record
+          of the refusal, not the events.
+        </p>
+      </div>
+    </Panel>
+  );
+}
+
 function DriftSection() {
   const { status, items, detail, refresh } = useDriftEvents();
 

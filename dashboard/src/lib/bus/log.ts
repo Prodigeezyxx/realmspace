@@ -22,6 +22,26 @@ const STORAGE_PREFIX = "rs:eventlog:";
 const CURSOR_PREFIX = "rs:cursor:";
 const MAX_PERSISTED = 5000; // ring cap for the browser log
 
+/**
+ * The cursor `remote.ts` uses for what it has posted to the backend.
+ *
+ * It lives here rather than there because the format sweep below has to know
+ * which partitions still hold unsent events, and the log is the lower layer of
+ * the two — the alternative is an import cycle or a second copy of the string.
+ */
+export const OUTBOUND_CURSOR = "remote-bus";
+
+/**
+ * Bumped when a change makes previously-stored events unsafe to read.
+ *
+ * v2: events are validated on the way in (`contracts/validate.ts`). Anything
+ * stored before that could be a payload no reader can use — a phantom visitor
+ * in Reach, `NaN` through every dwell figure — and it will never be re-checked,
+ * because a re-mirror dedupes on `eventId`.
+ */
+const FORMAT_VERSION = "2";
+const FORMAT_KEY = "rs:eventlog:format";
+
 type Subscriber = (e: RealmEvent) => void;
 
 interface Partition {
@@ -44,7 +64,72 @@ function hasWindow() {
   return typeof window !== "undefined";
 }
 
+/**
+ * Drop mirrored partitions written under an older format, once per page load.
+ *
+ * The local log is a **mirror** of the server's, so a cleared partition costs
+ * nothing: `backfillSession()` pages it back from seq 0, this time through the
+ * validation. That is the whole argument for clearing rather than migrating —
+ * there is a canonical copy elsewhere.
+ *
+ * **Except where there is not.** `remote.ts`'s header says it plainly: there is
+ * no second outbox, the local log *is* the buffer, so an event this browser
+ * emitted and has not yet posted exists nowhere else. A partition whose
+ * outbound cursor is behind its head is left exactly as it was — data loss
+ * dressed as a cleanup is worse than the stale events this is sweeping. Such a
+ * partition is swept on a later load, once its backlog has been sent.
+ */
+function ensureFormat() {
+  if (!hasWindow()) return;
+  try {
+    // The whole cost in the settled case: one read of one key. There is
+    // deliberately no in-memory "already checked" flag, because a partition
+    // skipped below leaves the version unstamped and has to be reconsidered —
+    // a flag would mean the first load of a page decided that forever.
+    if (window.localStorage.getItem(FORMAT_KEY) === FORMAT_VERSION) return;
+
+    const keys: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith(STORAGE_PREFIX) && k !== FORMAT_KEY) keys.push(k);
+    }
+
+    let swept = 0;
+    for (const k of keys) {
+      const [tenantId, sessionId] = k.slice(STORAGE_PREFIX.length).split("::");
+      if (!tenantId || !sessionId) continue;
+
+      const raw = window.localStorage.getItem(k);
+      let head = 0;
+      try {
+        head = (JSON.parse(raw ?? "[]") as RealmEvent[]).reduce(
+          (m, e) => Math.max(m, e.seq),
+          0
+        );
+      } catch {
+        head = 0; // unparseable is exactly what this sweep is for
+      }
+
+      const sent = Number(
+        window.localStorage.getItem(cursorKey(OUTBOUND_CURSOR, tenantId, sessionId))
+      );
+      if ((sent || 0) < head) continue; // unsent events live only here
+
+      window.localStorage.removeItem(k);
+      partitions.delete(key(tenantId, sessionId));
+      swept++;
+    }
+
+    // Only stamped once every partition that could be swept has been, so a
+    // partition skipped for a pending backlog is reconsidered on a later load.
+    if (swept === keys.length) window.localStorage.setItem(FORMAT_KEY, FORMAT_VERSION);
+  } catch {
+    /* storage unavailable — the sweep is a cleanup, never a precondition */
+  }
+}
+
 function loadPartition(tenantId: string, sessionId: string): Partition {
+  ensureFormat();
   const k = key(tenantId, sessionId);
   const cached = partitions.get(k);
   if (cached) return cached;

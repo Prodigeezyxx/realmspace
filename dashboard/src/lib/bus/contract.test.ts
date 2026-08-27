@@ -27,6 +27,7 @@ import { computeScorecard } from "@/lib/roi/scorecard";
 import { buildSurfaceRows } from "@/lib/report/derive";
 import { buildReplay } from "@/lib/twin/replay";
 import type { RealmEvent } from "@/lib/contracts";
+import { validatePayload } from "@/lib/contracts";
 import fixture from "./__fixtures__/backend-report-session.json";
 import { eventFromWire, type WireEvent } from "./wire";
 
@@ -187,5 +188,26 @@ describe("a real session, end to end", () => {
       return v;
     });
     expect(nans).toEqual([]);
+  });
+});
+
+describe("the boundary check does not refuse the backend's own output", () => {
+  it("accepts every event in the capture", () => {
+    // The guard on `contracts/validate.ts`. That file exists to refuse a
+    // payload no reader can use, and the way it fails is not by letting one
+    // through — it is by being stricter than the producers, which would drop
+    // real events off a client's report and look exactly like a quiet day.
+    //
+    // This is the only test that can catch that, because it is the only place
+    // the real backend's payloads are written down.
+    const refused = mirrored
+      .map((event) => ({ event, check: validatePayload(event.type, event.payload) }))
+      .filter(({ check }) => !check.ok)
+      .map(({ event, check }) => ({
+        type: event.type,
+        reasons: check.ok ? [] : check.reasons,
+      }));
+
+    expect(refused).toEqual([]);
   });
 });

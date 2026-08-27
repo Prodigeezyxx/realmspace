@@ -1252,6 +1252,28 @@ payload is, and only one of them fails loudly. (The rows were deleted with the
 rest of the run's data before being read; the cause is read off
 `consumers/graph_writer.py`, not off the queue.)
 
+✅ **Closed 2026-08-27.** Both halves refuse now. `contracts/validate.ts` holds
+the required fields per event type — only the ones a reader dereferences, so a
+field nobody reads cannot refuse an event by being absent — and the two inbound
+doors (`mirror()` for the socket and the backfill, `fetchSessionEvents()` for the
+benchmark and the twin) check the **translated** payload and quarantine what
+fails instead of logging it. `emit()` throws on the same condition, in the shape
+of the consent redline beside it, so this app cannot produce what it has started
+refusing to read. The refusals are named on `/ops`, beside the backend's queue,
+and on the report itself in the `missing[]` list whose whole contract is that an
+absence is rendered rather than swallowed.
+
+Two things it deliberately is not. It is **not stricter than the producers** —
+a test runs the validator over the verbatim capture of real backend output and
+asserts zero refusals, because over-refusing would drop real events off a report
+and look exactly like a quiet day. And it **stores no payload**: the reasons name
+the fields, never the values, since the quarantine lives in localStorage where
+`consumers/erasure.py` cannot reach it.
+
+Measured on the live stack, on the backend's own output: **3 unique visitors —
+one of them `undefined` — with `NaN` dwell and `NaN` attention before; 1 visitor,
+92s and 276 after**, the two unreadable events named rather than averaged.
+
 ---
 
 ## Timeline (indicative)
