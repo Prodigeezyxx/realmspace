@@ -62,3 +62,8 @@ Thumbs.db
 # Cursor / Claude noise
 **/CLAUDE.md
 **/AGENTS.md
+
+# The edge box's local copy of its privacy mask. A runtime artefact, and the
+# polygon is deliberately kept off the event log too — a booth's sensitive
+# geometry does not belong in every export of it (privacy.md).
+perception/.mask-cache.json

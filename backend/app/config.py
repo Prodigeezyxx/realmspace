@@ -163,6 +163,30 @@ class Settings(BaseSettings):
     drift_warn_ratio: float = 0.15
     drift_critical_ratio: float = 0.30
 
+    # ── Gaze (roadmap.md Phase 1's last unbuilt spatial signal) ──────────────
+    #
+    # A monocular camera gives a facing direction, not a gaze vector — no depth,
+    # and looking up reads the same as looking ahead. `privacy.md` sanctions
+    # exactly this much (pose keypoints kept "briefly" for a gaze vector, face
+    # mesh discarded, embeddings never computed) and perception derives the
+    # heading at the edge so no skeleton reaches the log.
+    #
+    # The risk is the one `detection_rate` drift was left unbuilt for and that
+    # grouping refuses in its own way: a detector that answers on every frame
+    # reports every head turn as interest, which looks like coverage. These are
+    # the two floors that stop it.
+
+    # Below this the heading is a guess about a skeleton the model could not
+    # see. Perception ships its confidence rather than filtering on it, so the
+    # threshold lives here, in one place, instead of at every camera.
+    gaze_min_confidence: float = 0.45
+
+    # How long the same target must be held before it is attention rather than
+    # a head turn. The same shape as `tracker_zone_confirm_seconds` and for the
+    # same reason: a momentary crossing is not a visit, and a momentary glance
+    # is not interest.
+    gaze_min_seconds: float = 1.5
+
     # ── Group visits (roadmap.md blind spot, data-model.md → (:Group)) ────────
     #
     # The whole difficulty here is that **proximity is not company**. Three

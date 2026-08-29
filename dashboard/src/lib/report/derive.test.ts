@@ -19,6 +19,7 @@ import {
   hourlyAvgDwell,
   hourlyLeads,
   hourlyVisitors,
+  buildGazeRows,
 } from "./derive";
 
 const T0 = Date.parse("2026-08-03T10:00:00Z");
@@ -247,5 +248,90 @@ describe("buildRecommendations", () => {
       },
     ];
     expect(buildRecommendations(funnel, rows, 0.8)).toEqual([]);
+  });
+});
+
+describe("buildGazeRows", () => {
+  const ZONES = [
+    { id: "z_wall", name: "Sponsor Wall" },
+    { id: "z_pod", name: "Product Pod" },
+  ];
+
+  function gaze(anonId: string, targetId: string, durationSec: number): RealmEvent {
+    return {
+      seq: 1,
+      eventId: `g-${anonId}-${targetId}`,
+      tenantId: "t",
+      sessionId: "s",
+      type: "spatial.gaze",
+      payload: { anonId, targetId, durationSec, confidence: 0.8 },
+      occurredAt: 0,
+      recordedAt: 0,
+    } as RealmEvent;
+  }
+
+  function entered(anonId: string, zoneId: string): RealmEvent {
+    return {
+      seq: 1,
+      eventId: `e-${anonId}-${zoneId}`,
+      tenantId: "t",
+      sessionId: "s",
+      type: "spatial.zone_enter",
+      payload: { anonId, zoneId },
+      occurredAt: 0,
+      recordedAt: 0,
+    } as RealmEvent;
+  }
+
+  it("separates the people who looked from the people who walked in", () => {
+    // The whole point of the panel. Three looked at the wall; one of them
+    // then walked into it, and the funnel already counts that one.
+    const rows = buildGazeRows(
+      [
+        gaze("P-1", "z_wall", 4),
+        gaze("P-2", "z_wall", 6),
+        gaze("P-3", "z_wall", 5),
+        entered("P-3", "z_wall"),
+      ],
+      ZONES
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe("Sponsor Wall");
+    expect(rows[0].watchers).toBe(3);
+    expect(rows[0].watchersWhoNeverEntered).toBe(2);
+    expect(rows[0].attentionSec).toBe(15);
+  });
+
+  it("ranks by attention that never converted, not by total attention", () => {
+    // A zone twenty people stared at and nobody entered is the finding; one
+    // with more total seconds from people who all walked in is not.
+    const rows = buildGazeRows(
+      [
+        gaze("P-1", "z_pod", 60),
+        entered("P-1", "z_pod"),
+        gaze("P-2", "z_wall", 3),
+        gaze("P-3", "z_wall", 3),
+      ],
+      ZONES
+    );
+
+    expect(rows.map((r) => r.zoneId)).toEqual(["z_wall", "z_pod"]);
+  });
+
+  it("drops a look with an unreadable duration rather than summing NaN", () => {
+    // The rule the whole bus boundary was rebuilt around: one unreadable value
+    // must not poison a figure a client is shown.
+    const rows = buildGazeRows(
+      [gaze("P-1", "z_wall", 5), gaze("P-2", "z_wall", Number.NaN)],
+      ZONES
+    );
+
+    expect(rows[0].attentionSec).toBe(5);
+    expect(rows[0].watchers).toBe(1);
+  });
+
+  it("says nothing when nothing looked", () => {
+    expect(buildGazeRows([entered("P-1", "z_wall")], ZONES)).toEqual([]);
   });
 });

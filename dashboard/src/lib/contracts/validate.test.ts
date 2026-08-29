@@ -75,7 +75,12 @@ describe("what it deliberately lets through", () => {
     // The taxonomy is additive (`event-bus-spec.md` §3). A browser that
     // predates an event type must pass it through, not refuse it — the
     // alternative is that adding a producer breaks every deployed dashboard.
-    expect(validatePayload("spatial.gaze", { nothing: "familiar" }).ok).toBe(true);
+    //
+    // This used to name `spatial.gaze`, which was the best example there was:
+    // pinned in the taxonomy, typed in the contract, and produced by nothing.
+    // It has a producer and a reader now, so it is validated and the example
+    // had to move — the test failing on that day is the mechanism working.
+    expect(validatePayload("spatial.tagged", { nothing: "familiar" }).ok).toBe(true);
     expect(validatePayload("insight.generated", {}).ok).toBe(true);
   });
 

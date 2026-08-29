@@ -419,6 +419,49 @@ async def link_left(
     )
 
 
+async def link_looked_at(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    session_id: str,
+    anon_id: str,
+    zone_id: str,
+    duration: float,
+    confidence: float,
+    started_at: str,
+) -> None:
+    """(Person)-[:LOOKED_AT {duration, confidence, started_at}]->(Zone).
+
+    Keyed on started_at like `link_dwelled_in`, and for the same reason: one
+    person can look at the same zone several times in a session, each look is
+    its own edge, and replaying the event that produced one merges onto it
+    rather than drawing a second.
+
+    **The target is a Zone, where `data-model.md` writes `Object|Surface`.** A
+    `Surface` in this system carries a `zone_id` and no geometry, so there is
+    nothing in a frame to cast a ray at; a `Zone` has a normalized polygon and
+    an owning camera. The deviation is recorded in that file rather than left
+    here to be discovered, and it is the reason `confidence` is on the edge:
+    a monocular camera gives a facing direction, not a gaze vector, and a
+    reader should be able to weigh that rather than take a verdict.
+    """
+    await session.run(
+        """
+        MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
+        MATCH (z:Zone   {tenant_id: $tenant_id, session_id: $session_id, id: $zone_id})
+        MERGE (p)-[r:LOOKED_AT {started_at: $started_at}]->(z)
+        SET r.duration = $duration, r.confidence = $confidence
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        anon_id=anon_id,
+        zone_id=zone_id,
+        duration=duration,
+        confidence=confidence,
+        started_at=started_at,
+    )
+
+
 async def link_dwelled_in(
     session: AsyncSession,
     *,

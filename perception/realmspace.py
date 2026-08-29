@@ -35,6 +35,7 @@ from typing import Iterable
 import cv2  # opencv-python
 
 from bus_client import BusClient
+from heading import heading_from_keypoints
 from mask import MaskFetcher, MaskUnavailable
 
 
@@ -46,6 +47,14 @@ class Detection:
     person_id: str
     bbox: list[float]
     confidence: float
+    #: Which way they are facing, radians in the image plane, or None when the
+    #: keypoints did not support an answer. See `heading_from_keypoints` — this
+    #: is the *only* thing derived from the skeleton that leaves this process.
+    heading: float | None = None
+    #: How much to trust it, 0..1. Ships with the heading rather than being
+    #: folded into it, so a reader can judge the measurement instead of a
+    #: verdict — the argument `drift.detected` makes for its own numbers.
+    heading_confidence: float | None = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -57,8 +66,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--model",
-        default="yolov8n.pt",
-        help="ultralytics model checkpoint (default: yolov8n.pt, downloads on first run)",
+        default="yolov8n-pose.pt",
+        help="ultralytics model checkpoint. The pose default is what gaze needs — a\n             detect model still tracks and dwells, it just carries no heading",
     )
     p.add_argument(
         "--conf",
@@ -130,7 +139,11 @@ def detections_for_frame(
     for res in yolo_results:
         if res.boxes is None:
             continue
-        for box in res.boxes:
+        # Present only when a pose model is loaded. A plain detect model leaves
+        # this None and every detection simply carries no heading, so an
+        # existing deployment keeps working and gaze is absent rather than wrong.
+        kp = getattr(res, "keypoints", None)
+        for idx, box in enumerate(res.boxes):
             cls = int(box.cls.item()) if hasattr(box.cls, "item") else int(box.cls[0])
             # COCO class 0 = person
             if cls != 0:
@@ -141,6 +154,17 @@ def detections_for_frame(
             xyxy = box.xyxy[0].tolist()
             tid = int(box.id.item()) if box.id is not None else -1
             person_id = f"P-{tid:03d}" if tid >= 0 else "P-???"
+
+            heading = heading_conf = None
+            if kp is not None and kp.xy is not None and idx < len(kp.xy):
+                points = kp.xy[idx].tolist()
+                # `conf` is None on a pose model run without confidences; treat
+                # that as "no evidence" rather than as certainty.
+                raw = kp.conf[idx].tolist() if kp.conf is not None else []
+                found = heading_from_keypoints(points, raw)
+                if found is not None:
+                    heading, heading_conf = found
+
             yield Detection(
                 type="detection",
                 ts=ts,
@@ -148,6 +172,8 @@ def detections_for_frame(
                 person_id=person_id,
                 bbox=[round(v, 2) for v in xyxy],
                 confidence=round(conf, 3),
+                heading=None if heading is None else round(heading, 4),
+                heading_confidence=heading_conf,
             )
 
 
@@ -297,6 +323,22 @@ def main() -> int:
                             # confidence mean averaged across two cameras
                             # describes neither.
                             "camera_id": args.camera_id,
+                            # Two scalars, and only when the skeleton supported
+                            # them. The keypoints they came from are already
+                            # out of scope by the time this runs: privacy.md
+                            # keeps pose "briefly" for a gaze vector, and the
+                            # bus is append-only and exported, so a skeleton
+                            # posted here would be permanent. The consumer
+                            # applies the confidence threshold, so the decision
+                            # lives in one place rather than at every camera.
+                            **(
+                                {}
+                                if d.heading is None
+                                else {
+                                    "heading": d.heading,
+                                    "heading_confidence": d.heading_confidence,
+                                }
+                            ),
                         },
                     )
                     last_bus_post = ts

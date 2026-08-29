@@ -39,6 +39,7 @@
 import type {
   DetectionPayload,
   DwellPayload,
+  GazePayload,
   GroupPayload,
   PassbyPayload,
   RealmEventType,
@@ -71,6 +72,7 @@ const REQUIRED = {
   "spatial.zone_exit": ["anonId", "zoneId"] as const satisfies readonly RequiredKeys<ZoneMovePayload>[],
   "spatial.dwell": ["anonId", "zoneId", "durationSec"] as const satisfies readonly RequiredKeys<DwellPayload>[],
   "spatial.passby": ["anonId"] as const satisfies readonly RequiredKeys<PassbyPayload>[],
+  "spatial.gaze": ["anonId", "targetId", "durationSec"] as const satisfies readonly RequiredKeys<GazePayload>[],
   "spatial.group": ["groupId", "memberAnonIds", "size"] as const satisfies readonly RequiredKeys<GroupPayload>[],
   "surface.interaction": ["anonId", "surfaceId"] as const satisfies readonly RequiredKeys<SurfaceInteractionPayload>[],
 } satisfies Partial<Record<RealmEventType, readonly string[]>>;

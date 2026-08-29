@@ -134,3 +134,101 @@ def zone_for_point(nx: float, ny: float, zones: Sequence[dict[str, Any]]) -> str
         if point_in_polygon(nx, ny, polygon):
             return zone["id"]
     return None
+
+
+def ray_segment_distance(
+    ox: float,
+    oy: float,
+    dx: float,
+    dy: float,
+    ax: float,
+    ay: float,
+    bx: float,
+    by: float,
+) -> float:
+    """How far along a ray it crosses a segment, or `inf` if it never does.
+
+    Standard 2D ray/segment intersection: solve `origin + t·direction = a + u·(b − a)`
+    for `t ≥ 0` and `0 ≤ u ≤ 1`. Returns `t`, which is a distance because the
+    direction is a unit vector.
+
+    Parallel lines (a zero cross product) return `inf` rather than raising. A ray
+    running exactly along a zone edge is a degenerate case an operator can
+    genuinely produce by drawing an axis-aligned zone, and "never hits it" is the
+    honest answer — a ray in the plane of an edge has not crossed into anything.
+    """
+    ex, ey = bx - ax, by - ay
+    denom = dx * ey - dy * ex
+    if denom == 0:
+        return math.inf
+
+    ox_a, oy_a = ax - ox, ay - oy
+    t = (ox_a * ey - oy_a * ex) / denom
+    u = (ox_a * dy - oy_a * dx) / denom
+    if t < 0 or not (0.0 <= u <= 1.0):
+        return math.inf
+    return t
+
+
+def first_zone_along_ray(
+    nx: float,
+    ny: float,
+    heading: float,
+    zones: Sequence[dict[str, Any]],
+    exclude: str | None = None,
+) -> tuple[str, float] | None:
+    """The first zone a ray from (nx, ny) crosses, and how far away it is.
+
+    **Backend only, and deliberately not ported.** The rest of this module is a
+    line-for-line port of `dashboard/src/skills/zone-detect.ts` because the
+    browser and the edge both decide who is inside a zone, and a disagreement
+    there would put the same visitor in two rooms. Nothing in the browser casts
+    a ray: gaze is derived once, on the edge, from keypoints that never leave
+    the machine (`privacy.md`). If a browser reader is ever added, port this
+    then — and keep the two in sync from that day.
+
+    `exclude` is the zone the person is standing in. Looking at the floor you
+    are on is not attention, and a ray originating inside a polygon always
+    crosses that polygon on its way out, so without this every gaze would land
+    on the zone the visitor already occupies.
+
+    Nearest hit wins. Two zones along the same line of sight is a real booth
+    layout — a product wall behind a plinth — and the near one is what a person
+    is looking at. Overlapping zones are resolved by distance here rather than
+    by draw order, which is what `zone_for_point` does; the two questions are
+    different enough that matching its behaviour would be the wrong kind of
+    consistency.
+    """
+    dx, dy = math.cos(heading), math.sin(heading)
+
+    best_id: str | None = None
+    best_t = math.inf
+
+    for zone in zones:
+        if exclude is not None and zone["id"] == exclude:
+            continue
+        polygon = zone.get("polygon") or []
+        n = len(polygon)
+        if n < 3:
+            continue
+
+        j = n - 1
+        for i in range(n):
+            t = ray_segment_distance(
+                nx,
+                ny,
+                dx,
+                dy,
+                polygon[j][0],
+                polygon[j][1],
+                polygon[i][0],
+                polygon[i][1],
+            )
+            if t < best_t:
+                best_t = t
+                best_id = zone["id"]
+            j = i
+
+    if best_id is None:
+        return None
+    return best_id, best_t

@@ -12,6 +12,7 @@
  */
 
 import type {
+  GazePayload,
   DwellPayload,
   RealmEvent,
   SurfaceInteractionPayload,
@@ -38,6 +39,17 @@ export interface ZoneRow {
   reachPct: number;
 }
 
+export interface GazeRow {
+  zoneId: string;
+  name: string;
+  color?: string;
+  /** People who held a look at this zone. */
+  watchers: number;
+  /** Of those, the ones who never entered it — the number this panel is for. */
+  watchersWhoNeverEntered: number;
+  /** Total held-look seconds, across everybody. */
+  attentionSec: number;
+}
 export interface SurfaceRow {
   surfaceId: string;
   /** The operator's name for it, when the session config carries one. */
@@ -149,10 +161,12 @@ export function buildZoneRows(events: RealmEvent[], zones: ZoneMeta[]): ZoneRow[
  *
  * Note this counts *interactions*, not exposure seconds. `roi-framework.md` §2
  * defines sponsor exposure as dwell-weighted time in front of a branded
- * surface, which needs gaze or surface-level dwell — neither of which any
- * producer emits yet. Reporting interaction counts under an "exposure seconds"
- * heading would be the sort of quiet substitution the report exists to avoid,
- * so the page labels this for what it is.
+ * surface, which needs gaze or surface-level dwell. `spatial.gaze` exists now
+ * (`buildGazeRows` below) but resolves against **zones**, because a Surface
+ * carries no geometry to aim at — so exposure at surface level is still not
+ * measurable and this still counts interactions. Reporting them under an
+ * "exposure seconds" heading would be the sort of quiet substitution the report
+ * exists to avoid, so the page labels this for what it is.
  */
 export function buildSurfaceRows(
   events: RealmEvent[],
@@ -186,6 +200,66 @@ export function buildSurfaceRows(
  * stays aligned with `hourlyVisitors` — two sparklines on the same row implying
  * the same x-axis had better share one.
  */
+/**
+ * Attention on a zone from people standing somewhere else.
+ *
+ * The question nothing else in the report can answer. Dwell measures the people
+ * who walked in; pass-by measures the ones who came close and did not. This
+ * measures the ones who **looked** — a stand that draws the eye from across the
+ * room and no footsteps is a different problem from one nobody notices, and
+ * until now they produced identical reports.
+ *
+ * `watchersWhoNeverEntered` is the column that matters, which is why it is
+ * carried rather than left to be derived: somebody who studies a wall and then
+ * walks into it is already counted by the funnel.
+ *
+ * Deliberately **not** part of `computeScorecard`. Folding gaze into Engagement
+ * would change figures against definitions clients have already been shown and
+ * agreed per activation, which is the one thing `roi-framework.md` §3 rules
+ * out. This is a panel of its own, beside the scorecard rather than inside it.
+ */
+export function buildGazeRows(events: RealmEvent[], zones: ZoneMeta[]): GazeRow[] {
+  const entered = new Map<string, Set<string>>();
+  for (const e of events) {
+    if (e.type !== "spatial.zone_enter") continue;
+    const p = e.payload as ZoneMovePayload;
+    if (!p.zoneId || !p.anonId) continue;
+    if (!entered.has(p.zoneId)) entered.set(p.zoneId, new Set());
+    entered.get(p.zoneId)!.add(p.anonId);
+  }
+
+  const looks = new Map<string, { people: Set<string>; seconds: number }>();
+  for (const e of events) {
+    if (e.type !== "spatial.gaze") continue;
+    const p = e.payload as GazePayload;
+    if (!p.targetId || !p.anonId || typeof p.durationSec !== "number") continue;
+    if (!Number.isFinite(p.durationSec)) continue;
+    if (!looks.has(p.targetId)) looks.set(p.targetId, { people: new Set(), seconds: 0 });
+    const row = looks.get(p.targetId)!;
+    row.people.add(p.anonId);
+    row.seconds += p.durationSec;
+  }
+
+  return [...looks.entries()]
+    .map(([zoneId, row]) => {
+      const meta = zones.find((z) => z.id === zoneId);
+      const walkedIn = entered.get(zoneId) ?? new Set<string>();
+      let never = 0;
+      for (const person of row.people) if (!walkedIn.has(person)) never++;
+      return {
+        zoneId,
+        name: meta?.name ?? zoneId,
+        color: meta?.color,
+        watchers: row.people.size,
+        watchersWhoNeverEntered: never,
+        attentionSec: +row.seconds.toFixed(1),
+      };
+    })
+    // By the thing the panel is for, not by total attention: a zone twenty
+    // people looked at and nobody entered is the finding.
+    .sort((a, b) => b.watchersWhoNeverEntered - a.watchersWhoNeverEntered);
+}
+
 export function hourlyAvgDwell(events: RealmEvent[]): number[] {
   const byHour = new Map<number, { sum: number; count: number }>();
   for (const e of events) {

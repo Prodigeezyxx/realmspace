@@ -73,6 +73,11 @@ const INBOUND_RENAMES: Partial<Record<RealmEventType, Record<string, string>>> =
   // The spec calls it `duration` (seconds); the contract calls it `durationSec`.
   // `scorecard.ts` reads the latter — this rename is what makes dwell count.
   "spatial.dwell": { duration: "durationSec" },
+  // `spatial.gaze` carries the same field under the same spec name, for the
+  // same reason — §3 pins `duration` for every span. Without this a look
+  // arrives with `durationSec` undefined and the report's attention figures go
+  // the way dwell's did before that rename existed.
+  "spatial.gaze": { duration: "durationSec" },
   // The spec pins `members` (event-bus-spec.md §3); this app's contract has
   // always declared `memberAnonIds`, which is the clearer name and matches
   // `anonId` everywhere else. The two were written years apart and nothing had
@@ -85,6 +90,7 @@ const INBOUND_RENAMES: Partial<Record<RealmEventType, Record<string, string>>> =
 
 const OUTBOUND_RENAMES: Partial<Record<RealmEventType, Record<string, string>>> = {
   "spatial.dwell": { durationSec: "duration" },
+  "spatial.gaze": { durationSec: "duration" },
   "spatial.group": { memberAnonIds: "members" },
 };
 

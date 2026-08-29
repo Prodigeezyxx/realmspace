@@ -14,7 +14,7 @@ Legend: ✅ exists today · 🟡 mocked/partial · 🔲 to build.
 |---|---|
 | Next.js dashboard: landing, live, twin, ask, agents, report | ✅ |
 | **Live on-device tracking** (TF.js + COCO-SSD + centroid tracker) | ✅ (real) |
-| Python perception stub (YOLO + ByteTrack → JSON) | 🟡 — writes durably into the bus, buffers and replays across an outage, and masks the privacy polygon before inference. Still a stub in the ways that matter: one script, one camera, no re-identification, no pose (which is why `spatial.gaze` is unbuilt). |
+| Python perception stub (YOLO + ByteTrack → JSON) | 🟡 — writes durably into the bus, buffers and replays across an outage, and masks the privacy polygon before inference. **Pose landed 2026-08-28** — `perception/heading.py` derives a facing direction from keypoints at the edge, which is what `spatial.gaze` needed. Still a stub in the ways that matter: one script, one camera, no re-identification. |
 | Docs: PRD, architecture, data-model, privacy, gtm | ✅ |
 | Docs: vision, brand, roi, integrations, consent, event-bus, tenancy, competition | ✅ (this set) |
 | Backend event bus (durable, Postgres) | ✅ (`backend/` — see Phase 1) |
@@ -55,9 +55,17 @@ graph, wired to the existing dashboard. Multi-tenant from the first commit.*
       Both run as tasks in the API process and are reported by `/health`.
       Tracker emits `spatial.zone_enter` / `zone_exit` / `dwell`.
       `passby` landed in P2 and `group` in P6 (`consumers/grouping.py`, its own
-      consumer rather than more tracker). **`gaze` remains the one unbuilt
-      spatial signal**, and not for want of a decision: it needs head pose, and
-      perception emits bounding boxes.
+      consumer rather than more tracker). **`gaze` landed 2026-08-28** (`consumers/gaze.py`): perception derives a facing
+      direction from pose keypoints at the edge — the skeleton never reaches the
+      log — and the consumer casts a ray at the zone polygons, refusing far more
+      often than it emits. Targets **zones** rather than the `Object|Surface`
+      `data-model.md` names, because a Surface has no geometry; the deviation is
+      recorded there. **Not yet driven by a real camera**: three capture windows
+      on 2026-08-28 recorded nobody in frame, so it is proven against hand-built
+      keypoints and seeded events only.
+      For five phases this line read: *"`gaze` remains the one unbuilt spatial
+      signal, and not for want of a decision: it needs head pose, and perception
+      emits bounding boxes."* It does not any more.
       Replay is a proven no-op — derived event ids plus `on_replay` state
       clearing, both verified by deliberately breaking them.
 - ✅ WebSocket: bus → dashboard `/live` — `WS /v1/ws/{tenant_id}/{session_id}`,

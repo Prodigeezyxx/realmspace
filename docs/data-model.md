@@ -247,7 +247,8 @@ suppressed or frames are never retained (`privacy.md`).
 (Person)-[:ENTERED]->(Zone)
 (Person)-[:LEFT]->(Zone)
 (Person)-[:DWELLED_IN {duration, started_at, ended_at}]->(Zone)
-(Person)-[:LOOKED_AT {duration, confidence, started_at}]->(Object|Surface)
+(Person)-[:LOOKED_AT {duration, confidence, started_at}]->(Zone)
+        // ^ specified as (Object|Surface) and built against Zone — see below
 (Person)-[:INTERACTED_WITH {duration, kind}]->(Surface)
 (Person)-[:NEAR {distance_m, duration}]->(Person)
 (Person)-[:GROUP_MEMBER_OF]->(Group)
@@ -262,6 +263,29 @@ suppressed or frames are never retained (`privacy.md`).
 (Insight)-[:DERIVED_FROM]->(Event)
 (Insight)-[:ABOUT]->(Zone|Surface|Person|Group)
 ```
+
+### `LOOKED_AT` points at a Zone, not an Object or Surface
+
+Written here as `(Object|Surface)` and built against `(Zone)`, deliberately, and
+recorded rather than left for somebody to find in the Cypher.
+
+A `Surface` in this system carries a `zone_id` and no geometry — there is
+nothing in a camera frame to aim a ray at. A `Zone` has a normalized polygon and
+an owning camera, which is exactly what casting a heading into the scene needs.
+`Object` has no producer at all.
+
+The event contract is unaffected: `spatial.gaze` carries `target_id`, which is
+deliberately generic, so surface-level targeting can arrive later without a
+migration — it needs an operator to place each surface in the frame, which is a
+calibration step that does not exist yet and which every past activation would
+be missing.
+
+The edge keeps `confidence` because the measurement deserves to be weighed. It
+comes from body pose on a monocular camera: a **facing direction**, not a gaze
+vector. There is no depth and no eye tracking, so looking up and looking ahead
+are the same reading. `consumers/gaze.py` refuses far more often than it emits,
+and that file lists each refusal.
+
 
 **`DERIVED_FROM` has no writer, deliberately** *(2026-08-18)*. `(:Event)` has a
 key constraint in `graph/schema.py` and nothing has ever written one: events live
@@ -323,8 +347,11 @@ RETURN visited_mirror, converted,
 
 ### Visitors who held gaze on Bottle Wall > 10 s
 
+Written against `(:Object)` when this file was; the built edge points at a
+`(:Zone)`, for the reason above. The shape of the question is unchanged.
+
 ```cypher
-MATCH (p:Person)-[g:LOOKED_AT]->(o:Object {label: 'Bottle Wall'})
+MATCH (p:Person)-[g:LOOKED_AT]->(z:Zone {name: 'Bottle Wall'})
 WHERE g.duration > 10
 OPTIONAL MATCH (p)-[:INTERACTED_WITH]->(r:Surface {label: 'Memory RFID'})
 RETURN p.anon_id, g.duration AS gaze_seconds,

@@ -17,7 +17,90 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-27
+## [Unreleased] — last updated 2026-08-28
+
+### Added — 2026-08-28 — `[neo4j-track]` The booth can tell you what people looked at
+
+Until now the system could say who walked into a zone, how long they stayed,
+and who came close and didn't go in. It could not say who **looked**. A stand
+that catches the eye from across the room and draws no footsteps produced a
+report identical to one nobody noticed — and those are very different problems
+for a client to have.
+
+`spatial.gaze` has been in the plans since Phase 1 and had no producer for five
+phases, for an honest reason written down at the time: it needs to know which
+way somebody's head is turned, and the camera was only reporting boxes around
+people. It reports a facing direction now.
+
+**What the camera keeps and what it sends.** The privacy rules already allowed
+this and already limited it: a skeleton may be used briefly to work out which
+way somebody faces, and a face may never be stored at all. So the skeleton is
+used and discarded inside the camera process, and the only things that leave are
+two numbers — a direction and how much to trust it. Nothing that could identify
+anybody goes onto the permanent record, which matters because that record is
+append-only and gets exported.
+
+**What it refuses is most of the work.** A monocular camera gives a facing
+direction, not eye tracking; there is no depth, and looking up reads the same as
+looking ahead. A detector that answers on every frame would report every head
+turn as interest, which is the commonest thing a head does — it would look like
+a working feature and mean nothing. So it says nothing at all when the shoulders
+aren't both visible, when there is no face or ear to tell front from back, when
+those two pieces of evidence disagree with each other, when nothing lies along
+the line of sight, or when a look isn't held long enough to be more than a
+glance. Each of those has a test, and each test was checked by deliberately
+removing the rule and watching it fail.
+
+**Where it shows up.** A new panel on the report: *Looked at, never entered*.
+Deliberately not folded into the ROI scorecard — that would change figures
+against definitions clients have already agreed for their activation, which is
+the one thing the report is not allowed to do.
+
+#### The detail
+
+- **`perception/heading.py`** — split out of `realmspace.py` because that file
+  imports cv2 and the backend venv therefore cannot test any of it, which is the
+  same reason `bus_client.py` is separate. The shoulder line gives the body axis;
+  the head keypoints say which way along it. **The two are cross-checked and a
+  disagreement is refused**: the pose model's weakest case is a back view, and
+  its mislabelling a shoulder would otherwise put a visitor looking at the
+  opposite wall. Default model is now `yolov8n-pose.pt`, which returns boxes and
+  keypoints in one pass — running a second model would have doubled the cost on
+  the sub-500ms path. A detect-only model still tracks and dwells and simply
+  carries no heading.
+- **`consumers/gaze.py`** — its own consumer, beside grouping and for the same
+  reason: the tracker is the path the Phase 1 latency budget is measured on and
+  a gaze bug must not stop dwell being measured. Casts a ray from the person's
+  centroid, takes the **nearest** zone it crosses (two stands on one line of
+  sight is an ordinary layout), and **excludes the zone they are standing in** —
+  a ray from inside a polygon always crosses it on the way out, so without that
+  every look would land on the floor the visitor already occupies.
+- **Zones, not surfaces.** `data-model.md` specifies
+  `LOOKED_AT -> (Object|Surface)` and a Surface in this system carries a zone id
+  and no geometry — there is nothing in a frame to aim at. The deviation is
+  recorded in that file, and its own example query, written against `(:Object)`
+  when the file was, now matches what exists.
+- **The same camera filter the tracker applies**, and it matters more here: a
+  polygon is normalized within one camera's frame, so a ray cast into another
+  camera's zones points at floor that camera never saw. Proven by a pair of
+  tests differing in one thing — and the first version of that pair passed with
+  the filter deleted, because the other camera's zone was too far away to be hit
+  anyway. Moving it nearer is what made the test watch something.
+- 29 backend tests and 4 dashboard tests. 683 backend and 263 dashboard pass;
+  types, lint and build clean.
+
+#### Not verified, and stated rather than implied
+
+**No camera has ever driven this.** Three capture windows were run tonight and
+every one recorded zero people — nobody was in frame. So the heading maths is
+proven against hand-built keypoint sets and the consumer against seeded events,
+and the pose model's real output has never reached it. That is the one claim
+this entry does not make.
+
+One thing those attempts did surface, left alone as out of scope: if the camera
+fails to return its very first frame, perception exits immediately with
+`"frames": 0` and no other explanation. On a booth that would be a camera that
+woke a moment too slowly and a run that ended before it started.
 
 ### Fixed — 2026-08-27 — `[neo4j-track]` CI had never once passed
 

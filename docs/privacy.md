@@ -20,12 +20,20 @@ That's not a feature we added to be polite. It's how the system is
 | Captured | Stored | Used for |
 |---|---|---|
 | Bounding boxes around people | ✅ briefly (≤60s ring buffer) | Tracking IDs, dwell calculation |
-| Pose keypoints (skeleton) | ✅ briefly | Gaze vector, sitting/standing detection |
+| Pose keypoints (skeleton) | ✅ briefly, **and never on the bus** | Gaze vector — see below |
 | Face mesh | ❌ never persisted | Discarded after gaze vector is computed |
 | Face embeddings | ❌ never computed | Out of scope by architecture |
 | Clothing color / appearance | ✅ as a short VLM-generated phrase | Helping the dashboard say "person in red coat" |
 | Raw frames | ✅ briefly (≤60s ring buffer), then deleted | Live dashboard preview only |
 | Audio | ❌ never recorded | We don't process audio |
+
+**Where the skeleton stops.** Pose keypoints are consumed inside perception's
+frame loop and are never posted. What reaches the bus is two numbers — a facing
+direction and a confidence (`perception/heading.py`) — and the consumer that
+reads them never sees a joint. This is not tidiness: the event log is
+append-only and exported, so anything written to it is permanent, and a skeleton
+is a great deal more identifying than a bounding box. The same rule this table
+already applies to face mesh, one level up.
 
 ## What we never do
 

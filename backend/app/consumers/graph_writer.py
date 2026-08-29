@@ -46,6 +46,7 @@ ZONE_EXIT = "spatial.zone_exit"
 DWELL = "spatial.dwell"
 SURFACE = "surface.interaction"
 GROUP = "spatial.group"
+GAZE = "spatial.gaze"
 
 #: `spatial.group` statuses. See `consumers/grouping.py`.
 DISSOLVED = "dissolved"
@@ -60,7 +61,7 @@ class GraphWriterConsumer(Consumer):
     #: what the original attempt would have. That is what makes the HITL retry
     #: button meaningful for this consumer and not for the others.
     retryable = True
-    handles = (DETECTION, ZONE_ENTER, ZONE_EXIT, DWELL, SURFACE, GROUP)
+    handles = (DETECTION, ZONE_ENTER, ZONE_EXIT, DWELL, SURFACE, GROUP, GAZE)
 
     async def handle(self, event: EventLog) -> None:
         settings = get_settings()
@@ -77,6 +78,8 @@ class GraphWriterConsumer(Consumer):
                 await self._on_surface_interaction(gs, event)
             elif event.type == GROUP:
                 await self._on_group(gs, event)
+            elif event.type == GAZE:
+                await self._on_gaze(gs, event)
 
     async def _on_group(self, gs, event: EventLog) -> None:
         """`spatial.group` → `(:Group)` and its `GROUP_MEMBER_OF` edges.
@@ -114,6 +117,29 @@ class GraphWriterConsumer(Consumer):
             session_id=event.session_id,
             group_id=group_id,
             members=list(members),
+        )
+
+    async def _on_gaze(self, gs, event: EventLog) -> None:
+        """`spatial.gaze` → `(Person)-[:LOOKED_AT]->(Zone)`.
+
+        The target is a Zone rather than the `Object|Surface` data-model.md
+        names, because a Surface has no geometry to aim at — see
+        `graph_repo.link_looked_at`. `consumers/gaze.py` has already applied the
+        confidence floor and the hold, so anything arriving here is a look
+        somebody actually held; the confidence rides onto the edge so a reader
+        can still weigh it.
+        """
+        p = event.payload or {}
+        await self._ensure_person(gs, event, p["anon_id"])
+        await graph_repo.link_looked_at(
+            gs,
+            tenant_id=event.tenant_id,
+            session_id=event.session_id,
+            anon_id=p["anon_id"],
+            zone_id=p["target_id"],
+            duration=float(p["duration"]),
+            confidence=float(p.get("confidence") or 0.0),
+            started_at=p["started_at"],
         )
 
     async def _on_detection(self, gs, event: EventLog) -> None:

@@ -30,6 +30,7 @@ from app.consumers.handoff_delivery import HandoffDeliveryConsumer
 from app.consumers.outcomes import OutcomesConsumer
 from app.consumers.identity import IdentityConsumer
 from app.consumers.drift import DriftConsumer
+from app.consumers.gaze import GazeConsumer
 from app.consumers.grouping import GroupingConsumer
 from app.consumers.insights import InsightsConsumer
 from app.consumers.reanonymise import ReAnonymiseConsumer
@@ -92,6 +93,12 @@ CONSUMER_CLASSES: list[type[Consumer]] = [
     # people in it would find nobody to link. After the tracker for the same
     # reason — the zone enters it reads are the tracker's output.
     GroupingConsumer,
+    # Beside grouping and for the same reason: the tracker is the <500ms path
+    # the Phase 1 acceptance is measured on, and a gaze bug must not be able to
+    # stop dwell being measured. It reads the detection stream and writes
+    # `spatial.gaze`. Before the graph writer, which links the look to a
+    # `Person` and a `Zone` and would find neither if it ran first.
+    GazeConsumer,
     InsightsConsumer,
     # Reads the same detection stream on the same fixed windows as the insight
     # agent, and shares nothing else with it. Neither writes what the other

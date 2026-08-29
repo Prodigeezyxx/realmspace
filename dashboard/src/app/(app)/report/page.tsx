@@ -44,6 +44,7 @@ import {
   buildFunnel,
   buildMoments,
   buildRecommendations,
+  buildGazeRows,
   buildSurfaceRows,
   buildZoneRows,
   hourlyAvgDwell,
@@ -172,6 +173,7 @@ function Report({ session, report }: { session: Session; report: SessionReport }
     () => buildSurfaceRows(events, touchpoints),
     [events, touchpoints]
   );
+  const gazeRows = useMemo(() => buildGazeRows(events, zoneMeta), [events, zoneMeta]);
   const moments = useMemo(() => buildMoments(events, zoneMeta), [events, zoneMeta]);
   const traffic = useMemo(() => hourlyVisitors(events), [events]);
   const dwellSeries = useMemo(() => hourlyAvgDwell(events), [events]);
@@ -391,6 +393,54 @@ function Report({ session, report }: { session: Session; report: SessionReport }
             appears here — ordered as designed, not sorted by traffic, which would
             make every activation look like a success.
           </p>
+        </Panel>
+      )}
+
+      {/* ── Looked at, never entered.
+          Its own panel and deliberately not part of the ROI scorecard: folding
+          gaze into Engagement would change figures against definitions clients
+          have already agreed per activation, which roi-framework.md §3 rules
+          out. Hidden when empty, because a deployment running the detect-only
+          model emits no gaze at all and an empty panel would read as a fault. */}
+      {gazeRows.length > 0 && (
+        <Panel
+          title="Looked at, never entered"
+          subtitle="Attention from people standing somewhere else — the gap between noticing and walking in"
+        >
+          <div className="space-y-3">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-text-muted text-[11px] uppercase tracking-[0.14em]">
+                  <th className="text-left font-medium pb-2">Zone</th>
+                  <th className="text-right font-medium pb-2">Looked</th>
+                  <th className="text-right font-medium pb-2">Never entered</th>
+                  <th className="text-right font-medium pb-2">Attention</th>
+                </tr>
+              </thead>
+              <tbody>
+                {gazeRows.map((row) => (
+                  <tr key={row.zoneId} className="border-t border-border-hairline">
+                    <td className="py-2">{row.name}</td>
+                    <td className="py-2 text-right tabular-nums">{row.watchers}</td>
+                    <td className="py-2 text-right tabular-nums font-medium">
+                      {row.watchersWhoNeverEntered}
+                    </td>
+                    <td className="py-2 text-right tabular-nums text-text-secondary">
+                      {Math.round(row.attentionSec)}s
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-xs text-text-muted leading-relaxed">
+              A held look, measured from body pose at the camera — a facing
+              direction, not an eye-tracked gaze, so it says which way somebody
+              was turned and not what they focused on. Glances are excluded:
+              a look counts only once it is held. Somebody who looked and then
+              walked in is counted here and by the funnel both, which is why the
+              middle column is the one to read.
+            </p>
+          </div>
         </Panel>
       )}
 

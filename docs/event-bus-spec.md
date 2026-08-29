@@ -95,7 +95,7 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `perception.detection` | edge perception | person bbox, conf, frame, camera | tracker, graph, drift |
 | `spatial.zone_enter` / `zone_exit` | tracker | anon_id, zone, ts | graph, rules, ROI |
 | `spatial.dwell` | tracker | anon_id, zone, duration | graph, rules, ROI |
-| `spatial.gaze` | tracker | anon_id, object, duration | graph, ROI |
+| `spatial.gaze` | gaze consumer | anon_id, target_id, duration, confidence | graph, ROI |
 | `spatial.group` | grouping consumer | group_id, members, size, cohesion, status | graph, rules |
 | `spatial.passby` | tracker | anon_id, adjacent (negative signal) | ROI |
 | `surface.interaction` | booth surface | surface_id, anon_id, kind | graph, ROI |
