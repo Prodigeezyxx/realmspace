@@ -44,14 +44,19 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from neo4j import AsyncSession as GraphSession
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import plans, repository
+from app import plans, repository, share
 from app.auth.principal import Principal, require_operator, require_reader, utcnow
 from app.db import get_session
 from app.graph import repository as graph_repo
+from app.models import ReportShare
 from app.graph.driver import get_graph_session
 from app.schemas import (
+    ShareCreate,
+    ShareCreated,
+    ShareOut,
     CameraOut,
     EventIn,
     SessionConfigIn,
@@ -509,3 +514,133 @@ async def get_session_graph(
         zones=[ZoneConfig(**z) for z in zones],
         dwell_by_zone=[ZoneDwell(**row) for row in dwell],
     )
+
+
+# ── Share links ──────────────────────────────────────────────────────────────
+#
+# Behind `require_operator` rather than `require_admin`: `multi-tenant.md` §3
+# puts "runs activations" with Operator, and handing a client their report is
+# the last step of running one, not an act of managing the organisation.
+#
+# The reader half is `routers/share.py`, which no credential reaches. Its
+# docstring has the argument for why a token is not a Principal.
+
+
+def _share_out(row) -> ShareOut:
+    """One row, without the token — there is no field on `ShareOut` for it."""
+    now = utcnow()
+    return ShareOut(
+        id=row.id,
+        session_id=row.session_id,
+        label=row.label,
+        hint=row.hint,
+        created_by=row.created_by,
+        created_at=row.created_at,
+        expires_at=row.expires_at,
+        revoked_at=row.revoked_at,
+        last_viewed_at=row.last_viewed_at,
+        view_count=row.view_count,
+        # Derived from the two columns that decide it, so a stored `active` can
+        # never disagree with them.
+        active=row.revoked_at is None and row.expires_at > now,
+    )
+
+
+@router.post(
+    "/{session_id}/share",
+    response_model=ShareCreated,
+    status_code=status.HTTP_201_CREATED,
+    summary="Mint a link a client can open without an account",
+)
+async def create_share(
+    session_id: str,
+    body: ShareCreate,
+    principal: Principal = Depends(require_operator),
+    db: AsyncSession = Depends(get_session),
+) -> ShareCreated:
+    """Returns the token **once**. Nothing can read it back afterwards.
+
+    That is the design and not a gap: the row stores a sha256, so a database
+    dump contains no working link, and the operator's copy is the URL now in
+    their hand. If they lose it they mint another and revoke this one, which is
+    also the correct response to having sent it to the wrong address.
+    """
+    row, token = await share.create(
+        db,
+        tenant_id=principal.tenant_id,
+        session_id=session_id,
+        created_by=principal.subject,
+        label=body.label,
+        expires_in_days=body.expires_in_days,
+        now=utcnow(),
+    )
+    await db.commit()
+    await db.refresh(row)
+    return ShareCreated(**_share_out(row).model_dump(), token=token)
+
+
+@router.get(
+    "/{session_id}/shares",
+    response_model=list[ShareOut],
+    summary="Links minted for this activation",
+)
+async def list_shares(
+    session_id: str,
+    principal: Principal = Depends(require_operator),
+    db: AsyncSession = Depends(get_session),
+) -> list[ShareOut]:
+    """Revoked and expired links are listed too.
+
+    "Was this link ever live, and has anybody opened it" is a question about the
+    activation, and hiding the dead ones would answer it wrongly by omission.
+    """
+    rows = (
+        await db.execute(
+            select(ReportShare)
+            .where(
+                ReportShare.tenant_id == principal.tenant_id,
+                ReportShare.session_id == session_id,
+            )
+            .order_by(ReportShare.created_at.desc())
+        )
+    ).scalars().all()
+    return [_share_out(row) for row in rows]
+
+
+@router.delete(
+    "/{session_id}/shares/{share_id}",
+    response_model=ShareOut,
+    summary="Revoke a link",
+)
+async def revoke_share(
+    session_id: str,
+    share_id: str,
+    principal: Principal = Depends(require_operator),
+    db: AsyncSession = Depends(get_session),
+) -> ShareOut:
+    """Marks it revoked. The row stays.
+
+    `report_share` is outside RLS (migration 0013), so the tenant match here is
+    written out rather than enforced by a policy — and `tests/test_share.py`
+    asserts that one organisation cannot revoke another's link.
+    """
+    row = (
+        await db.execute(
+            select(ReportShare).where(
+                ReportShare.id == share_id,
+                ReportShare.tenant_id == principal.tenant_id,
+                ReportShare.session_id == session_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"no share {share_id!r} on session {session_id!r}",
+        )
+
+    if row.revoked_at is None:
+        row.revoked_at = utcnow()
+        await db.commit()
+        await db.refresh(row)
+    return _share_out(row)

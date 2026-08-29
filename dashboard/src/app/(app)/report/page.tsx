@@ -225,7 +225,7 @@ function Report({ session, report }: { session: Session; report: SessionReport }
               variant at all, so the class was inert and the buttons printed. One
               mechanism, and one that has been looked at. */}
           <div className="flex items-center gap-2" data-print-hide>
-            <ShareWithClient />
+            <ShareWithClient sessionId={session.id} />
             <Button
               variant="primary"
               size="sm"

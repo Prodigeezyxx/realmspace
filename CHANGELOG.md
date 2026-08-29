@@ -19,6 +19,75 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-29
 
+### Added — 2026-08-29 — `[neo4j-track]` You can send a client their report
+
+Until now, sharing a report meant giving somebody an account. That is the right
+answer for a stakeholder who will keep coming back, and the wrong one for the
+single email that ends an engagement — sent to a person who will never log in
+and should not have to.
+
+There is a link now. It opens one activation's report, needs no account, expires
+after thirty days by default, and can be taken back at any time.
+
+**What somebody holding the link can see.** That activation's report and nothing
+else — not the live view, not the 3D twin, not Ask, not the leads ledger, not
+anything that writes. And **no contact details**: every event that can carry a
+name goes through the same removal a withdrawal request uses before it leaves the
+server. Tested on real data — a lead recorded as "Jordan Reeve" came back with
+the name, the email, the company and the job title all gone, and no trace of any
+of them anywhere in the response.
+
+**The counts still work, which is the point of removing rather than dropping.**
+The client's copy says one lead captured because there was one, and the operator
+sees the same number. Deleting those events instead would have made the two
+copies quietly disagree, which is worse than either number on its own.
+
+**Losing the link is not a disaster and neither is sending it to the wrong
+person.** Revoke it and the page says the link is no longer valid. Make another
+one. The link is shown once and stored only as a fingerprint, so nobody —
+including us — can read it back out of the database afterwards.
+
+#### The detail
+
+- **An opaque stored token, not a signed one.** The roadmap asked for "signed,
+  expiring", and a signature gives both for free — but not revocation, and an
+  operator taking a link back is the requirement that decides it. Revoking a
+  signed token needs a denylist, a denylist is a table, and once there is a table
+  the signature does nothing the table does not. 32 random bytes, kept as a
+  sha256, returned exactly once.
+- **The token is not a credential.** Making it a third kind of caller would have
+  meant every read endpoint accepting it — and `GET /events` takes a session id,
+  so a link for one activation would have read any other by asking for it.
+  Instead it reaches three routes that resolve it to a tenant and a session
+  themselves and take **neither from the request**, so reading a second
+  activation is not something that can be written rather than something that has
+  to be caught. Handed to an ordinary endpoint as a bearer token it is simply not
+  a token: 401 on all three tried.
+- **Redaction is anchored to a classification, not a field list.** It reuses the
+  erasure job's own `PII_TYPES` and `CONTACT_PII`, so a payload that grows a new
+  contact field is covered by a vocabulary somebody else already maintains — and
+  the test asserts over the classification, so it fails the day a type joins it
+  without this path being considered.
+- **Unknown, expired and revoked are one 404 with one message.** Which of the
+  three a guess was is the only thing a stranger could act on.
+- 11 backend tests, both security properties mutation-checked by deleting the
+  rule and watching the test fail. 701 backend and 266 dashboard pass; types,
+  lint and build clean.
+
+#### One bug found by opening the page
+
+The first version of the shared reader fetched the events and handed them
+straight to the scorecard — and the client's report showed **one visitor where
+there were six, with `NaN` for the average dwell**. The two halves of the system
+name payload fields differently and there is a translation layer for exactly
+that; this new code had walked around it.
+
+It is the same failure the event boundary was rebuilt to prevent three days ago,
+in code written by the person who rebuilt it, and nothing but looking at the page
+would have caught it — the tests all passed. It is fixed, and pinned by a test
+that asserts both the right answer and the wrong one, so the next reader of that
+file is not a person.
+
 ### Fixed — 2026-08-29 — `[neo4j-track]` A camera that blinks no longer ends the activation
 
 If the camera failed to hand over a frame the moment perception started, the run

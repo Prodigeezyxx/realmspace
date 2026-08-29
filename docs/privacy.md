@@ -35,6 +35,15 @@ append-only and exported, so anything written to it is permanent, and a skeleton
 is a great deal more identifying than a bounding box. The same rule this table
 already applies to face mesh, one level up.
 
+**A shared report link.** An operator can send a client a URL that opens one
+activation's report with no account (`routers/share.py`). It carries no contact
+details: every event whose type is in the erasure job's own `PII_TYPES` is passed
+through the same `redact` a withdrawal uses, so names, emails, companies and
+titles are gone before the response leaves the server. The events themselves
+survive, so the counts a client sees match the operator's. The link expires, can
+be revoked, and reaches nothing but that one report — not the live feed, the
+twin, Ask, the ledger or any write path.
+
 ## What we never do
 
 - **No facial recognition.** No FaceNet, no ArcFace, no biometric vectors.

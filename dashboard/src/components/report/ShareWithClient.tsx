@@ -9,18 +9,23 @@
  * deleting ("1,287 visitors", "4.2× ROI"), except a lying button is worse than a
  * lying number: the operator finds out in front of the client.
  *
- * ## Why a seat and not a link
+ * ## Two ways to share, and they are different things
  *
- * `multi-tenant.md` §3 defines Viewer as "read-only dashboard + report — the
- * sponsor or brand stakeholder". Sharing a report with a client *is* granting
- * them that role, so this posts to `POST /v1/users` — the same endpoint the
- * onboarding invite uses, with the role fixed.
+ * **A viewer seat** — `multi-tenant.md` §3 defines Viewer as "read-only
+ * dashboard + report — the sponsor or brand stakeholder". This posts to
+ * `POST /v1/users` with the role fixed. They sign in, and they keep access to
+ * the activation as it changes.
  *
- * A public share link would be nicer for the client and is deliberately not
- * this: it is a new unauthenticated read path into tenant data, and it needs a
- * signed expiring token, a revocation story and a decision about what a leaked
- * URL exposes. That is its own piece of work, not a button's implementation
- * detail.
+ * **A link** — `GET /v1/share/{token}`, no account at all. This paragraph used
+ * to explain why a link was out of scope: "it needs a signed expiring token, a
+ * revocation story and a decision about what a leaked URL exposes". It has all
+ * three now. The link is revocable, expires by default in thirty days, and
+ * carries contact details nowhere — `routers/share.py` redacts every PII-typed
+ * event on the way out.
+ *
+ * Offering both is not indecision. A seat is for somebody who will come back; a
+ * link is for the one email that ends the engagement, sent to somebody who will
+ * never create an account and should not have to.
  *
  * ## It does not claim to send anything
  *
@@ -31,7 +36,7 @@
  * cannot get that wrong by assuming.
  */
 
-import { Check, Share2, X } from "lucide-react";
+import { Check, Link2, Share2, X } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
@@ -44,12 +49,14 @@ interface InviteResult {
   detail: string;
 }
 
-export function ShareWithClient() {
+export function ShareWithClient({ sessionId }: { sessionId: string }) {
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<InviteResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   async function share() {
     setBusy(true);
@@ -84,6 +91,47 @@ export function ShareWithClient() {
       }
       setResult(body as InviteResult);
       setEmail("");
+    } catch {
+      setError("The bus is unreachable.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function mintLink() {
+    setBusy(true);
+    setError(null);
+    setLink(null);
+    try {
+      const token = await ensureToken(busEmail());
+      if (!token) {
+        setError("Could not authenticate with the bus.");
+        return;
+      }
+      const res = await fetch(
+        `${busUrl()}/v1/sessions/${encodeURIComponent(sessionId)}/share`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ expiresInDays: 30 }),
+        }
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(
+          typeof body?.detail === "string"
+            ? body.detail
+            : `The bus returned ${res.status}.`
+        );
+        return;
+      }
+      // The one moment the token exists. There is no endpoint that returns it
+      // again, so if this is not shown now it is gone — which is why the URL
+      // goes straight into state and stays there until the panel closes.
+      setLink(`${window.location.origin}/shared?t=${body.token}`);
     } catch {
       setError("The bus is unreachable.");
     } finally {
@@ -165,6 +213,54 @@ export function ShareWithClient() {
               )}
             </p>
           )}
+          <div className="border-t border-border-hairline pt-3 space-y-2">
+            <p className="text-sm font-semibold tracking-tight">
+              Or send them a link
+            </p>
+            <p className="text-xs text-text-muted leading-relaxed">
+              No account needed. Read-only, expires in 30 days, and carries no
+              contact details. You can revoke it at any time.
+            </p>
+
+            {link ? (
+              <>
+                <input
+                  readOnly
+                  value={link}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="w-full text-xs bg-bg-canvas border border-border-hairline rounded-lg px-3 py-2 font-mono"
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  fullWidth
+                  icon={<Link2 size={14} />}
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(link);
+                    setCopied(true);
+                  }}
+                >
+                  {copied ? "Copied" : "Copy link"}
+                </Button>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  Shown once. Nothing can read it back — mint another if you
+                  lose it, and revoke this one.
+                </p>
+              </>
+            ) : (
+              <Button
+                variant="secondary"
+                size="sm"
+                fullWidth
+                icon={<Link2 size={14} />}
+                disabled={busy}
+                onClick={() => void mintLink()}
+              >
+                {busy ? "Creating…" : "Create a link"}
+              </Button>
+            )}
+          </div>
+
           {error && (
             <p className="text-xs text-accent-red leading-relaxed">{error}</p>
           )}

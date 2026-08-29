@@ -259,6 +259,62 @@ class RuleDispatch(Base):
     )
 
 
+class ReportShare(Base):
+    """A link that lets a client open one report without an account. Migration 0013.
+
+    The token itself is not here — only its sha256, so a value nobody can read
+    back cannot leak out of the database. `hint` is the last four characters,
+    enough to recognise a link you are holding and not enough to rebuild one.
+    The same shape `TenantIntegration` uses for a credential, and for the same
+    reason.
+
+    `revoked_at` rather than a DELETE, as `auth/models.ApiKey` and
+    `TenantIntegration` both do: a link handed to a client is a fact about the
+    activation, and withdrawing it should not destroy the answer to "did they
+    ever see this".
+
+    Outside RLS, and 0013's docstring has the argument in full — the reader has
+    no credential at all, and the tenant it should be scoped to is a column on
+    the row being looked up. What stands in for a policy is that the lookup key
+    is a digest of 32 random bytes, and that every operator-side query filters on
+    the caller's verified tenant explicitly.
+    """
+
+    __tablename__ = "report_share"
+    __table_args__ = (
+        Index("report_share_session_idx", "tenant_id", "session_id"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(Text, nullable=False)
+    #: One link opens one activation's report. Never a wildcard: a link that
+    #: followed the tenant rather than the session would hand over every
+    #: activation the client was never shown.
+    session_id: Mapped[str] = mapped_column(Text, nullable=False)
+    token_sha256: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    hint: Mapped[str] = mapped_column(Text, nullable=False)
+    label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    #: Not nullable on purpose. A link with no expiry is a permanent
+    #: unauthenticated read path into a client's data, and "forever" should have
+    #: to be typed as a number of days by somebody who meant it.
+    expires_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: So an operator can answer "has the client opened it yet", which is the
+    #: first thing they ask after sending one.
+    last_viewed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    view_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
 class TenantIntegration(Base):
     """What one tenant authenticates to one CRM as. Added in migration 0007.
 

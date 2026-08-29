@@ -46,6 +46,7 @@ from app.routers import (
     plan,
     rules,
     sessions,
+    share,
     users,
 )
 
@@ -148,6 +149,10 @@ app.include_router(events.router)
 app.include_router(events.alias_router)
 app.include_router(live.router)
 app.include_router(sessions.router)
+# The only routes in the application that accept a share token, and the only
+# unauthenticated read path into tenant data. `routers/share.py` has what a
+# leaked URL is worth.
+app.include_router(share.router)
 # After sessions: both mount /v1/sessions, and this one's paths are
 # strictly longer, so no route here can shadow one there.
 app.include_router(calibration.router)

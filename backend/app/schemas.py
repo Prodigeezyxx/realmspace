@@ -122,6 +122,55 @@ class EventIn(BaseModel):
         return value
 
 
+class ShareCreate(BaseModel):
+    """What an operator asks for when they want a link for a client."""
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    #: Whose copy this is, for the operator's own list. Never shown to the
+    #: person opening the link — it is a note to self, not a greeting.
+    label: str | None = None
+    #: Bounded by `app.share.MAX_EXPIRY_DAYS`, and `expires_at` is NOT NULL, so
+    #: a link that never dies cannot be asked for.
+    expires_in_days: int = Field(default=30, ge=1, le=365)
+
+
+class ShareOut(BaseModel):
+    """One link, as its creator sees it. **Never carries the token.**
+
+    `hint` is the last four characters, which answers the only question a list
+    needs to — "is this the link I sent on Tuesday" — without the value being
+    retrievable. Same reasoning as `secretHint` on a stored credential.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    id: str
+    session_id: str
+    label: str | None
+    hint: str
+    created_by: str
+    created_at: dt.datetime
+    expires_at: dt.datetime
+    revoked_at: dt.datetime | None
+    last_viewed_at: dt.datetime | None
+    view_count: int
+    #: Derived rather than stored, so "is this live" cannot drift from the two
+    #: columns that decide it.
+    active: bool
+
+
+class ShareCreated(ShareOut):
+    """The one response that carries the token, at the one moment it exists.
+
+    There is no endpoint that returns it a second time. That is not a missing
+    feature: a value nobody can read back is a value that cannot leak from the
+    database, and the operator's copy of the link is the URL in their hand.
+    """
+
+    token: str
+
+
 class EventOut(EventIn):
     """What comes back out — over HTTP and over the WebSocket.
 

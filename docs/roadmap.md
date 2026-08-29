@@ -1162,10 +1162,55 @@ this codebase deletes from reports.
       `spatial.group` for the couple, none for the queue. Then a trio dwelling
       five minutes, after which `data-model.md`'s own "Groups in Lounge for 4
       min+" query returned a row for the first time in the project's life.
-- 🔲 **Public share link for a report** — a signed, expiring, read-only URL
-      needing no account. "Share with client" grants a viewer seat instead, which
-      is what §3 already means by Viewer. A link is a new *unauthenticated* read
-      path into tenant data and wants its own security design.
+- ✅ **Public share link for a report** *(2026-08-29)* — a read-only URL needing
+      no account. "Share with client" now offers both: a viewer seat for somebody
+      who will come back, and a link for the one email that ends an engagement.
+
+      **The security design, since that is what this bullet was waiting on.**
+
+      *An opaque stored token, not a JWT.* The line above asked for "signed,
+      expiring", and a signature gives both for free — but not **revocation**,
+      which an operator taking a link back requires. Revoking a JWT needs a
+      denylist, a denylist is a table, and once there is a table the signature
+      does nothing the table does not. So: 32 random bytes, stored as a sha256,
+      returned once. A database dump contains no working link.
+
+      *A token is not a credential.* Making it a third `Principal.kind` would
+      have meant every `require_reader` endpoint admitting it — and `GET /events`
+      takes a `session_id`, so a link for one activation would have read any
+      other by asking. Instead it reaches three routes under `/v1/share/…` which
+      resolve it to a `(tenant, session)` pair and take **neither from the
+      request**. Reading a second activation is unwritable rather than caught,
+      the shape ADR-003 chose for the same class of problem. Presented as a
+      bearer token to an ordinary endpoint it is simply not a token — verified,
+      401 on all three tried.
+
+      *What a leaked URL exposes.* One activation's report with contact details
+      stripped: `erasure.redact` runs over every type in `erasure.PII_TYPES`, so
+      this inherits the vocabulary the erasure job maintains rather than keeping
+      a second list that could drift. The events are **redacted, not removed**,
+      so `leadsCaptured` on a client's copy is the number the operator sees —
+      dropping them would have made the two disagree silently, which is worse
+      than either alone. Not the live feed, the twin, Ask, the ledger, `/ops`, or
+      any write path.
+
+      *Unknown, expired and revoked are one 404,* with one message, because
+      distinguishing them is the only thing a stranger holding a guess could act
+      on.
+
+      **Verified against a live stack.** A link opened with no credential
+      rendered the report; a seeded lead named "Jordan Reeve" came back as
+      `contact: {}` with no part of the name, email, company or title anywhere in
+      the response, while the lead count still read 1. Revoking it turned the
+      page into "this link is no longer valid".
+
+      **One bug found by looking, which is the argument for looking.** The first
+      version of the shared reader handed raw wire payloads to `computeScorecard`
+      — the page rendered **1 visitor where there were 6, with `NaN` average
+      dwell**, the exact failure `lib/bus/wire.ts` exists to prevent, in new code
+      that had walked around that boundary. Now translated and validated like
+      every other inbound event, and pinned by a test that asserts both the right
+      answer and the wrong one.
 
 **Acceptance:** 🟡 **walked end to end 2026-08-25**, in a browser against a live
 stack. Three of the four clauses hold; "billed" cannot until a payment provider
