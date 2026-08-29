@@ -17,7 +17,68 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-28
+## [Unreleased] — last updated 2026-08-29
+
+### Fixed — 2026-08-29 — `[neo4j-track]` A camera that blinks no longer ends the activation
+
+If the camera failed to hand over a frame the moment perception started, the run
+stopped there. It printed that the session had ended, having recorded nothing,
+and gave no other explanation. On a booth that is a camera which took a moment
+to wake and an event that was never measured — and the operator's only clue
+would be a report with nothing in it.
+
+The same confusion sat in the main loop. A camera that drops a frame and a video
+file that has reached its end look identical in the code — both are "the read
+failed" — and both ended the run. For the file that is right; for a live camera
+it is not.
+
+**They are now told apart.** A camera is given a few seconds to produce its
+first frame before anyone gives up on it, and a few seconds to come back if it
+stutters mid-run. A file still stops the moment it runs out, because retrying
+there would mean every replay of recorded footage hanging at the end of the
+clip. A camera that genuinely never delivers still fails — quickly, at startup,
+with its own message and its own exit code, rather than looking like a quiet
+event nobody attended.
+
+Runs also now report how many frames they dropped, so one that limped can be
+told apart from one that was clean. Before, the only evidence was a frame count
+nobody had a baseline for.
+
+#### The detail
+
+- **`perception/capture.py`**, cv2-free so the backend suite can reach it — the
+  same split `bus_client.py` and `heading.py` already use for the reason
+  `pytest.ini` records. Both functions take anything with a `.read()`, so the
+  tests drive them with a fake that fails on demand rather than with a webcam
+  nobody can rely on being plugged in.
+- `realmspace.py` knew which kind of source it had all along — a numeric
+  `--source` is a camera index — and that fact simply was not reaching the
+  decision. It is now the `live` flag on every read.
+- **Exit code 3**, distinct from 1 (never opened) and 2 (no privacy mask). The
+  three failures have different remedies and used to look the same.
+- 7 tests, including the one that matters most in the other direction: a file
+  source must still stop at its first failed read, and must not be retried.
+- **Verified end to end on a real clip**: 20 frames in, `frames: 20`,
+  `dropped_frames: 0`, and no pause at the end.
+
+#### Still not verified, for the fourth time
+
+**No camera has yet driven gaze, and the camera leg of the latency is still
+inferred.** A fourth capture window ran tonight and recorded **zero people**.
+The pipeline itself was working — the loop processed **1,596 frames in 90
+seconds, about 18fps**, with the pose model running on every one — so this is
+the detector honestly finding nobody in shot, not a fault.
+
+That leaves two claims this project still does not make: that `spatial.gaze`
+fires on a real skeleton and stays silent when somebody turns away, and that the
+full camera → dashboard chain has been measured in one piece rather than added
+up from two halves, one of them five phases old. Everything stays staged for
+whenever somebody is actually in front of the lens.
+
+One more thing seen three times tonight and not yet chased: the backend suite
+throws an intermittent Postgres `ConnectionError`, on a different test each
+time, always passing on a re-run. It has not failed CI. Recorded here so the
+fourth occurrence is not the first anybody has heard of it.
 
 ### Added — 2026-08-28 — `[neo4j-track]` The booth can tell you what people looked at
 

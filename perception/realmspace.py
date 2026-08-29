@@ -35,6 +35,7 @@ from typing import Iterable
 import cv2  # opencv-python
 
 from bus_client import BusClient
+from capture import open_first_frame, read_frame
 from heading import heading_from_keypoints
 from mask import MaskFetcher, MaskUnavailable
 
@@ -203,6 +204,11 @@ def main() -> int:
     if source.isdigit():
         source = int(source)
 
+    # A numeric --source is a camera index; anything else is a path. The
+    # distinction decides what a failed read means later on, and it is the one
+    # the old loop did not make.
+    live = isinstance(source, int)
+
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
         print(f"could not open source: {args.source}", file=sys.stderr)
@@ -266,16 +272,52 @@ def main() -> int:
          "camera_id": args.camera_id},
     )
 
+    # Opened is not the same as delivering. A camera that needs a moment to wake
+    # used to end the run here: one failed read, `frames: 0`, and nothing in the
+    # output saying the camera had never produced anything.
+    ok, first_frame, attempts = open_first_frame(cap)
+    if not ok:
+        print(
+            json.dumps({
+                "type": "no_frames",
+                "source": str(args.source),
+                "attempts": attempts,
+                "error": "the source opened but never delivered a frame",
+            }),
+            file=sys.stderr, flush=True,
+        )
+        cap.release()
+        return 3
+    if attempts > 1:
+        # Worth saying and not worth an error: this is what a device waking up
+        # looks like, and an operator seeing it once knows why startup paused.
+        print(
+            json.dumps({"type": "camera_woke", "attempts": attempts}),
+            file=sys.stderr, flush=True,
+        )
+
     frame_id = 0
+    dropped_frames = 0
+    pending_frame = first_frame
     fps_t0 = time.time()
     fps_frames = 0
     fps = 0.0
     last_bus_post = 0.0
     try:
         while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
+            if pending_frame is not None:
+                # The frame `open_first_frame` already took. Reading again here
+                # would throw away the one that proved the camera works.
+                frame, dropped = pending_frame, 0
+                pending_frame = None
+            else:
+                ok, frame, dropped = read_frame(cap, live=live)
+                if not ok:
+                    # On a file this is the end of the clip. On a camera it is a
+                    # device that has actually gone away, having been given
+                    # DROPOUT_TIMEOUT to come back.
+                    break
+            dropped_frames += dropped
             frame_id += 1
             ts = time.time()
 
@@ -382,7 +424,13 @@ def main() -> int:
                 file=sys.stderr, flush=True,
             )
         print(
-            json.dumps({"type": "session_end", "ts": time.time(), "frames": frame_id}),
+            json.dumps({
+                "type": "session_end", "ts": time.time(), "frames": frame_id,
+                # So a run that limped is distinguishable from a clean one.
+                # Without this the only evidence is a frame count nobody has a
+                # baseline for.
+                "dropped_frames": dropped_frames,
+            }),
             flush=True,
         )
 
