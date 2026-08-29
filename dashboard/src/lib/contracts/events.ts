@@ -63,6 +63,9 @@ export type RealmEventType =
   | "erasure.requested"
   /** the receipt: ids and counts, never what was removed */
   | "erasure.completed"
+  /** Retention enforcing itself — `gtm.md`'s "30-day data retention", meant. */
+  | "retention.purge_requested"
+  | "retention.purged"
   /**
    * A path-aware follow-up the contextual SDR wrote and nobody has sent. Its own
    * namespace rather than an `insight.` type: an insight is about the room, a
@@ -116,6 +119,15 @@ export const ANONYMOUS_EVENT_TYPES: readonly RealmEventType[] = [
   "session.started",
   "session.ended",
   "session.zones_updated",
+  /**
+   * Retention enforcing itself. The request names the admin who asked, and the
+   * receipt carries a floor, a seq and two counts — no visitor is named by
+   * either, which is deliberate: the receipt lands on the same log the purge
+   * just emptied, so quoting what was removed would put it straight back. Same
+   * argument `erasure.completed` makes about itself.
+   */
+  "retention.purge_requested",
+  "retention.purged",
 ] as const;
 
 /** Event types that may carry PII and therefore require a consent basis. */

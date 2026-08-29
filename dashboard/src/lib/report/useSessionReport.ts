@@ -25,6 +25,7 @@ import {
   busEmail,
   backfillSession,
   ensureTenantId,
+  getRetentionFloor,
   isRemoteBusEnabled,
   readAll,
   summariseRefusals,
@@ -42,7 +43,22 @@ import { getTenantId } from "@/lib/tenant/context";
 import type { RealmEvent, ZoneNode } from "@/lib/contracts";
 import type { Session, ZoneType } from "@/lib/session/types";
 
-export type ReportStatus = "loading" | "ready" | "empty" | "unconfigured";
+export type ReportStatus =
+  | "loading"
+  | "ready"
+  | "empty"
+  | "unconfigured"
+  /**
+   * Past the retention window the client's plan sold them.
+   *
+   * A fourth case, added when retention started actually removing things
+   * (2026-08-29). Before the purge existed, an old activation still had all its
+   * events and simply could not be read; now its payloads are emptied, so it
+   * comes back looking like an activation nobody attended. Rendering that as
+   * `empty` would tell a client they had a quiet day, which is the exact
+   * substitution the three cases above were separated to prevent.
+   */
+  | "expired";
 
 export interface SessionReport {
   status: ReportStatus;
@@ -194,11 +210,29 @@ export function useSessionReport(session: Session): SessionReport {
         );
       }
 
-      const status: ReportStatus = events.length
-        ? "ready"
-        : zones.length
-          ? "empty"
-          : "unconfigured";
+      // Past its window: the plan clamped the read, and everything this
+      // activation recorded happened before the floor. Checked against the
+      // *events* rather than the session's configured dates, because the dates
+      // are what an operator typed and the events are what happened.
+      const floor = getRetentionFloor();
+      const newest = events.reduce((max, e) => Math.max(max, e.occurredAt), 0);
+      const expired =
+        floor != null && events.length > 0 && newest < floor;
+
+      const status: ReportStatus = expired
+        ? "expired"
+        : events.length
+          ? "ready"
+          : zones.length
+            ? "empty"
+            : "unconfigured";
+
+      if (expired) {
+        missing.push(
+          "This activation is past the retention window on this plan, so its " +
+            "measurements have been removed. The figures cannot be recomputed."
+        );
+      }
 
       setReport({ status, scorecard, config, graph, events, missing });
     }

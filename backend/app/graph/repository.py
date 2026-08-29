@@ -1126,6 +1126,42 @@ async def dwell_by_zone(
     return [dict(record) async for record in result]
 
 
+async def purge_people_in_session(
+    session: AsyncSession, *, tenant_id: str, session_id: str
+) -> int:
+    """Delete a session's visitors and every edge they carry. Returns the count.
+
+    The graph half of retention. Emptying the log's payloads and leaving this
+    behind would be a half-measure: `(:Person)` and its `ENTERED`, `LEFT`,
+    `DWELLED_IN`, `LOOKED_AT`, `INTERACTED_WITH` and `GROUP_MEMBER_OF` edges are
+    the derived copy of exactly the data the window was supposed to expire.
+
+    **`Zone`, `Surface`, `Camera` and `Session` stay.** They are the operator's
+    configuration — what the booth was, not who walked through it — and deleting
+    them would make a purged activation indistinguishable from one nobody ever
+    set up, which is a distinction `useSessionReport` goes out of its way to
+    keep.
+
+    **`Contact` stays too**, and belongs to erasure rather than here: it is
+    keyed on the tenant and not the session, because a deal belongs to the
+    client and outlives the activation that started it (graph migration 004).
+
+    `DETACH DELETE` takes the edges with the node, which is what makes this one
+    statement rather than an ordering problem.
+    """
+    result = await session.run(
+        """
+        MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id})
+        DETACH DELETE p
+        RETURN count(p) AS removed
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+    )
+    record = await result.single()
+    return record["removed"] if record else 0
+
+
 async def people_in_session(
     session: AsyncSession, *, tenant_id: str, session_id: str
 ) -> int:

@@ -44,6 +44,15 @@ survive, so the counts a client sees match the operator's. The link expires, can
 be revoked, and reaches nothing but that one report — not the live feed, the
 twin, Ask, the ledger or any write path.
 
+**Retention removes things now.** Each tier sells a window (`gtm.md`), and past
+it an activation's events have their payloads emptied and its visitors deleted
+from the graph. What remains in the log is a skeleton — type and timestamps, no
+contents — kept so the rest of the system stays truthful: derived ids resolve,
+parked events still point somewhere, and a replay cannot silently produce a
+different answer. **A purged row still exists**, and that is said here rather
+than described as deletion, because the alternative is a promise the database
+contradicts.
+
 ## What we never do
 
 - **No facial recognition.** No FaceNet, no ArcFace, no biometric vectors.

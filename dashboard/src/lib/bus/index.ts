@@ -34,6 +34,7 @@ export { emit, type EmitOptions } from "./emit";
 export {
   connectLiveFeed,
   backfillSession,
+  getRetentionFloor,
   fetchSessionEvents,
   ensureTenantId,
   flushOutbound,

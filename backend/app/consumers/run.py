@@ -34,6 +34,7 @@ from app.consumers.gaze import GazeConsumer
 from app.consumers.grouping import GroupingConsumer
 from app.consumers.insights import InsightsConsumer
 from app.consumers.reanonymise import ReAnonymiseConsumer
+from app.consumers.retention import RetentionConsumer
 from app.consumers.rules import RulesConsumer
 from app.consumers.sdr import SdrConsumer
 from app.consumers.tracker import TrackerConsumer
@@ -93,6 +94,10 @@ CONSUMER_CLASSES: list[type[Consumer]] = [
     # people in it would find nobody to link. After the tracker for the same
     # reason — the zone enters it reads are the tracker's output.
     GroupingConsumer,
+    # Last, and it reads the registry above to find out who must have caught up
+    # before it may empty anything. Ordered here so that list is complete by the
+    # time it runs; the check itself is by name at handle time, not by position.
+    RetentionConsumer,
     # Beside grouping and for the same reason: the tracker is the <500ms path
     # the Phase 1 acceptance is measured on, and a gaze bug must not be able to
     # stop dwell being measured. It reads the detection stream and writes

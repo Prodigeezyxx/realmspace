@@ -845,15 +845,63 @@ this codebase deletes from reports.
       provider, which is a credential this repo does not have. Plan changes wait
       with it: there is deliberately no endpoint that moves a tenant between
       tiers, because the one that should is the Stripe webhook.
-- 🔲 **Retention purge** — split from the limits above, which clamp *reads*. The
-      event log is append-only and `consumers/erasure.py` is the one thing that
-      touches a stored row, deliberately and only to redact a name. A purge is a
-      second destructive path over a client's system of record, it breaks the
-      replay reproducibility every consumer's derived ids depend on, and it needs
-      the same "refuse until the retraction has landed" ordering the erasure job
-      argues for. Until it exists, a client's data is *retained* past the window
-      they bought and merely unreadable to them, which is stated here rather
-      than left to be discovered.
+- ✅ **Retention purge** *(2026-08-29)* — `gtm.md`'s "30-day data retention"
+      finally means it. Until now the limits clamped *reads*, so a client's data
+      outlived the window they bought and was merely invisible to them.
+
+      **It drops the payload and keeps the skeleton.** `seq`, `event_id`, `type`
+      and both timestamps survive; the payload becomes `{}`. Not a second
+      destructive path — it is `repository.redact_event`, already "the only
+      UPDATE on this table, anywhere", widened from one person to a time window.
+      Keeping the row is what keeps the rest honest: derived ids still resolve,
+      `dead_letter.event_seq` still points at something, cursors stay
+      contiguous, and a replay produces the same ids rather than duplicates.
+
+      **Its own `purged_at`, never `redacted_at`.** That column means somebody
+      asked to be forgotten and its counts are what an auditor reads; sharing it
+      would put rows nobody requested into that answer.
+
+      **The graph goes too**, for any session whose *latest* event is past the
+      floor — judged on the latest, so a long run that started before the window
+      and is still going is not expired. `Zone`, `Surface`, `Camera` and
+      `Session` stay: they are the operator's configuration, and deleting them
+      would make a purged activation indistinguishable from one nobody set up.
+      `Contact` stays and belongs to erasure — it is tenant-keyed because a deal
+      outlives the activation that started it.
+
+      **Three refusals, each mutation-checked.** A consumer whose cursor is
+      behind (purging what nothing has read leaves the activation quietly short
+      of the data its own report is built from); an erasure in flight (both
+      rewrite log rows and only one is a legal right); an unresolved dead letter
+      pointing into the window (a parked event with no payload can never be
+      retried). All three raise and retry with backoff, landing on `/ops` with
+      the reason — `consumers/erasure.py`'s shape, for its reason.
+
+      **`erasure.*` and `retention.*` are never purged.** They are the record
+      that the purging and the erasing happened.
+
+      **The replay guard is the other half.** With payloads gone, a rewind to
+      seq 0 would feed consumers empty events and rebuild a wrong graph —
+      quietly, because most consumers skip what they cannot read. A
+      `purged_before_seq` watermark makes `reset_cursor` refuse below it, so the
+      wrong replay is unwritable rather than merely wrong.
+
+      **No scheduler**, matching the refusal recorded for the CSV export. An
+      admin endpoint, a dry run that reports every reason it would be blocked
+      rather than the first, and a receipt carrying counts and a floor.
+
+      **One thing the live run found.** A purged activation rendered on
+      `/report` as a quiet day — status `ready`, a scorecard of zeros — because
+      an emptied log is indistinguishable from an unattended one. There is a
+      fourth report status now, `expired`, and the page says the window passed
+      and the figures cannot be recomputed. That page already separated "nobody
+      came" from "nothing was measuring"; this is the same distinction one case
+      further along.
+
+      **Verified against a live stack**: 10 events emptied, receipt written, rows
+      confirmed in Postgres as `payload {}` with `purged_at` set and
+      `redacted_at` null, watermark at seq 142, and the dead-letter refusal
+      firing for real on four unresolved rows before they were cleared.
 - ✅ **Calibration UI + CV drift telemetry** *(2026-08-19)* — the third clause,
       multi-camera fusion, is split out below with its reasons.
 

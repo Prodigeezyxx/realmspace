@@ -82,6 +82,12 @@ EVENT_NAMESPACES = (
     #: one, it is authorised by an admin rather than given by the visitor, and it
     #: is the only thing in the system that rewrites the log.
     "erasure.",
+    #: retention.purge_requested / retention.purged — `gtm.md`'s "30-day data
+    #: retention", enforced. Its own namespace and not an `erasure.` type: that
+    #: one is a person exercising a right over their own data, this is a window
+    #: expiring over everybody's, and conflating them would put rows nobody
+    #: asked about into the answer an auditor reads.
+    "retention.",
 )
 
 

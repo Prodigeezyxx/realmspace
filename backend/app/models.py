@@ -90,6 +90,13 @@ class EventLog(Base):
     redacted_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: When retention emptied this payload (migration 0014). Its own column and
+    #: never `redacted_at`, because the two are different facts: that one means
+    #: a person asked to be forgotten, and an auditor reads its counts. This one
+    #: means the event aged out of the window the client bought.
+    purged_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         # Serves the consumer poll: "events for this tenant/session after seq N".
@@ -313,6 +320,31 @@ class ReportShare(Base):
         DateTime(timezone=True), nullable=True
     )
     view_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class TenantPurgeWatermark(Base):
+    """How far a tenant's log has been purged. Migration 0014.
+
+    A purge empties payloads and leaves the rows, which keeps derived event ids
+    resolvable and dead letters pointing at something — and means a replay from
+    seq 0 would feed consumers empty events and quietly rebuild a wrong graph.
+
+    `repository.reset_cursor` refuses to rewind below `purged_before_seq`, so
+    that replay is unwritable rather than merely wrong.
+    """
+
+    __tablename__ = "tenant_purge_watermark"
+
+    tenant_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    purged_before_seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: The floor the last purge used. Kept so a receipt stays checkable later,
+    #: against a plan that may since have changed tier.
+    purged_through: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
 
 
 class TenantIntegration(Base):

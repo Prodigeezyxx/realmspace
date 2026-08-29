@@ -97,7 +97,7 @@ def admin_url() -> str:
     already means something else: `Settings.admin_url` uses that one for the
     *application's* owner connection, and in `backend/.env` today it points at
     the dev database `realmspace`. Reusing it here would have pointed the
-    fixture below — which `TRUNCATE`s ten tables and bypasses every RLS policy
+    fixture below — which `TRUNCATE`s eleven tables and bypasses every RLS policy
     — at the dev data. The two connections are different things and conflating
     them is precisely how that accident happens.
 
@@ -171,6 +171,10 @@ async def db_session() -> AsyncIterator[AsyncSession]:
     `report_share` (0013) for that same fourth reason, and it is what put this
     paragraph here: share ids carry a random tail, so leaked rows accumulate on
     the same session and "the link for this activation" stops being one row.
+
+    `tenant_purge_watermark` (0014) for a fifth, and the sharpest: it *forbids*
+    something. A watermark left behind makes `reset_cursor` refuse in the next
+    test, which then fails with a message about a purge it never ran.
     """
     # Wipe as the owner: TRUNCATE is a privilege the app role deliberately does
     # not have, and it would in any case only be able to see its own tenant.
@@ -180,7 +184,8 @@ async def db_session() -> AsyncIterator[AsyncSession]:
             text(
                 "TRUNCATE event_log, consumer_cursor, dead_letter, "
                 "rules, rule_dispatch, tenant_integration, crm_link, "
-                "auth_user, api_key, tenant, report_share RESTART IDENTITY;"
+                "auth_user, api_key, tenant, report_share, "
+                "tenant_purge_watermark RESTART IDENTITY;"
             )
         )
         await cleaner.commit()

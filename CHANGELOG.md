@@ -19,6 +19,74 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-29
 
+### Added — 2026-08-29 — `[neo4j-track]` Retention now removes something
+
+We sell "30-day data retention" on the entry tier and 90 days above it. Until
+today that was a reading rule: past the window a client could no longer see
+their own data, and every row stayed exactly where it was. The data outlived the
+window they paid for and was simply invisible to them.
+
+It goes now. Past the window, an activation's events lose their contents and its
+visitors are deleted from the graph.
+
+**What is left is a skeleton, and we say so rather than calling it deletion.**
+Each event keeps its position, its type and its timestamps; everything the data
+actually *is* goes. Keeping the husk is what stops the rest of the system
+quietly breaking — things that point at those events still point somewhere, and
+a rebuild produces the same answer instead of a parallel set of duplicates. A
+client told "we deleted it" would find rows still there, so the privacy docs say
+skeleton.
+
+**The booth stays; the visitors go.** Zones, cameras and touchpoints are what the
+operator set up, not who walked through — and deleting them would make an expired
+activation look like one nobody ever configured, a distinction the report goes
+out of its way to keep.
+
+**It refuses more readily than it runs.** It will not purge while any part of the
+system is still catching up on those events, while somebody's erasure request is
+in flight, or while a failed event in the window is waiting for a human — because
+each of those turns a deletion into a quiet wrong answer: an activation short of
+its own data, a legal right racing a bulk rewrite, or a stuck row nobody can ever
+clear. Each refusal explains itself and can be seen before you run anything: a
+dry run reports *every* reason it would be blocked, not the first.
+
+**And it cannot be run on a timer.** An admin asks for it and gets a receipt with
+their name on it. A job quietly deleting a client's data on Tuesdays is a worse
+thing to own than the work of asking.
+
+#### The detail
+
+- **`purged_at`, never `redacted_at`.** That column means somebody exercised
+  Article 17 and its counts are what an auditor reads; sharing it would put rows
+  nobody asked about into that answer.
+- **The replay guard is the half that is easy to miss.** With payloads emptied, a
+  rewind to the start of the log would feed consumers empty events and rebuild a
+  wrong graph — silently, because most of them skip what they cannot read. A
+  watermark makes that rewind refuse. The wrong replay is unwritable rather than
+  merely wrong.
+- **`erasure.*` and `retention.*` are exempt from purging.** They are the record
+  that the purging and the erasing happened.
+- **A session is judged on its *latest* event.** A long run that began before the
+  window and is still going is not expired.
+- **A tier that states no window purges nothing.** The pricing sheet is the only
+  authority, the same rule the plan limits already follow — deleting a client's
+  data on a limit nobody sold them would be the worst place to start inventing
+  one.
+- 12 backend tests; all three refusals and the replay guard mutation-checked by
+  deleting each rule and watching the test fail. 713 backend and 270 dashboard
+  pass; types, lint and build clean.
+
+#### What the live run found
+
+A purged activation rendered on the report as **a quiet day** — a page of zeros,
+presented as findings. An emptied log looks exactly like an unattended one, and
+that page already separates "nobody came" from "nothing was ever measuring" for
+precisely this reason; retention had added a third case and nothing knew about
+it.
+
+There is a fourth state now. An expired activation says its window has passed and
+that the figures cannot be recomputed, rather than quietly claiming nobody came.
+
 ### Added — 2026-08-29 — `[neo4j-track]` You can send a client their report
 
 Until now, sharing a report meant giving somebody an account. That is the right

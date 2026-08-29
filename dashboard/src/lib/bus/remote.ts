@@ -590,6 +590,26 @@ export function mirror(wire: WireEvent): boolean {
  * Pages on `seq` rather than an offset: `seq` has permanent gaps (a deduped
  * insert burns a value), so paging by count would skip events.
  */
+/**
+ * The oldest event the backend would return, when the plan clamps the read.
+ *
+ * `GET /events` sets `X-Retention-Floor` when a tenant's tier limits how far
+ * back they may read (`app/plans.retention_floor`). Surfacing it matters
+ * because of what retention became on 2026-08-29: the purge empties payloads,
+ * so an expired activation now returns almost nothing — and a report that
+ * cannot tell "past its window" from "nobody came" would present a purged
+ * activation to a client as a quiet day.
+ *
+ * Module-level rather than returned, because `backfillSession` already has a
+ * meaningful return (how many events it read) and every caller of it is the
+ * same page that wants this.
+ */
+let lastRetentionFloor: number | null = null;
+
+export function getRetentionFloor(): number | null {
+  return lastRetentionFloor;
+}
+
 export async function backfillSession(
   tenantId: string,
   sessionId: string,
@@ -618,6 +638,9 @@ export async function backfillSession(
       { headers: { Authorization: `Bearer ${jwt}` } }
     );
     if (!res.ok) break;
+
+    const floor = res.headers.get("X-Retention-Floor");
+    lastRetentionFloor = floor ? Date.parse(floor) : null;
 
     const batch = (await res.json()) as WireEvent[];
     if (!batch.length) break;

@@ -82,11 +82,16 @@ export default function ReportPage() {
 }
 
 /**
- * The two ways a report can have nothing in it, kept apart.
+ * The three ways a report can have nothing in it, kept apart.
  *
  * "Nobody came" and "nothing was ever measuring" look identical on screen if you
  * let them, and confusing the second for the first is how a client is told they
  * had a quiet day when in fact the cameras were scoring against no zones at all.
+ *
+ * Retention added a third on 2026-08-29. A purged activation comes back with its
+ * payloads emptied, so it looks exactly like one nobody attended — and telling a
+ * client they had a quiet day when the truth is that their window expired is the
+ * same substitution one case further along.
  */
 function NothingToReport({
   session,
@@ -96,20 +101,25 @@ function NothingToReport({
   report: SessionReport;
 }) {
   const unconfigured = report.status === "unconfigured";
+  const expired = report.status === "expired";
   return (
     <div className="max-w-[1100px] mx-auto p-6 md:p-10 space-y-6">
       <EmptyState
         icon={<Info size={20} />}
         title={
-          unconfigured
-            ? "This session was never set up for measurement"
-            : `No activity recorded for ${session.name}`
+          expired
+            ? `${session.name} is past its retention window`
+            : unconfigured
+              ? "This session was never set up for measurement"
+              : `No activity recorded for ${session.name}`
         }
         variant="page"
         hint={
-          unconfigured
-            ? "There are no zones on this session, so nothing could have been measured — an empty report here does not mean an empty room."
-            : "The session is configured correctly and the log is genuinely empty. Nobody was detected in any zone."
+          expired
+            ? "Its measurements were removed when the window on this plan expired. This is not an empty room — it is data that is gone, and the figures cannot be recomputed."
+            : unconfigured
+              ? "There are no zones on this session, so nothing could have been measured — an empty report here does not mean an empty room."
+              : "The session is configured correctly and the log is genuinely empty. Nobody was detected in any zone."
         }
       />
       {report.missing.length > 0 && (

@@ -335,3 +335,62 @@ describe("buildGazeRows", () => {
     expect(buildGazeRows([entered("P-1", "z_wall")], ZONES)).toEqual([]);
   });
 });
+
+describe("a purged activation is not a quiet day", () => {
+  /**
+   * The substitution this guards against, in one sentence: after retention
+   * empties an old activation's payloads, its report comes back looking exactly
+   * like one nobody attended. Telling a client they had a quiet day when the
+   * truth is that their window expired is the same class of error the report
+   * already separates "nobody came" from "nothing was measuring" to avoid.
+   *
+   * `useSessionReport` decides this from the events rather than the session's
+   * configured dates — the dates are what an operator typed, the events are
+   * what happened.
+   */
+  const FLOOR = Date.parse("2026-06-01T00:00:00Z");
+
+  function at(iso: string): RealmEvent {
+    return {
+      seq: 1,
+      eventId: `e-${iso}`,
+      tenantId: "t",
+      sessionId: "s",
+      type: "spatial.dwell",
+      payload: { anonId: "P-1", zoneId: "z_a", durationSec: 10 },
+      occurredAt: Date.parse(iso),
+      recordedAt: Date.parse(iso),
+    } as RealmEvent;
+  }
+
+  /** The rule as `useSessionReport` applies it. */
+  function isExpired(events: RealmEvent[], floor: number | null): boolean {
+    const newest = events.reduce((max, e) => Math.max(max, e.occurredAt), 0);
+    return floor != null && events.length > 0 && newest < floor;
+  }
+
+  it("calls it expired when everything predates the floor", () => {
+    expect(isExpired([at("2026-02-01T10:00:00Z"), at("2026-03-01T10:00:00Z")], FLOOR)).toBe(
+      true
+    );
+  });
+
+  it("does not, when anything at all is inside the window", () => {
+    // One recent event means the activation is live, however old the rest is.
+    expect(isExpired([at("2026-02-01T10:00:00Z"), at("2026-08-01T10:00:00Z")], FLOOR)).toBe(
+      false
+    );
+  });
+
+  it("does not, on a plan with no retention window", () => {
+    // `plans.retention_floor` returns null for a tier that states no window,
+    // and nothing is purged on those — so an old activation there is intact.
+    expect(isExpired([at("2026-02-01T10:00:00Z")], null)).toBe(false);
+  });
+
+  it("does not, when there are no events at all", () => {
+    // That is "nobody came" or "never configured", which the report already
+    // tells apart. Claiming expiry here would invent a third answer.
+    expect(isExpired([], FLOOR)).toBe(false);
+  });
+});

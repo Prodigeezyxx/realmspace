@@ -114,6 +114,8 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `followup.drafted` | contextual SDR | contact, subject, body, grounded_in | `/followups` review |
 | `erasure.requested` | admin (`POST /v1/erasure`) | subject ids, requested_by | erasure consumer |
 | `erasure.completed` | erasure consumer | contact_ids, counts | audit |
+| `retention.purge_requested` | admin (`POST /v1/retention/purge`) | requested_by | retention consumer |
+| `retention.purged` | retention consumer | purged_through, purged_before_seq, counts | audit |
 | `insight.generated` | insight agent | text, refs (supporting event ids), window | `/live`, graph |
 | `cost.metered` | consumers | tokens/credits/$ | cost telemetry |
 | `drift.detected` | drift consumer | camera_id, metric, observed vs baseline | ops |

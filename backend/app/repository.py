@@ -25,6 +25,7 @@ from app.models import (
     Rule,
     RuleDispatch,
     TenantIntegration,
+    TenantPurgeWatermark,
 )
 from app.schemas import EventIn
 
@@ -202,6 +203,98 @@ async def advance_cursor(
     await session.execute(stmt)
 
 
+#: Never emptied by a purge. These events *are* the record that the purging and
+#: the erasing happened, and a purge that ate its own receipts would leave
+#: nothing to audit — which is the one thing a retention policy has to be able to
+#: prove it did.
+PURGE_EXEMPT_PREFIXES = ("erasure.", "retention.")
+
+
+async def purge_events(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    before: dt.datetime,
+    at: dt.datetime,
+) -> tuple[int, int]:
+    """Empty the payloads of everything older than `before`. Returns (rows, max seq).
+
+    **The payload goes and the row stays**, which is the whole design. `seq`,
+    `event_id`, `type`, `occurred_at` and `recorded_at` are untouched, so derived
+    event ids still resolve, `dead_letter.event_seq` still points at something,
+    and cursors stay contiguous. What is removed is everything a client's data
+    actually *is*.
+
+    **`occurred_at`, not `received_at`** — the same rule `plans.retention_floor`
+    states and for the same reason: a batch buffered through an outage and
+    replayed a week late should not earn a week of extra retention for having
+    arrived late.
+
+    Already-purged rows are skipped, so running it twice is a no-op rather than a
+    second receipt claiming work it did not do.
+    """
+    exempt = [f"{prefix}%" for prefix in PURGE_EXEMPT_PREFIXES]
+    conditions = [
+        EventLog.tenant_id == tenant_id,
+        EventLog.occurred_at < before,
+        EventLog.purged_at.is_(None),
+    ]
+    for pattern in exempt:
+        conditions.append(~EventLog.type.like(pattern))
+
+    highest = (
+        await session.execute(select(func.max(EventLog.seq)).where(*conditions))
+    ).scalar_one_or_none() or 0
+
+    result = await session.execute(
+        update(EventLog).where(*conditions).values(payload={}, purged_at=at)
+    )
+    return result.rowcount or 0, highest
+
+
+async def purge_watermark(session: AsyncSession, *, tenant_id: str) -> int:
+    """How far this tenant has been purged. 0 when never."""
+    row = (
+        await session.execute(
+            select(TenantPurgeWatermark.purged_before_seq).where(
+                TenantPurgeWatermark.tenant_id == tenant_id
+            )
+        )
+    ).scalar_one_or_none()
+    return row or 0
+
+
+async def set_purge_watermark(
+    session: AsyncSession, *, tenant_id: str, seq: int, through: dt.datetime
+) -> None:
+    """Move the watermark forward. Never backwards.
+
+    A later purge with an earlier floor — which a tier downgrade would produce —
+    must not un-forbid a replay of a window whose payloads are already gone.
+    """
+    stmt = (
+        pg_insert(TenantPurgeWatermark)
+        .values(tenant_id=tenant_id, purged_before_seq=seq, purged_through=through)
+        .on_conflict_do_update(
+            index_elements=["tenant_id"],
+            set_={
+                "purged_before_seq": func.greatest(
+                    TenantPurgeWatermark.purged_before_seq, seq
+                ),
+                "purged_through": func.greatest(
+                    TenantPurgeWatermark.purged_through, through
+                ),
+                "updated_at": func.now(),
+            },
+        )
+    )
+    await session.execute(stmt)
+
+
+class PurgedWindow(RuntimeError):
+    """Raised when a rewind would replay events whose payloads are gone."""
+
+
 async def reset_cursor(
     session: AsyncSession, *, consumer: str, tenant_id: str, to_seq: int = 0
 ) -> None:
@@ -211,7 +304,22 @@ async def reset_cursor(
     consumer_cursor.last_seq". Bypasses the forward-only guard in
     advance_cursor() on purpose; that guard protects against concurrent loops,
     not against a deliberate operator rewind.
+
+    **It does not bypass the purge watermark.** Retention empties payloads and
+    leaves the rows, so a rewind into a purged window would feed consumers empty
+    events and rebuild a wrong graph — quietly, because most consumers skip what
+    they cannot read. Refusing here makes that replay unwritable rather than
+    merely wrong; an operator who means it lifts the watermark deliberately,
+    which is the decision they should be making.
     """
+    floor = await purge_watermark(session, tenant_id=tenant_id)
+    if floor and to_seq < floor:
+        raise PurgedWindow(
+            f"cannot rewind {consumer!r} to seq {to_seq} for {tenant_id!r}: "
+            f"everything at or below seq {floor} has had its payload purged for "
+            "retention, so a replay from there would rebuild a wrong graph. "
+            "Lift tenant_purge_watermark deliberately if that is what you mean."
+        )
     stmt = (
         pg_insert(ConsumerCursor)
         .values(consumer=consumer, tenant_id=tenant_id, last_seq=to_seq)
