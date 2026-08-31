@@ -589,12 +589,18 @@ not go, which is what the tests are pointed at.
       that behind a button labelled Send would be worse than none. The payload
       carries `grounded_in` — the exact zones, surfaces and dwell the draft was
       allowed to reference — so a reviewer checks a sentence against the
-      measurements rather than trusting it. **Still 🟡 on 2026-08-31, and for a
-      narrower reason than before**: the provider exists and this consumer takes
-      it through the same seam `/ask` does, so the draft is written rather than
-      composed — but the live run covered `/ask` only. Nobody has yet watched a
-      real model draft a real follow-up from a real handoff, and that walk is
-      what would make this ✅.
+      measurements rather than trusting it. **Still 🟡 on 2026-08-31**: the
+      provider is live and this consumer takes it through the same seam, so the
+      draft is written rather than composed, but nobody has yet watched a real
+      model draft a real follow-up from a real handoff. That walk is what would
+      make it ✅ — the insight consumer's is the worked example.
+
+      **One thing that walk would not have found, and reading the code did:**
+      this consumer had spent tokens since it was written and metered **none** of
+      them. With no provider `tokens` was always zero, so the absence looked like
+      nothing to record; a real provider bills for drafts, and a cost tile short
+      a spender is a wrong number rather than a missing feature. Metered now,
+      keyed on the contact so a replay is not billed twice.
 - ✅ **Live Analyst agent** (NL queries over the live bus) — `POST /v1/ask`, and
       the same endpoint that closes Phase 2's Ask the Room. Questions the graph
       cannot answer ("when was it busiest") are served from the log, which is
@@ -618,7 +624,7 @@ not go, which is what the tests are pointed at.
       occupancy against a configured capacity, prompting through the Phase 3
       rules engine) is buildable today and is *measurement, not prediction*; if
       demand arrives, that is where to start, and it belongs to whoever asks.
-- 🟡 **LLM insight generation every N minutes → `insight.generated`** —
+- ✅ **LLM insight generation every N minutes → `insight.generated`** —
       `consumers/insights.py`, `app/llm/digest.py`, `/live`.
       **Built to `floats-agent`'s specification, adopted verbatim** the way
       ADR-002 adopted their rule spec, so the two tracks do not grow two insight
@@ -635,12 +641,18 @@ not go, which is what the tests are pointed at.
       (an insight is always appended after the events it summarises, so a
       `before_seq` lookup can never see one) and the fix is recorded in the
       consumer. Anonymous by construction — the digest reads only `spatial.*`
-      and `surface.interaction`. **Still 🟡 on 2026-08-31, for the same narrower
-      reason as the SDR**: the provider is live and this consumer reaches it
-      through the same seam, but the timer-driven path has not been watched
-      writing one with a real model. It is also the path that spends on its own
-      schedule, so it should not be turned on against a shared key with no
-      ceiling — see open decision 2.
+      and `surface.interaction`. **✅ later the same day**, walked with a real
+      model (`tests/test_insights_live.py`): the sentence is the model's, the
+      measurements are the digest's, every citation still resolves, and **no
+      figure appears in the prose that the window did not measure** — checked
+      against the digest itself rather than a list somebody wrote out, because
+      the first version of that check failed a correct sentence.
+
+      **It is the path that spends on its own schedule**, which is why
+      `llm_monthly_token_budget` landed with it (`app/llm/budget.py`). Unset by
+      default; past the ceiling this consumer writes the measured insight with
+      `basis: deterministic` rather than failing, because a spent budget must not
+      stall a cursor over a sentence.
 
 **Also landed here, because both new consumers needed it:** the **T2 gate**
 (`app/consent_tier.py`). `consent-and-identity.md` §3 has said since Phase 4 that
@@ -668,10 +680,11 @@ What was not met was the phrase "AI" in the phase title: with open decision 2
 open, routing was by wording and the draft was composed from a template.
 
 **A key arrived on 2026-08-31 and the adapter is `app/llm/openrouter.py`.** The
-analyst half is walked and ✅. The SDR and the insight consumer reach the same
-provider through the same seam and are tested against it, but neither has been
-watched end to end with a real model, so both stay 🟡 with that written above
-rather than upgraded on the strength of sharing a code path.
+analyst half and the insight half are both walked with a real model and ✅. The
+SDR reaches the same provider through the same seam and is tested against it,
+but has not been watched end to end, so it stays 🟡 rather than being upgraded on
+the strength of sharing a code path — the rule that made the insight walk worth
+running, since running it is what turned up the SDR's missing meter.
 
 ---
 
@@ -1497,8 +1510,13 @@ From the founder architecture dump; each is designed-for, not hoped-for:
      therefore the answer's budget and the adapter adds headroom on top;
      without that, a routing call returns `content: null`.
    - **The key has no spend limit and three people share it.** `usage` is on the
-     healthcheck for that reason. The insight consumer spends on a timer and
-     should not be pointed at this key until there is a ceiling or a per-dev key.
+     healthcheck for that reason. **Answered on our side the same day**:
+     `llm_monthly_token_budget` (`app/llm/budget.py`) is a per-tenant ceiling on
+     this deployment's own spend, unset by default, and all three spenders fall
+     back to their deterministic floor past it rather than failing. It does not
+     replace a cap on the account — a budget we enforce cannot stop somebody
+     else's session spending the same key — so a per-dev key or a limit set at
+     OpenRouter is still worth asking for.
    Ask's regex mocks were deleted long before this: they returned invented
    numbers, and waiting for a provider was never a reason to keep those.
 3. **First CRM confirmed:** HubSpot as reference adapter (P4). *Closed
@@ -1507,3 +1525,15 @@ From the founder architecture dump; each is designed-for, not hoped-for:
    account exists for any of them, so every adapter is proven against the API its
    vendor documents and none against a real portal.
 4. **Repo:** continue on `genspark_ai_developer` in the main `realmspace` repo.
+5. **Does the Booth tier include Ask the Room at all?** *Raised 2026-08-31, and a
+   commercial call rather than a code one.* `gtm.md`'s Pavilion row lists
+   "unlimited Ask the Room"; the Booth row lists the live counter, zones,
+   heatmap, PDF and retention, and does not mention Ask. That reads as a
+   **feature gate, not a quota** — which is a different shape from
+   `PlanLimits.max_ask_queries`, the field that exists for a per-month number no
+   tier states.
+   Nothing is enforced either way. `max_ask_queries` stays carried and unfired,
+   for the reason `plans.py` gives about `max_integrations`: a limit invented
+   here would be a commercial figure made up on a client's behalf. What *is*
+   enforced is `llm_monthly_token_budget`, which is about our own key rather than
+   anyone's tier — see open decision 2.

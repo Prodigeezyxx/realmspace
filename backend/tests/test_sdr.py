@@ -358,3 +358,123 @@ async def test_an_erasure_takes_the_body_out_of_the_log(
     # The measurements survive: they were never consent-gated, and they are what
     # makes the row still evidence that a draft existed and was never sent.
     assert draft_row.payload["grounded_in"]["zones_visited"] == ["Entry", "Pod"]
+
+
+# ── what the draft costs ──────────────────────────────────────────────────────
+
+
+async def test_a_model_written_draft_is_metered(
+    db_session: AsyncSession, graph_session: GraphSession, monkeypatch
+) -> None:
+    """**This consumer spent tokens and metered none of them until 2026-08-31.**
+
+    With no provider, `tokens` was always zero and the absence looked like
+    nothing to record. A real provider bills for drafts, and `roi-framework.md`'s
+    unit economics cannot be short a spender — a cost tile that reads zero for
+    the SDR is a wrong number, not a missing feature.
+    """
+    from app import llm, secrets
+    from app.config import get_settings
+    from tests.llm_transport import completion, stub_transport
+
+    settings = get_settings()
+    before = settings.credential_encryption_key
+    settings.credential_encryption_key = secrets.generate_key()
+    try:
+        key = "sk-or-v1-" + "0" * 8
+        await repository.upsert_integration(
+            db_session,
+            tenant_id=T,
+            provider="openrouter",
+            secret_ct=secrets.encrypt(key, tenant_id=T, provider="openrouter"),
+            secret_hint=secrets.hint(key),
+            field_map={},
+            kind=llm.KIND,
+        )
+        await db_session.commit()
+
+        stub_transport(
+            monkeypatch,
+            lambda request: __import__("httpx").Response(
+                200,
+                json=completion(
+                    "Subject: Thanks for stopping by\n\nYou spent most of your "
+                    "time at the Pod.",
+                    prompt_tokens=300,
+                    completion_tokens=90,
+                ),
+            ),
+        )
+
+        await a_consented_visitor(db_session, graph_session)
+        await run_chain()
+    finally:
+        settings.credential_encryption_key = before
+
+    built = await drafts(db_session)
+    assert len(built) == 1
+    assert built[0]["basis"] == "openrouter"
+
+    metered = [
+        row.payload
+        for row in await repository.read_events(
+            db_session, tenant_id=T, session_id=S, type="cost.metered", limit=20
+        )
+        if row.payload.get("kind") == "llm_tokens"
+    ]
+    assert len(metered) == 1, "one draft, one spend"
+    assert metered[0]["amount"] == 390.0
+    assert metered[0]["detail"]["spender"] == "sdr"
+
+
+async def test_a_replayed_draft_is_not_billed_twice(
+    db_session: AsyncSession, graph_session: GraphSession, monkeypatch
+) -> None:
+    """Keyed on the contact, like the draft itself. A rewound cursor re-derives
+    the same spend id and the log dedupes it."""
+    from app import llm, secrets
+    from app.config import get_settings
+    from tests.llm_transport import completion, stub_transport
+
+    settings = get_settings()
+    before = settings.credential_encryption_key
+    settings.credential_encryption_key = secrets.generate_key()
+    try:
+        key = "sk-or-v1-" + "0" * 8
+        await repository.upsert_integration(
+            db_session,
+            tenant_id=T,
+            provider="openrouter",
+            secret_ct=secrets.encrypt(key, tenant_id=T, provider="openrouter"),
+            secret_hint=secrets.hint(key),
+            field_map={},
+            kind=llm.KIND,
+        )
+        await db_session.commit()
+        stub_transport(
+            monkeypatch,
+            lambda request: __import__("httpx").Response(
+                200,
+                json=completion(
+                    "Subject: Thanks\n\nYou spent longest at the Pod.",
+                    prompt_tokens=300,
+                    completion_tokens=90,
+                ),
+            ),
+        )
+
+        await a_consented_visitor(db_session, graph_session)
+        await run_chain()
+        await SdrConsumer().run_once()
+        await SdrConsumer().run_once()
+    finally:
+        settings.credential_encryption_key = before
+
+    metered = [
+        row
+        for row in await repository.read_events(
+            db_session, tenant_id=T, session_id=S, type="cost.metered", limit=20
+        )
+        if row.payload.get("kind") == "llm_tokens"
+    ]
+    assert len(metered) == 1

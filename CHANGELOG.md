@@ -19,6 +19,64 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-31
 
+### Added — 2026-08-31 — `[neo4j-track]` A ceiling on what we spend with the model, and the room now writes its own insights
+
+Two things landed on top of this morning's provider.
+
+**The booth writes its ten-minute summaries itself now.** Every ten minutes it
+already worked out what happened on the floor; a template turned that into a
+sentence. A model writes the sentence now, and the numbers in it are still the
+floor's own — we check that nothing appears in the prose that the window did not
+measure, and every claim still opens to the events it rests on.
+
+**And there is a lid on what that costs.** The summary writer runs on a timer,
+which is the one thing here that can spend money while nobody is watching, and
+the key we were given has no spending limit of its own. So a monthly ceiling can
+now be set. Past it nothing breaks: the summary is still written, the question is
+still answered, the follow-up is still drafted — each from the measurements,
+without the model, and each says so.
+
+**The ceiling is off unless somebody sets it.** No pricing tier states a number
+of AI questions, and picking one here would be inventing a figure on a client's
+behalf. This is a limit on our own spending, not on what anyone bought.
+
+**One thing we found by looking rather than by it going wrong:** the follow-up
+drafter has been calling a model and recording none of the cost. It never showed,
+because until yesterday there was no model to bill for it — but a cost figure
+that quietly omits one of the three things spending money is a wrong number, not
+a missing one. It is counted now.
+
+#### The detail
+
+- **`app/llm/budget.py` + `llm_monthly_token_budget`** — per tenant, per calendar
+  month, `None` and unenforced by default. The month is measured on
+  `occurred_at`, like every other window here, so a batch replayed late counts
+  against the month it was spent in.
+- **`cost.spent_tokens`** — the meter's other half. The log is the record and
+  there is no usage table: a derived event id means a replayed meter cannot
+  inflate the sum, so counting rows *is* counting spend. A purged row drops out,
+  which is right — a budget counting spend the client may no longer see would
+  enforce against a number nobody can check.
+- **`detail.spender`** on all three LLM meters (`ask`, `insight`, `sdr`). "What
+  is the timer costing us" is a different question from "what are operators
+  asking", and it was unanswerable before. `CostMeteredPayload` in the dashboard
+  contract did not declare `detail` at all, so the cost tile was reading a field
+  the contract denied existed; declared now.
+- **The SDR's missing meter.** `consumers/sdr.py` called the model and metered
+  nothing, since the day it was written. Keyed on the contact like the draft
+  itself, so a replayed draft is not billed twice.
+- **A spent budget is not an error.** All three spenders already fall back to a
+  deterministic answer when a provider raises, and this reuses that floor. `/ask`
+  reports `basis: deterministic` — the answer must not claim a model wrote it —
+  and the insight consumer records the same and keeps its cursor moving, because
+  failing there would stall a consumer over a sentence.
+- **`tests/test_insights_live.py`** — the insight walk against a real model, run
+  by hand with `OPENROUTER_LIVE_KEY`, four times. The no-invented-figures check
+  derives what is permitted from the digest rather than a hand-written list: the
+  first version failed a correct sentence ("the Entry zone for 60 seconds") that
+  was measured and simply not on the list, which is a test of the author's memory
+  rather than of the model.
+
 ### Added — 2026-08-31 — `[neo4j-track]` The room can be asked questions by a model
 
 Since the beginning, asking the booth a question got you an answer chosen by

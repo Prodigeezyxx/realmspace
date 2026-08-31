@@ -59,6 +59,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import llm, repository
+from app.llm import budget
 from app.auth.principal import Principal, require_ask
 from app.cost import meter
 from app.db import get_session
@@ -116,6 +117,17 @@ async def ask(
     )
     provider = llm.provider_for(integration)
     basis = provider.provider
+
+    # A spent budget puts this tenant back on the deterministic path for the rest
+    # of the month. `basis` follows, because it is what the surface renders and
+    # an answer that claimed a model wrote it would be false — `budget.py` on why
+    # this is the same situation as a provider outage, not an error.
+    may_call, refusal = await budget.within_budget(
+        session, tenant_id=principal.tenant_id, spender="ask"
+    )
+    if not may_call:
+        provider = llm.fallback()
+        basis = provider.provider
 
     # ── route ────────────────────────────────────────────────────────────────
     routed, tokens = await _route(provider, body.question)
@@ -197,7 +209,7 @@ async def ask(
                 hashlib.sha256(body.question.strip().lower().encode()).hexdigest()[:16],
                 asked_at.isoformat(),
             ),
-            detail={"provider": basis, "query": entry.name},
+            detail={"provider": basis, "query": entry.name, "spender": "ask"},
         )
         await session.commit()
 

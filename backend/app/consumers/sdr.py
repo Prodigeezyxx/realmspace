@@ -76,7 +76,8 @@ from app import consent_tier, db, llm, repository
 from app.config import get_settings
 from app.consumers.base import Consumer
 from app.consumers.ids import derive_event_id
-from app.llm import prompts
+from app.cost import meter
+from app.llm import budget, prompts
 from app.graph import repository as graph_repo
 from app.graph.driver import get_driver
 from app.llm.base import LlmError
@@ -146,8 +147,15 @@ class SdrConsumer(Consumer):
                 session, tenant_id=event.tenant_id, kind=llm.KIND, active_only=True
             )
             provider = llm.provider_for(integration)
+            tokens = 0
 
-            if provider.capabilities().get("reasons"):
+            may_call, refusal = await budget.within_budget(
+                session, tenant_id=event.tenant_id, spender="sdr"
+            )
+            if not may_call:
+                log.info("sdr: %s", refusal)
+
+            if may_call and provider.capabilities().get("reasons"):
                 try:
                     written = await provider.complete(
                         prompts.sdr_prompt(
@@ -155,6 +163,7 @@ class SdrConsumer(Consumer):
                         ),
                         max_tokens=400,
                     )
+                    tokens = written.total_tokens
                     drafted = _split(written.text)
                     if drafted:
                         subject, body = drafted
@@ -164,6 +173,29 @@ class SdrConsumer(Consumer):
                     # operator some polish, not the follow-up — the same floor
                     # `catalogue.Entry.phrase` gives Ask.
                     log.warning("sdr: %s could not draft: %s", provider.provider, exc)
+
+            if tokens:
+                # **This consumer has spent tokens since the day it was written
+                # and metered none of them.** Nothing showed on the cost tile,
+                # because with no provider `tokens` was always zero and the
+                # absence looked like nothing to record. A real provider bills
+                # for drafts, and `roi-framework.md`'s unit economics cannot be
+                # short one spender.
+                #
+                # Keyed on the contact, like the draft itself: one draft per
+                # contact per session, so one spend, and a replay derives the
+                # same id rather than billing twice for the same follow-up.
+                await meter(
+                    session,
+                    tenant_id=event.tenant_id,
+                    session_id=event.session_id,
+                    kind="llm_tokens",
+                    amount=float(tokens),
+                    unit="tokens",
+                    occurred_at=event.occurred_at,
+                    cause=("sdr", contact["id"]),
+                    detail={"provider": basis, "spender": "sdr"},
+                )
 
             await repository.append_event(
                 session,

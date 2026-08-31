@@ -35,6 +35,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, Literal
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import repository
@@ -103,3 +104,43 @@ async def meter(
         occurred_at=occurred_at,
     )
     return await repository.append_event(session, event)
+
+
+#: Written into `detail` by every LLM spender, so a sum can be asked of one of
+#: them. Not a `Literal` on `meter` itself — `action_unit` spenders have their
+#: own vocabulary and a shared enum would make the meter know about all of them.
+LlmSpender = Literal["ask", "insight", "sdr"]
+
+
+async def spent_tokens(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    since: dt.datetime,
+    spender: LlmSpender | None = None,
+) -> int:
+    """LLM tokens this tenant has spent since `since`, from the log itself.
+
+    `since` is compared on `occurred_at`, matching `plans.retention_floor` and
+    every other window in the system: a batch buffered through an outage and
+    replayed late should count against the month it happened in, not the month
+    somebody caught up.
+
+    Returns an int because tokens are counted, not measured — `meter` takes a
+    float because a currency amount goes through the same door.
+    """
+    amount = EventLog.payload["amount"].as_float()
+    stmt = (
+        select(func.coalesce(func.sum(amount), 0.0))
+        .where(
+            EventLog.tenant_id == tenant_id,
+            EventLog.type == EVENT_TYPE,
+            EventLog.payload["kind"].as_string() == "llm_tokens",
+            EventLog.occurred_at >= since,
+        )
+    )
+    if spender is not None:
+        stmt = stmt.where(
+            EventLog.payload["detail"]["spender"].as_string() == spender
+        )
+    return int((await session.execute(stmt)).scalar_one() or 0)

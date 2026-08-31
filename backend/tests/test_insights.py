@@ -484,3 +484,39 @@ async def test_a_ref_that_does_not_resolve_is_reported_not_dropped(
 
     missing = [s for s in opened["sources"] if s["missing"]]
     assert [s["seq"] for s in missing] == [999_999]
+
+
+# ── the deployment's model budget ─────────────────────────────────────────────
+
+
+async def test_a_spent_budget_writes_the_measured_insight_and_does_not_stall(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """The spender the budget exists for: this one fires on a timer.
+
+    An exhausted budget is the same situation as a provider outage — the window
+    was still measured, and only the prose is missing. A consumer that raised
+    here would stall its cursor over a sentence, so the insight still lands and
+    still says which kind of thing wrote it.
+    """
+    from app.config import get_settings
+
+    settings = get_settings()
+    before = settings.llm_monthly_token_budget
+    settings.llm_monthly_token_budget = 0  # nothing left this month
+    try:
+        await seed_activation(graph_session)
+        await a_busy_ten_minutes(db_session)
+        await InsightsConsumer().run_once()
+    finally:
+        settings.llm_monthly_token_budget = before
+
+    built = await insights(db_session)
+    assert len(built) == 1, "the window is still summarised"
+    assert built[0]["basis"] == "deterministic"
+    assert built[0]["measurements"]["people"] == 2
+
+    dead = await repository.read_events(
+        db_session, tenant_id=T, session_id=S, type="dead_letter.recorded", limit=5
+    )
+    assert not dead, "a spent budget is not a failure to retry"

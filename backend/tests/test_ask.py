@@ -624,3 +624,67 @@ async def test_a_dead_key_refuses_rather_than_falling_back_to_the_matcher(
     assert body["query"] is None
     assert "rejected the credential" in body["answer"]
     assert body["canAnswer"], "a refusal still says what it could answer"
+
+
+# ── the deployment's model budget ─────────────────────────────────────────────
+
+
+async def test_a_spent_budget_puts_ask_back_on_the_matcher_and_says_so(
+    db_session: AsyncSession,
+    graph_session: GraphSession,
+    encryption_key: str,
+    monkeypatch,
+) -> None:
+    """`basis` has to follow the fallback, or it lies in the one field that
+    exists to stop exactly this.
+
+    A refusal is still a 200 here — the endpoint's own rule — and the answer is
+    still measured, because the budget stops the *model*, not the measurement.
+    """
+    from app.config import get_settings
+    from app.cost import meter
+    from tests.llm_transport import stub_transport
+
+    await seed_room(db_session, graph_session)
+    await _connect_openrouter(db_session)
+
+    settings = get_settings()
+    before = settings.llm_monthly_token_budget
+    settings.llm_monthly_token_budget = 100
+    try:
+        await meter(
+            db_session,
+            tenant_id=T,
+            session_id=S,
+            kind="llm_tokens",
+            amount=500.0,
+            unit="tokens",
+            occurred_at=dt.datetime.now(dt.timezone.utc),
+            cause=("ask", "earlier"),
+            detail={"provider": "openrouter", "spender": "ask"},
+        )
+        await db_session.commit()
+
+        def handler(request):
+            raise AssertionError("a spent budget must not reach the vendor")
+
+        stub_transport(monkeypatch, handler)
+        client = await _client(db_session)
+
+        async with client:
+            body = (
+                await client.post(
+                    "/v1/ask",
+                    json={"question": "How many unique visitors today?", "sessionId": S},
+                )
+            ).json()
+    finally:
+        settings.llm_monthly_token_budget = before
+
+    from app.graph import repository as graph_repo
+
+    measured = await graph_repo.people_in_session(
+        graph_session, tenant_id=T, session_id=S
+    )
+    assert body["basis"] == "deterministic"
+    assert body["rows"] == [{"visitors": measured}]

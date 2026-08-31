@@ -93,7 +93,7 @@ from app.cost import meter
 from app.graph import repository as graph_repo
 from app.graph.driver import get_driver
 from app.llm import digest as digest_builder
-from app.llm import prompts
+from app.llm import budget, prompts
 from app.llm.base import LlmError
 from app.models import EventLog
 from app.schemas import EventIn
@@ -196,7 +196,16 @@ class InsightsConsumer(Consumer):
             session, tenant_id=event.tenant_id, kind=llm.KIND, active_only=True
         )
         provider = llm.provider_for(integration)
-        if provider.capabilities().get("reasons"):
+
+        # The spender this budget exists for: it fires on a timer, so it is the
+        # one that can run up a bill while nobody is watching.
+        may_call, refusal = await budget.within_budget(
+            session, tenant_id=event.tenant_id, spender="insight"
+        )
+        if not may_call:
+            log.info("insights: %s", refusal)
+
+        if may_call and provider.capabilities().get("reasons"):
             try:
                 written = await provider.complete(
                     prompts.insight_prompt(
@@ -257,7 +266,7 @@ class InsightsConsumer(Consumer):
                 unit="tokens",
                 occurred_at=window_to,
                 cause=("insight", str(insight_id)),
-                detail={"provider": basis},
+                detail={"provider": basis, "spender": "insight"},
             )
 
         await session.commit()

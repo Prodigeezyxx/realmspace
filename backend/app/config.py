@@ -308,6 +308,16 @@ class Settings(BaseSettings):
     # and that is what the SLA is read from.
     llm_timeout_seconds: float = 20.0
 
+    # A ceiling on LLM tokens this deployment spends per calendar month, per
+    # tenant. **None is unset and unenforced**, the same meaning `PlanLimits`
+    # gives None, and the default ships nothing.
+    #
+    # Not a plan limit: no pricing tier states a number, and inventing one would
+    # be a commercial figure made up on a client's behalf. This is about our own
+    # credential — the key we were given reports no spend cap of its own, and
+    # `consumers/insights.py` calls a model on a timer. See app/llm/budget.py.
+    llm_monthly_token_budget: int | None = None
+
     # After this long, a dispatch still sitting at `claimed` is stranded rather
     # than in flight, and `/ops` shows it to a human.
     #

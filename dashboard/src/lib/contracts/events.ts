@@ -533,6 +533,24 @@ export interface CostMeteredPayload {
     | "other";
   amount: number;
   unit: string;
+  /**
+   * What spent it, beyond the kind. Written by the backend since the meter's
+   * first caller and undeclared here until 2026-08-31, which meant the cost
+   * tile was reading a field this contract did not admit existed.
+   *
+   * `spender` is the one worth naming: three different things make `llm_tokens`
+   * calls — an operator asking a question, the timer-driven insight consumer,
+   * and the SDR drafting a follow-up — and "what is the timer costing us" is a
+   * different question from "what are operators asking". Open-ended otherwise,
+   * because a detail is context for a human reading `/ops`, not something
+   * summed.
+   */
+  detail?: {
+    spender?: "ask" | "insight" | "sdr";
+    provider?: string;
+    query?: string;
+    [key: string]: unknown;
+  };
 }
 export interface DriftDetectedPayload {
   cameraId: string;
