@@ -216,7 +216,7 @@ re-run.
       an operator cannot optimise against a number their client will never see.
       Invented deltas (`+2 in last 5m`, `+18 last hour`, `+12% wk`) removed on
       the same grounds as the report's.
-- 🟡 **Ask the Room** real: LLM → constrained Cypher (allow-list, validated) →
+- ✅ **Ask the Room** real: LLM → constrained Cypher (allow-list, validated) →
       graph → answer (replace regex mocks). **Built 2026-08-18 with Phase 5's
       Live Analyst — they are the same endpoint** (`POST /v1/ask`). The regex
       mocks and their invented numbers are deleted, every figure now comes from
@@ -228,9 +228,10 @@ re-run.
       are injected by the caller and are not parameters any entry declares, so
       the dangerous failure — correct Cypher that silently omits the tenant — is
       unwritable rather than caught.
-      🟡 rather than ✅ because open decision 2 is still open: with no provider
-      key a deterministic matcher picks the measurement, so the routing is by
-      wording rather than by understanding. Every answer says which.
+      **✅ 2026-08-31**, the day a provider arrived. OpenRouter routes and
+      phrases; `basis` reads `openrouter` and the figures are still the graph's,
+      checked against it in a live run. The deterministic matcher stays as the
+      no-key path and still says which answered.
 - ✅ Twin plays back **recorded** sessions from the bus — `lib/twin/replay.ts`
       builds paths from the log; positions come from `perception.detection`
       bboxes where they exist and from **zone centres** where they do not, with
@@ -588,12 +589,17 @@ not go, which is what the tests are pointed at.
       that behind a button labelled Send would be worse than none. The payload
       carries `grounded_in` — the exact zones, surfaces and dwell the draft was
       allowed to reference — so a reviewer checks a sentence against the
-      measurements rather than trusting it. 🟡 for the provider, as above: with
-      no key the draft is composed rather than written.
-- 🟡 **Live Analyst agent** (NL queries over the live bus) — `POST /v1/ask`, and
+      measurements rather than trusting it. **Still 🟡 on 2026-08-31, and for a
+      narrower reason than before**: the provider exists and this consumer takes
+      it through the same seam `/ask` does, so the draft is written rather than
+      composed — but the live run covered `/ask` only. Nobody has yet watched a
+      real model draft a real follow-up from a real handoff, and that walk is
+      what would make this ✅.
+- ✅ **Live Analyst agent** (NL queries over the live bus) — `POST /v1/ask`, and
       the same endpoint that closes Phase 2's Ask the Room. Questions the graph
       cannot answer ("when was it busiest") are served from the log, which is
-      what "over the live bus" means. See ADR-003 above.
+      what "over the live bus" means. See ADR-003 above. ✅ with Ask the Room on
+      2026-08-31: it is the same endpoint and the same provider.
 - 🔲 **Floor orchestrator** (predict density, staff allocation) — if demand
       proven. **Deferred deliberately, with two preconditions unmet** *(checked
       2026-08-18, so the next person to ask finds the answer here)*:
@@ -629,8 +635,12 @@ not go, which is what the tests are pointed at.
       (an insight is always appended after the events it summarises, so a
       `before_seq` lookup can never see one) and the fix is recorded in the
       consumer. Anonymous by construction — the digest reads only `spatial.*`
-      and `surface.interaction`. 🟡 for the provider, as above: with no key the
-      sentence is composed from the measurements rather than written.
+      and `surface.interaction`. **Still 🟡 on 2026-08-31, for the same narrower
+      reason as the SDR**: the provider is live and this consumer reaches it
+      through the same seam, but the timer-driven path has not been watched
+      writing one with a real model. It is also the path that spends on its own
+      schedule, so it should not be turned on against a shared key with no
+      ceiling — see open decision 2.
 
 **Also landed here, because both new consumers needed it:** the **T2 gate**
 (`app/consent_tier.py`). `consent-and-identity.md` §3 has said since Phase 4 that
@@ -654,11 +664,14 @@ not the window's other traffic.
 **Phase 5 is otherwise complete.** Every item is built or deliberately deferred
 with its reasons recorded; nothing is left merely unstarted.
 
-What is not met is the phrase "AI" in the phase title. With open decision 2 open,
-routing is by wording and the draft is composed from a template. The seam is
-built and tested — a provider is one adapter module and one `PUT` — but until a
-key exists this phase is 🟡, and claiming otherwise would be the kind of thing
-this codebase deletes from reports.
+What was not met was the phrase "AI" in the phase title: with open decision 2
+open, routing was by wording and the draft was composed from a template.
+
+**A key arrived on 2026-08-31 and the adapter is `app/llm/openrouter.py`.** The
+analyst half is walked and ✅. The SDR and the insight consumer reach the same
+provider through the same seam and are tested against it, but neither has been
+watched end to end with a real model, so both stay 🟡 with that written above
+rather than upgraded on the strength of sharing a code path.
 
 ---
 
@@ -1467,18 +1480,27 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 
 1. **Graph store:** Neo4j (matches docs) vs. embedded SQLite/DuckDB graph for
    the edge box (lighter, offline-friendly). *Lean: decide at start of P1.*
-2. **AI provider:** OpenAI / Anthropic / Gemini for Ask + SDR. *Still open as of
-   2026-08-18, and now the only thing Phase 5 is waiting on.* No key exists in
-   the repo.
-   **Narrowed 2026-08-18:** it no longer blocks anything but the model itself.
-   The provider seam (`app/llm/`), the per-tenant key storage (migration 0010's
-   `kind`), the query catalogue, the prompts, the token metering, the consent
-   gate and both surfaces are built and tested against a deterministic provider
-   that answers from real data and says that it did. Choosing a vendor is now one
-   adapter module — `crm/hubspot.py` is the worked example, and
-   `docs/adr/003-nl-query-catalogue.md` lists what the adapter owes.
-   Ask's regex mocks are deleted either way: they returned invented numbers, and
-   waiting for a provider was never a reason to keep those.
+2. **AI provider: OpenRouter.** *Closed 2026-08-31* — a key was supplied with an
+   account-level allow-list, and `app/llm/openrouter.py` is the adapter. Ask the
+   Room and the Live Analyst are ✅; what the adapter owes per
+   `docs/adr/003-nl-query-catalogue.md` is met and asserted, including the
+   vendor's own token counts on the `llm_tokens` meter.
+   **Three things the live run found, which the decision now carries:**
+   - **Two usable models, not three.** `deepseek/deepseek-v4-flash-0731` and
+     `google/gemini-3.7-flash` answer `/chat/completions`.
+     `deepseek/deepseek-v4-pro-0813:batch` is on the key's list and 404s there —
+     it exists only behind OpenRouter's Batch API, which submits a job and
+     collects the answer later. Nothing here is shaped that way, so it is named
+     in `BATCH_ONLY` with the reason rather than dropped.
+   - **Reasoning cannot be disabled** on either usable model
+     (`{"reasoning": {"enabled": false}}` → 400). A caller's `max_tokens` is
+     therefore the answer's budget and the adapter adds headroom on top;
+     without that, a routing call returns `content: null`.
+   - **The key has no spend limit and three people share it.** `usage` is on the
+     healthcheck for that reason. The insight consumer spends on a timer and
+     should not be pointed at this key until there is a ceiling or a per-dev key.
+   Ask's regex mocks were deleted long before this: they returned invented
+   numbers, and waiting for a provider was never a reason to keep those.
 3. **First CRM confirmed:** HubSpot as reference adapter (P4). *Closed
    2026-08-17:* all five Tier 1 adapters plus the Zapier/Make hooks are built and
    registered. What is still open is not a decision but an absence — no live

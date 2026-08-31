@@ -299,6 +299,15 @@ class Settings(BaseSettings):
     # base.Consumer will retry twice on top of this.
     action_timeout_seconds: float = 2.0
 
+    # How long a model call may take before it is a failure. Its own setting
+    # rather than `action_timeout_seconds`, which is 2.0s because a rule dispatch
+    # is budgeted at under 3s end to end: every model on the OpenRouter
+    # allow-list reasons before it answers, and the fastest of them measured
+    # 1.34s on a routing prompt. A 2s ceiling would fail calls that were about to
+    # succeed. This is a ceiling, not a target — `/ask` reports its own `took_ms`
+    # and that is what the SLA is read from.
+    llm_timeout_seconds: float = 20.0
+
     # After this long, a dispatch still sitting at `claimed` is stranded rather
     # than in flight, and `/ops` shows it to a human.
     #

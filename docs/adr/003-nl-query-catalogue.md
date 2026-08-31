@@ -1,6 +1,6 @@
 # ADR 003 — The model picks a question; it never writes the query
 
-**Status:** Accepted (2026-08-18) · **Implemented on this track (2026-08-18)** —
+**Status:** Accepted (2026-08-18) · **Implemented on this track (2026-08-18)**, **with a real provider since 2026-08-31** (`app/llm/openrouter.py`) —
 `backend/app/llm/catalogue.py` (the catalogue), `app/llm/base.py` + `__init__.py`
 (the provider seam), `app/llm/stub.py` (the deterministic stand-in),
 `app/routers/ask.py` (the endpoint), `dashboard/src/app/(app)/ask/page.tsx` (the
@@ -87,11 +87,11 @@ operator repeats it to a client. `/live` and the report already draw this
 distinction for figures ("we don't know" and "zero" are different answers); this
 extends it to questions.
 
-## What an adapter owes, when a provider is chosen
+## What an adapter owes — met by `app/llm/openrouter.py` (2026-08-31)
 
-Open decision 2 is still open, so no vendor adapter is written — an untestable
-HTTP client for a vendor we may not pick is speculation, and `crm/hubspot.py` is
-the worked example of the shape one takes. What it must do:
+Open decision 2 closed on 2026-08-31: the provider is OpenRouter. This list was
+written before the vendor was known and is unchanged by it — which was the point
+of writing it then. Each item is now asserted in `tests/test_openrouter.py`:
 
 - `complete(prompt) -> Completion` with the **vendor's own token counts**, never
   an estimate from character length. `app/cost.py` meters them, and an invented
@@ -105,12 +105,26 @@ the worked example of the shape one takes. What it must do:
   structured summaries. `privacy.md`: *"AI reasoning calls receive only
   structured event summaries — never images."*
 
-## Until then
+## What the vendor added to this list
 
-`app/llm/stub.py` answers. It matches a question to an entry by wording and then
-runs the real query, so every figure is measured; the only guess is the match,
-and a tie or a miss is a refusal. It reports zero tokens, which is a measurement:
-no call was made.
+Nothing about the catalogue, and two things about the adapter, both found by
+calling it rather than by reading its docs:
+
+- **Reasoning cannot be disabled** on either usable model, so the caller's
+  `max_tokens` is the answer's budget and the adapter adds headroom. A routing
+  call that spends its budget thinking returns `content: null` — an empty
+  routing object, which reads exactly like a model that could not choose.
+- **A model may fence its JSON.** Gemini wraps the routing object in a ```json
+  block every time. Unfenced in `routers/ask.py`, which is the one place that
+  parses model output; an adapter doing it would have to re-learn it per vendor.
+
+## When no key is configured
+
+`app/llm/stub.py` still answers, and it is not a fallback that was made obsolete
+— it is what a tenant with no provider gets. It matches a question to an entry by
+wording and then runs the real query, so every figure is measured; the only guess
+is the match, and a tie or a miss is a refusal. It reports zero tokens, which is
+a measurement: no call was made.
 
 This is not the mock it replaced. `dashboard/src/lib/mock/ask-answers.ts` matched
 nine regexes and returned **invented numbers**, behind a demo gate, so a real

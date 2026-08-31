@@ -17,7 +17,79 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-29
+## [Unreleased] — last updated 2026-08-31
+
+### Added — 2026-08-31 — `[neo4j-track]` The room can be asked questions by a model
+
+Since the beginning, asking the booth a question got you an answer chosen by
+matching the words you typed against a list. It was honest about it — every
+answer said so — but it could only recognise a phrasing somebody had thought of
+in advance, and it refused anything else rather than guess.
+
+A model does that job now. You ask in your own words; it picks which of our
+measurements answers you, and writes the sentence.
+
+**What it did not change is where the numbers come from.** The model never sees
+the database and never writes a query. It chooses the *name* of a measurement we
+wrote and reviewed, we run it, and it turns the rows into a sentence. Every
+figure in an answer is still measured, and the answer still says which kind of
+thing produced it.
+
+**Two of the three models we were given can actually be used.** The third is
+reachable only through a different, batch-style interface where you submit a job
+and collect the answer later — no use to somebody watching a spinner. It is
+written down by name with the reason, so nobody re-discovers it from an error.
+
+**The key has no spending limit and three of us share it.** The health check
+reports what it has spent for that reason, and the feature that would call the
+model on a timer is deliberately left off until there is a ceiling.
+
+#### The detail
+
+- **`app/llm/openrouter.py`** — the adapter open decision 2 was waiting for.
+  `ALLOWED` is the callable slugs; `BATCH_ONLY` names
+  `deepseek/deepseek-v4-pro-0813:batch`, which answers **404 "This model is only
+  available through the Batch API"** on `/chat/completions`. Default is
+  `deepseek/deepseek-v4-flash-0731`: $0.0000167 a routing call against Gemini's
+  $0.00096 for the same routing decision, both measured.
+- **Reasoning is mandatory** on both usable models —
+  `{"reasoning": {"enabled": false}}` returns 400. The caller's `max_tokens` is
+  the budget for the *answer* and `REASONING_HEADROOM` is added on top; a 512
+  budget spent thinking comes back `content: null, finish_reason: "length"`,
+  which is what the first probe did before the adapter existed.
+- **`app/llm/http.py`** — `app/crm/http.py`'s status→`retryable` vocabulary,
+  raising `LlmError` instead of `AdapterError`, and the package's one `httpx`
+  import so `tests/llm_transport.py` can stub one seam.
+- **`python -m app.llm.connect`** — there was no path in the system that stored
+  an LLM credential: `PUT /v1/integrations/{provider}` validates against
+  `crm.registry` and `upsert_integration` defaults `kind="crm"`. A CLI rather
+  than an endpoint, for the reason `app/plans.py` gives about the tier setter,
+  and because the destinations surface fanning a `handoff.lead` over
+  `kind = 'crm'` is what stops a model provider being offered somebody's
+  contact details. `connect check` runs the healthcheck.
+- **Two bugs in `POST /v1/ask` that only a real provider could expose.**
+  `meter()` was called without its required `occurred_at` — with the
+  deterministic provider `tokens` is always 0, so that branch had never run and
+  the endpoint 500'd the first time a model reported a count. And the metering
+  `cause` was `("ask", entry.name)`, which derives one event id per measurement
+  per activation: a client asking the same question ten times was metered once.
+  It now carries the question and the moment, with the reason `cost.py` warns
+  against a timestamp — and why a request, unlike a replayed event, is not
+  something to be idempotent about.
+- **Gemini fences its JSON.** It wraps the routing object in ```` ```json ````
+  every time; without handling that, `/ask` answered "the AI provider replied
+  with something that is not JSON" — a refusal an operator reads as their own
+  question being wrong. Unfenced in `routers/ask.py`, the one place that parses
+  a model's output, rather than per vendor.
+- **`llm_timeout_seconds` (20s)**, separate from `action_timeout_seconds` (2.0s).
+  That one is short because `event-bus-spec.md` §4 budgets a **rule dispatch**
+  under 3s; `/ask` is not on that budget — it is a person waiting for a sentence,
+  and observed answers ranged 7.6s to 46s.
+- **`tests/test_openrouter_live.py`** — the one test that calls the vendor, run
+  by hand with `OPENROUTER_LIVE_KEY`. It proves the slugs are real, that the
+  batch model still cannot be called synchronously, and that `/ask` answers a
+  seeded activation with the graph's own figure. Five CRM adapters are still in
+  the position this closes for the model provider.
 
 ### Added — 2026-08-29 — `[neo4j-track]` Retention now removes something
 

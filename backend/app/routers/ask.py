@@ -48,6 +48,8 @@ to do next — the same reasoning `POST /v1/integrations/{provider}/test` gives.
 
 from __future__ import annotations
 
+import datetime as dt
+import hashlib
 import json
 import time
 from typing import Any
@@ -104,6 +106,10 @@ async def ask(
     graph=Depends(get_graph_session),
 ) -> AskOut:
     started = time.monotonic()
+    # Wall clock as well as the monotonic one: `took_ms` is a duration and this
+    # is when the spend happened. They are not the same clock and neither can do
+    # the other's job.
+    asked_at = dt.datetime.now(dt.timezone.utc)
 
     integration = await repository.get_integration_of_kind(
         session, tenant_id=principal.tenant_id, kind=llm.KIND, active_only=True
@@ -173,7 +179,24 @@ async def ask(
             kind="llm_tokens",
             amount=float(tokens),
             unit="tokens",
-            cause=("ask", entry.name),
+            # The work happened when the question was asked. `cost.py` warns
+            # against `now()` because a replayed cost would land at the time of
+            # the replay — but this is a request, not an event a consumer
+            # reprocesses, and there is no replay of it to be wrong about.
+            occurred_at=asked_at,
+            # For the same reason the cause carries the question and the moment.
+            # `cost.py` warns against a timestamp here because a derived id is
+            # what makes a *replay* idempotent; the spender here is one request,
+            # and `("ask", entry.name)` alone made every later question routing
+            # to the same entry in the same activation collide with the first
+            # and vanish — a client asking `visitor_count` ten times was billed
+            # for one.
+            cause=(
+                "ask",
+                entry.name,
+                hashlib.sha256(body.question.strip().lower().encode()).hexdigest()[:16],
+                asked_at.isoformat(),
+            ),
             detail={"provider": basis, "query": entry.name},
         )
         await session.commit()
@@ -214,7 +237,7 @@ async def _route(provider, question: str) -> tuple[dict[str, Any], int]:
         )
 
     try:
-        routed = json.loads(completion.text)
+        routed = json.loads(_unfenced(completion.text))
     except ValueError:
         return (
             {
@@ -230,6 +253,29 @@ async def _route(provider, question: str) -> tuple[dict[str, Any], int]:
             completion.total_tokens,
         )
     return routed, completion.total_tokens
+
+
+def _unfenced(text: str) -> str:
+    """The JSON out of a fenced code block, if the model wrapped it in one.
+
+    Gemini 3.7 Flash answers the routing prompt with ```json … ``` every time,
+    measured 2026-08-31; DeepSeek answers with bare JSON. Both are asked for JSON
+    and neither is wrong — a fence is how a chat model marks a code block — so
+    this belongs here, in the one place that parses a model's output, rather than
+    in an adapter that would have to re-learn it per vendor.
+
+    Prompting harder is the alternative and it is the weaker one: it fails
+    silently and only for some models, and the failure looks like "I could not
+    match that to anything I can measure" — a refusal an operator reads as the
+    question being wrong.
+    """
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    body = stripped[3:]
+    if body[:4].lower().startswith("json"):
+        body = body[4:]
+    return body.rsplit("```", 1)[0].strip()
 
 
 def _since(started: float) -> int:

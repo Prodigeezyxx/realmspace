@@ -109,3 +109,4 @@ __all__ = [
 # that only fills once somebody imports the right module is empty in exactly the
 # process that needed it.
 from app.llm import stub as _stub  # noqa: E402,F401  isort:skip
+from app.llm import openrouter as _openrouter  # noqa: E402,F401  isort:skip
