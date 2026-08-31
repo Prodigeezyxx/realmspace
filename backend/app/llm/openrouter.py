@@ -33,6 +33,10 @@ the whole completion. So the caller's `max_tokens` is treated as the budget for
 the *answer*, and `REASONING_HEADROOM` is added on top of it before the request
 goes out. A caller asking for 512 tokens of answer gets 512 tokens of answer.
 
+How much reasoning a prompt provokes is not predictable, and not even stable for
+one prompt — `REASONING_HEADROOM` records six samples of one input spanning 0 to
+3906 tokens. The headroom is a ceiling, not an estimate.
+
 ## Why DeepSeek V4 Flash 0731 is the default
 
 Measured 2026-08-31 on the real `routing_prompt`, both routing correctly:
@@ -103,10 +107,27 @@ BATCH_ONLY: dict[str, str] = {
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash-0731"
 
 #: Added to the caller's `max_tokens`, because reasoning cannot be disabled and
-#: is drawn from the same budget. 1024 is four times the largest reasoning trace
-#: measured on these prompts; the cost of setting it high is nothing unless the
-#: model uses it, and the cost of setting it low is an empty answer.
-REASONING_HEADROOM = 1024
+#: is drawn from the same budget.
+#:
+#: **8000, and the number is large on purpose.** It was 1024 — four times the
+#: largest trace measured on the routing prompt — until the SDR walk on
+#: 2026-08-31 found a draft that returned nothing at all. Sampling the *same*
+#: prompt six times explains why a headroom cannot be tuned:
+#:
+#:     deepseek/deepseek-v4-flash-0731   0, 178, 311, 846, 851, 3906
+#:     google/gemini-3.7-flash           617, 629, 673, 688, 618, 626
+#:
+#: Identical input, and DeepSeek's reasoning spans nought to nearly four
+#: thousand. There is no headroom that is both tight and safe, so this is not
+#: tuned to that distribution — it is a ceiling well above it.
+#:
+#: **A ceiling is not a reservation.** `max_tokens` bills for tokens actually
+#: produced, so a generous one costs nothing on the calls that do not need it;
+#: on the calls that do, the alternative was paying for the reasoning and
+#: receiving no answer, which is the worst of both. What stops a runaway is this
+#: ceiling together with `llm_monthly_token_budget`, which counts what was
+#: actually spent.
+REASONING_HEADROOM = 8000
 
 #: OpenRouter attributes traffic by these and shows them on the account's
 #: activity page. A shared key with three people on it is exactly the case where

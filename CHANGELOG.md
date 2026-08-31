@@ -19,6 +19,64 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-31
 
+### Added — 2026-08-31 — `[neo4j-track]` The follow-up letter is written by a model, and Phase 5 is done
+
+The last piece waiting on the API key. When somebody agrees to be contacted, the
+system drafts a follow-up email naming where they actually spent their time. A
+template wrote it before; a model writes it now, and a person still reads every
+one before anything is sent.
+
+What it is allowed to say has not changed. It knows where they walked and it does
+not know anything they said, so a draft that referred to a conversation, a
+promise or a discount would be inventing one — and the check on that is now run
+against a real model rather than a stand-in, four times over.
+
+**Watching it work found two things nothing else would have.**
+
+The first: the drafts sometimes came back **empty**. The model thinks before it
+answers, that thinking comes out of the same allowance as the answer, and writing
+a letter takes far more thought than picking a chart. We measured the same
+request six times and the thinking ranged from nothing at all to nearly four
+thousand words' worth. There is no allowance that is both tight and safe against
+that, so the allowance is now simply generous — we are billed for what is used,
+not what is allowed, so this costs nothing on the drafts that do not need it.
+
+The second: a good draft was being **thrown away for being formatted**. The model
+was asked for a subject line and sometimes wrote it in bold, and the code only
+recognised the unbolded form. The template's version quietly stood in, and the
+label on the draft still said so — so the feature looked switched off rather than
+broken. Exactly the same thing happened with Ask the Room's answers last week,
+and it is fixed the same way.
+
+**One thing to raise rather than fix.** This is the only part of the system that
+sends a real person's name to the AI vendor, because it is writing an email to
+them. Our privacy page promises those calls receive "only structured event
+summaries", and a name is not that. It is answerable either way — and the answer
+belongs to whoever signs the pilot agreement, not to us. The same page also still
+named the wrong vendor; that is corrected.
+
+#### The detail
+
+- **`tests/test_sdr_live.py`** — four runs against the real key. Asserts
+  `basis == "openrouter"`, which is the load-bearing one: it is what
+  distinguishes a model's draft from the composed fallback standing in silently.
+  Plus no zone the visitor did not enter (checked against a third zone seeded on
+  the activation, so the assertion has a wrong answer available), no figure the
+  prompt was not given, none of `prompts.SDR`'s named forbidden phrases, under
+  120 words, and no `anon_id` in customer-facing text.
+- **`REASONING_HEADROOM` 1024 → 8000.** Measured on one prompt, six times:
+  DeepSeek 0 / 178 / 311 / 846 / 851 / **3906**, Gemini 617–688. A ceiling rather
+  than an estimate. The fourth walk metered 4084 tokens — a draft the old ceiling
+  would have truncated to nothing.
+- **`consumers/sdr._split`** now takes a subject line however a chat model
+  decorates it — `**Subject:**`, `__Subject__:`, `# Subject:`, `Subject -`. Still
+  refuses a reply with no subject line at all, and still refuses `Subjective`,
+  which is the word a widened pattern would start matching by accident.
+- **`docs/privacy.md`** — the AI-call clause named "Claude / GPT-4o"; it is
+  OpenRouter routing to DeepSeek and Google, which also changes the answer to the
+  pilot agreement's question 7 about jurisdictions. Both corrected, and the
+  name-to-vendor question recorded as open decision 5.
+
 ### Changed — 2026-08-31 — `[neo4j-track]` The latency test measures the system again, not the machine
 
 Our build went red twice on a test that checks a staff prompt reaches Slack

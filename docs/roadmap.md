@@ -580,7 +580,7 @@ not go, which is what the tests are pointed at.
 
 *Goal: close the loop with contextual follow-up and smarter agents.*
 
-- 🟡 **Contextual SDR** draft agent (path-aware follow-up emails, consent ≥ T2) —
+- ✅ **Contextual SDR** draft agent (path-aware follow-up emails, consent ≥ T2) —
       `consumers/sdr.py`. Reads the `final` handoff, checks consent, writes
       `followup.drafted`; `/followups` is the review list. **It drafts and does
       not send**, which is what the bullet says and what the absence of an email
@@ -589,18 +589,36 @@ not go, which is what the tests are pointed at.
       that behind a button labelled Send would be worse than none. The payload
       carries `grounded_in` — the exact zones, surfaces and dwell the draft was
       allowed to reference — so a reviewer checks a sentence against the
-      measurements rather than trusting it. **Still 🟡 on 2026-08-31**: the
-      provider is live and this consumer takes it through the same seam, so the
-      draft is written rather than composed, but nobody has yet watched a real
-      model draft a real follow-up from a real handoff. That walk is what would
-      make it ✅ — the insight consumer's is the worked example.
+      measurements rather than trusting it. **✅ walked 2026-08-31**
+      (`tests/test_sdr_live.py`, four runs): a real model drafts it, the draft
+      names only zones that visitor stood in — checked against a third zone on
+      the activation they never entered, so the assertion has a wrong answer
+      available — carries no figure the prompt was not given, says none of the
+      things `prompts.SDR` forbids by name, stays under 120 words, and does not
+      leak the `anon_id` into an email.
 
-      **One thing that walk would not have found, and reading the code did:**
-      this consumer had spent tokens since it was written and metered **none** of
-      them. With no provider `tokens` was always zero, so the absence looked like
-      nothing to record; a real provider bills for drafts, and a cost tile short
-      a spender is a wrong number rather than a missing feature. Metered now,
-      keyed on the contact so a replay is not billed twice.
+      **The walk found two bugs, and neither was visible to a mock.**
+
+      *The draft came back empty.* `REASONING_HEADROOM` was 1024, tuned to the
+      routing prompt, and drafting reasons far harder. Sampling the same prompt
+      six times: DeepSeek spent 0, 178, 311, 846, 851 and **3906** tokens on
+      identical input, where Gemini stayed inside 617–688. No headroom is both
+      tight and safe against that, so it is 8000 — a ceiling, not an estimate.
+      `max_tokens` bills for what is produced, so a generous ceiling costs
+      nothing except on the calls that need it, and the run that metered 4084
+      tokens is one the old ceiling would have truncated to nothing.
+
+      *The subject line was rejected for being bold.* `_split` required a literal
+      `Subject:` and DeepSeek writes `**Subject:**` some of the time — so a
+      perfectly good draft was discarded, the composed one stood in, and `basis`
+      read `deterministic`. The feature looked switched off rather than broken.
+      Same shape as the JSON fence in `/ask`, fixed the same way and in the same
+      place: the one parser that reads model output.
+
+      **And one thing reading the code found first:** this consumer had spent
+      tokens since it was written and metered **none** of them. With no provider
+      `tokens` was always zero, so the absence looked like nothing to record.
+      Metered now, keyed on the contact so a replay is not billed twice.
 - ✅ **Live Analyst agent** (NL queries over the live bus) — `POST /v1/ask`, and
       the same endpoint that closes Phase 2's Ask the Room. Questions the graph
       cannot answer ("when was it busiest") are served from the log, which is
@@ -673,18 +691,22 @@ summarised from a seeded floor, and the first insight's four citations opened to
 exactly the Product Pod events whose dwells sum to the 300 seconds it claimed —
 not the window's other traffic.
 
-**Phase 5 is otherwise complete.** Every item is built or deliberately deferred
-with its reasons recorded; nothing is left merely unstarted.
+**Phase 5 is complete**, bar the floor orchestrator, which is deferred with its
+two unmet preconditions recorded above. Nothing is left merely unstarted.
 
 What was not met was the phrase "AI" in the phase title: with open decision 2
 open, routing was by wording and the draft was composed from a template.
 
-**A key arrived on 2026-08-31 and the adapter is `app/llm/openrouter.py`.** The
-analyst half and the insight half are both walked with a real model and ✅. The
-SDR reaches the same provider through the same seam and is tested against it,
-but has not been watched end to end, so it stays 🟡 rather than being upgraded on
-the strength of sharing a code path — the rule that made the insight walk worth
-running, since running it is what turned up the SDR's missing meter.
+**A key arrived on 2026-08-31 and the adapter is `app/llm/openrouter.py`.** All
+three halves — the analyst, the insight consumer and the SDR — are now walked
+with a real model and ✅, so the phase title's "AI" means what it says.
+
+**The rule that got them there is worth keeping.** Sharing a code path is not the
+same as having walked one: each of the three walks found something every mocked
+test had passed over — two bugs in `/ask`, the SDR's missing meter, and then the
+reasoning ceiling and the bolded subject line. Nothing about any of them was
+exotic. They were all the same category: a real model does a reasonable thing
+that the code accepted exactly one form of.
 
 ---
 
@@ -1525,7 +1547,21 @@ From the founder architecture dump; each is designed-for, not hoped-for:
    account exists for any of them, so every adapter is proven against the API its
    vendor documents and none against a real portal.
 4. **Repo:** continue on `genspark_ai_developer` in the main `realmspace` repo.
-5. **Does the Booth tier include Ask the Room at all?** *Raised 2026-08-31, and a
+5. **Does a visitor's name belong in a prompt sent to a model vendor?** *Raised
+   2026-08-31 by the SDR walk, and a question for whoever signs the pilot
+   agreement rather than a code preference.* `privacy.md` promises AI reasoning
+   calls "receive only structured event summaries — never images". The follow-up
+   drafter sends a consented visitor's name and company, because it is writing an
+   email to them; Ask and the insight digest send measurements only. A name is
+   not an image, so the letter holds — but it is not a structured event summary
+   either.
+   Two related facts in that same clause are simply out of date and are corrected
+   there: the vendor is OpenRouter routing to DeepSeek and Google, not
+   "Claude / GPT-4o", and the answer to the pilot agreement's question 7 about
+   jurisdictions has changed with it.
+   If the answer is no, the fix is small and already sketched: draft about a
+   placeholder, splice the real name in locally.
+6. **Does the Booth tier include Ask the Room at all?** *Raised 2026-08-31, and a
    commercial call rather than a code one.* `gtm.md`'s Pavilion row lists
    "unlimited Ask the Room"; the Booth row lists the live counter, zones,
    heatmap, PDF and retention, and does not mention Ask. That reads as a

@@ -73,8 +73,30 @@ contradicts.
 
   Grouping declines to pair people seen by different cameras for the same
   reason, and zones belong to the camera whose frame they were drawn in.
-- **No cloud upload of video frames.** AI reasoning calls (Claude / GPT-4o)
-  receive only structured event summaries — never images.
+- **No cloud upload of video frames.** AI reasoning calls receive only
+  structured event summaries — never images.
+
+  **The vendor changed on 2026-08-31 and this line has not been renegotiated
+  with anybody.** It named "Claude / GPT-4o"; the deployment now calls
+  **OpenRouter**, which routes to DeepSeek and Google models. Question 7 below —
+  *what jurisdictions do you operate in for the AI reasoning calls* — therefore
+  has a materially different answer than it did last week, and any pilot
+  agreement already signed against the old one needs re-reading rather than
+  reinterpreting.
+
+  **One of the three AI paths sends more than a summary.** Ask the Room and the
+  ten-minute insight both send measurements only, and the insight digest is
+  anonymous by construction. The follow-up drafter (`consumers/sdr.py`) sends a
+  consented visitor's **name and company**, because it is writing an email to
+  them. That is not an image and so does not break the sentence above, but
+  "structured event summary" does not describe a person's identity either, and
+  saying so here is better than letting the wording carry it.
+
+  It is answerable either way and the answer is not ours to pick: a T2 consent
+  covers contacting that person, and whether it covers their name reaching a
+  model vendor is a question for whoever signs the pilot agreement. If the answer
+  is no, the draft can be written about a placeholder and the real name spliced
+  in locally — the vendor sees the shape of the email and never the person.
 - **No customer-identifiable storage.** We don't know who the people in your
   booth are. Neither do you. Both are by design.
 

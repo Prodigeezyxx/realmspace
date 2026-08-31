@@ -71,6 +71,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import re
 
 from app import consent_tier, db, llm, repository
 from app.config import get_settings
@@ -254,27 +255,45 @@ class SdrConsumer(Consumer):
         return contact is not None
 
 
+#: A subject line, however a chat model chose to decorate it. Markdown emphasis
+#: around the label is the common one — DeepSeek writes `**Subject:** …` some of
+#: the time and a bare `Subject: …` the rest — and a leading `#` shows up too.
+#:
+#: This is the same lesson as the JSON fence in `routers/ask.py`: a model asked
+#: for a shape gives that shape *with the formatting a chat model uses*, and a
+#: parser that accepts exactly one rendering rejects a correct answer. The
+#: failure is the quiet kind — `None` keeps the composed draft and `basis` still
+#: reads `deterministic`, so the feature looks switched off rather than broken.
+_SUBJECT_LINE = re.compile(
+    r"^\s*[#*_\s]*subject[*_\s]*[:\-–][*_\s]*", re.IGNORECASE
+)
+
+#: Trailing emphasis left over once the label is gone: `**Subject:** Your visit**`
+#: is rare, but `**Your visit**` after a bolded label is not.
+_EMPHASIS = re.compile(r"^[*_]+|[*_]+$")
+
+
 def _split(text: str) -> tuple[str, str] | None:
     """A model's draft into `(subject, body)`.
 
-    The prompt asks for a subject line then the body. A reply that does not have
+    The prompt asks for a subject line then the body. A reply that does not offer
     one is not forced into the shape — `None` keeps the composed draft, which is
     a worse email than a good model's and a much better one than a mangled reply.
+
+    What *is* accepted is any reasonable rendering of a subject line, because
+    refusing a bolded one throws away a perfectly good draft. See `_SUBJECT_LINE`.
     """
     text = (text or "").strip()
     if not text:
         return None
 
     first, _, rest = text.partition("\n")
-    subject = first.strip()
-    for prefix in ("subject:", "Subject:", "SUBJECT:"):
-        if subject.startswith(prefix):
-            subject = subject[len(prefix):].strip()
-            break
-    else:
+    match = _SUBJECT_LINE.match(first)
+    if not match:
         # No subject line offered. Rather than promoting the first sentence of
         # the body into one, keep ours.
         return None
 
+    subject = _EMPHASIS.sub("", first[match.end():].strip()).strip()
     body = rest.strip()
     return (subject, body) if subject and body else None

@@ -478,3 +478,54 @@ async def test_a_replayed_draft_is_not_billed_twice(
         if row.payload.get("kind") == "llm_tokens"
     ]
     assert len(metered) == 1
+
+
+# ── how a model renders a subject line ────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("reply", "subject"),
+    [
+        ("Subject: Plain\n\nBody.", "Plain"),
+        # DeepSeek writes this some of the time and a bare label the rest, on
+        # identical input — found by the live walk on 2026-08-31.
+        ("**Subject:** Your visit\n\nBody.", "Your visit"),
+        ("**Subject:** **Your visit**\n\nBody.", "Your visit"),
+        ("__Subject__: Underscored\n\nBody.", "Underscored"),
+        ("# Subject: Hashed\n\nBody.", "Hashed"),
+        ("SUBJECT:  Loud\n\nBody.", "Loud"),
+        ("Subject - Dashed\n\nBody.", "Dashed"),
+    ],
+)
+def test_a_subject_line_is_taken_however_it_is_decorated(reply, subject) -> None:
+    """The same lesson as the JSON fence in `routers/ask.py`.
+
+    A model asked for a subject line gives one *with the formatting a chat model
+    uses*. Rejecting a bolded label threw away a perfectly good draft, and the
+    failure was the quiet kind: the composed draft stood in and `basis` still
+    read `deterministic`, so the feature looked switched off rather than broken.
+    """
+    from app.consumers.sdr import _split
+
+    assert _split(reply) == (subject, "Body.")
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "No subject offered\n\nBody.",
+        "Subjective thoughts about the visit\n\nBody.",
+        "Subject: a subject and no body at all",
+        "",
+    ],
+)
+def test_a_reply_without_a_subject_line_keeps_the_composed_draft(reply) -> None:
+    """Still refused, and deliberately. Promoting the first sentence of a body
+    into a subject line produces a mangled email; ours is merely a plainer one.
+
+    `Subjective` is here because widening the label pattern is exactly the change
+    that would start matching it.
+    """
+    from app.consumers.sdr import _split
+
+    assert _split(reply) is None
