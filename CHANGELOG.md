@@ -19,6 +19,48 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-31
 
+### Changed — 2026-08-31 — `[neo4j-track]` The latency test measures the system again, not the machine
+
+Our build went red twice on a test that checks a staff prompt reaches Slack
+within three seconds. Both times it measured just over: 3.00s and 3.01s. On a
+developer machine the same test measures about 1.1s.
+
+Nothing had got slower. The build machine is about twice as slow as ours at
+everything — the whole backend suite takes four minutes there against under two
+here — so a test sitting at 1.1s on one machine sits on top of a three-second
+line on the other, and falls either side of it at random. A test that fails half
+the time is one people learn to re-run without reading, which costs more than the
+test was worth.
+
+**So it now counts the steps rather than the seconds.** A prompt reaching Slack
+passes through a fixed number of hand-offs between the parts of the system, and
+that number is the same on a fast machine and a slow one — we checked, including
+with the polling deliberately slowed down. It is also the thing that actually
+went wrong the last time this regressed: somebody adds a step, and every
+deployment waits one more beat, on any hardware.
+
+The three-second claim has not moved and the measured time is still printed on
+every run. What changed is which of the two we let fail a build.
+
+#### The detail
+
+- **Asserted:** productive consumer passes on the causal path (`tracker` →
+  `rules` → `dispatch`) between the trigger and the Slack post. Observed 6–8
+  across runs, including one with the poll interval tripled; the ceiling is 10,
+  which carries that variation and not a new link in the chain.
+- **Printed, not asserted:** the wall clock, against `BUDGET_SECONDS = 3.0`, so
+  the number `roadmap.md` and `event-bus-spec.md` §4 claim stays visible on
+  every run. The remaining time assertion is `PATIENCE_SECONDS`, which only
+  catches a chain that has stopped moving.
+- **The counter wraps `Consumer.run_once`** rather than living inside any one
+  consumer, because what is asserted is a property of the chain and a consumer
+  can only report its own passes. A pass that consumed nothing is not a hop —
+  that is a poll finding an empty queue, which is what the idle interval is for.
+- **The evidence, since this is a weakened assertion and should be justified:**
+  CI 3.0106s and 3.0024s; locally 1142/1101/1111ms before the week's changes and
+  1112/1076/1138/1130ms after, so nothing this week caused it; instrumented hop
+  counts 7/7/7/8 at the normal poll interval and 6 with it tripled.
+
 ### Added — 2026-08-31 — `[neo4j-track]` A ceiling on what we spend with the model, and the room now writes its own insights
 
 Two things landed on top of this morning's provider.
