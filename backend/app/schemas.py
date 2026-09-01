@@ -177,6 +177,101 @@ class ShareCreated(ShareOut):
     token: str
 
 
+class TabletCreate(BaseModel):
+    """What an operator asks for when they want to hand a touchpoint a tablet.
+
+    Its own model rather than `ShareCreate`, for one field's sake and
+    deliberately: a share link's month is the life of a conversation with a
+    client after the stand comes down, and a tablet's is the activation. Reusing
+    `ShareCreate` here left `touch.DEFAULT_EXPIRY_DAYS` reachable by nothing —
+    a constant with an argument in its comment and no call site, which is what
+    `plans.py` warns about a limit nothing reads.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    #: The operator's note to self — "the plinth by the door". Never shown to
+    #: whoever taps it.
+    label: str | None = None
+    #: Bounded by `app.touch.MAX_EXPIRY_DAYS`, and `expires_at` is NOT NULL, so
+    #: a tablet that never expires cannot be asked for.
+    expires_in_days: int = Field(default=14, ge=1, le=365)
+
+
+class TouchpointTokenOut(BaseModel):
+    """One tablet, as the operator who set it up sees it. **Never the token.**
+
+    `ShareOut`'s shape, with `surfaceId` — which touchpoint this tablet is — and
+    with usage rather than views. The counts are deliberately not the same
+    number as the report's: see `touch.note_use`.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    id: str
+    session_id: str
+    surface_id: str
+    label: str | None
+    hint: str
+    created_by: str
+    created_at: dt.datetime
+    expires_at: dt.datetime
+    revoked_at: dt.datetime | None
+    last_used_at: dt.datetime | None
+    use_count: int
+    #: Derived from `revoked_at` and `expires_at` rather than stored, so a
+    #: column can never disagree with the two that decide it. `ShareOut` does
+    #: the same.
+    active: bool
+
+
+class TouchpointTokenCreated(TouchpointTokenOut):
+    """The one response that carries the token, at the one moment it exists.
+
+    `ShareCreated`'s reasoning without a word changed: no endpoint returns it a
+    second time, and the operator's copy is the URL now open on the tablet.
+    """
+
+    token: str
+
+
+class TouchpointIn(BaseModel):
+    """What the tablet knows about its own tap, which is not very much.
+
+    No `anonId`: a tablet has no camera and cannot know who pressed it.
+    Attributing the tap to a visitor is `consumers/touch.py`'s job, where zone
+    occupancy is, and it refuses more often than it succeeds.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    #: Minted by the tablet when the finger lands, not when the request is sent.
+    #: Same rule as `consentId` and as `perception/bus_client.py`'s event ids:
+    #: it is what makes a retry over bad venue wifi one tap rather than two.
+    touch_id: str = Field(min_length=1, max_length=128)
+    #: What kind of interaction the touchpoint offers — "tap", "sample",
+    #: "scan". The operator's word, carried through to `INTERACTED_WITH.kind`.
+    kind: str = Field(default="tap", min_length=1, max_length=64)
+    #: When the finger landed. Defaults to arrival, which is wrong by exactly
+    #: the length of an outage, and is why a queued tap sends its own.
+    at: dt.datetime | None = None
+
+
+class TabletOut(BaseModel):
+    """What the tablet is told about itself, and the whole of it.
+
+    A label to put on the button and nothing else — not the activation, not the
+    other touchpoints, not a count. Whoever is holding the tablet is a member of
+    the public.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    surface_id: str
+    label: str
+    kind: str
+
+
 class EventOut(EventIn):
     """What comes back out — over HTTP and over the WebSocket.
 

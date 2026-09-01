@@ -47,11 +47,11 @@ from neo4j import AsyncSession as GraphSession
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import plans, repository, share
+from app import plans, repository, share, touch
 from app.auth.principal import Principal, require_operator, require_reader, utcnow
 from app.db import get_session
 from app.graph import repository as graph_repo
-from app.models import ReportShare
+from app.models import ReportShare, SurfaceToken
 from app.graph.driver import get_graph_session
 from app.schemas import (
     ShareCreate,
@@ -63,7 +63,10 @@ from app.schemas import (
     SessionConfigOut,
     SessionGraphOut,
     SessionSummaryOut,
+    TabletCreate,
     TouchpointOut,
+    TouchpointTokenCreated,
+    TouchpointTokenOut,
     ZoneConfig,
     ZoneDwell,
 )
@@ -644,3 +647,143 @@ async def revoke_share(
         await db.commit()
         await db.refresh(row)
     return _share_out(row)
+
+
+# ── touchpoint tablets ────────────────────────────────────────────────────────
+#
+# The producer half of `surface.interaction`, which has had every reader since
+# Phase 2 and nothing emitting it. A tablet at the touchpoint runs `/touch` and
+# posts one `surface.touched` per tap; `consumers/touch.py` decides whether it
+# can name who pressed it. These three routes are the operator's side — minting,
+# listing and withdrawing. The tablet's side is `routers/touch.py`, which no
+# credential reaches.
+
+
+def _tablet_out(row) -> TouchpointTokenOut:
+    """One row, without the token — there is no field on it for one."""
+    now = utcnow()
+    return TouchpointTokenOut(
+        id=row.id,
+        session_id=row.session_id,
+        surface_id=row.surface_id,
+        label=row.label,
+        hint=row.hint,
+        created_by=row.created_by,
+        created_at=row.created_at,
+        expires_at=row.expires_at,
+        revoked_at=row.revoked_at,
+        last_used_at=row.last_used_at,
+        use_count=row.use_count,
+        active=row.revoked_at is None and row.expires_at > now,
+    )
+
+
+@router.post(
+    "/{session_id}/surfaces/{surface_id}/tablet",
+    response_model=TouchpointTokenCreated,
+    status_code=status.HTTP_201_CREATED,
+    summary="Mint a link for a tablet at one touchpoint",
+)
+async def create_tablet(
+    session_id: str,
+    surface_id: str,
+    body: TabletCreate,
+    principal: Principal = Depends(require_operator),
+    db: AsyncSession = Depends(get_session),
+    graph: GraphSession = Depends(get_graph_session),
+) -> TouchpointTokenCreated:
+    """Returns the token **once**, like a share link and for its reasons.
+
+    The touchpoint has to exist first. Minting for an unconfigured surface would
+    hand back a URL that renders nothing and posts taps `consumers/touch.py`
+    then declines — an operator would find that out at the stand, in front of
+    the client, which is the failure the report's dead "Export PDF" button
+    taught this repo to design against.
+    """
+    surface = await graph_repo.surface(
+        graph,
+        tenant_id=principal.tenant_id,
+        session_id=session_id,
+        surface_id=surface_id,
+    )
+    if surface is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"no touchpoint {surface_id!r} on activation {session_id!r} — "
+                "add it in the session's touchpoints first"
+            ),
+        )
+
+    row, token = await touch.create(
+        db,
+        tenant_id=principal.tenant_id,
+        session_id=session_id,
+        surface_id=surface_id,
+        created_by=principal.subject,
+        label=body.label,
+        expires_in_days=body.expires_in_days,
+        now=utcnow(),
+    )
+    await db.commit()
+    await db.refresh(row)
+    return TouchpointTokenCreated(**_tablet_out(row).model_dump(), token=token)
+
+
+@router.get(
+    "/{session_id}/tablets",
+    response_model=list[TouchpointTokenOut],
+    summary="Tablets minted for this activation",
+)
+async def list_tablets(
+    session_id: str,
+    principal: Principal = Depends(require_operator),
+    db: AsyncSession = Depends(get_session),
+) -> list[TouchpointTokenOut]:
+    """Revoked and expired ones are listed too, for `list_shares`' reason: "was
+    this tablet ever live, and is it still being pressed" is a question about
+    the activation, and hiding the dead ones answers it wrongly by omission."""
+    rows = await touch.for_session(
+        db, tenant_id=principal.tenant_id, session_id=session_id
+    )
+    return [_tablet_out(row) for row in rows]
+
+
+@router.delete(
+    "/{session_id}/tablets/{token_id}",
+    response_model=TouchpointTokenOut,
+    summary="Revoke a tablet",
+)
+async def revoke_tablet(
+    session_id: str,
+    token_id: str,
+    principal: Principal = Depends(require_operator),
+    db: AsyncSession = Depends(get_session),
+) -> TouchpointTokenOut:
+    """Marks it revoked. The row stays, and the taps it already recorded stay
+    too — a withdrawn credential does not unmake the measurements it produced.
+
+    `surface_token` is outside RLS (migration 0015), so the tenant match is
+    written out rather than enforced by a policy, and there is a test asserting
+    one organisation cannot revoke another's tablet.
+    """
+    row = (
+        await db.execute(
+            select(SurfaceToken).where(
+                SurfaceToken.id == token_id,
+                SurfaceToken.tenant_id == principal.tenant_id,
+                SurfaceToken.session_id == session_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"no tablet {token_id!r} on session {session_id!r}",
+        )
+
+    if row.revoked_at is None:
+        row.revoked_at = utcnow()
+        await db.commit()
+        await db.refresh(row)
+    return _tablet_out(row)

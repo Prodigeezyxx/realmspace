@@ -569,8 +569,10 @@ function Report({ session, report }: { session: Session; report: SessionReport }
             </ul>
           ) : (
             <p className="text-sm text-text-secondary leading-relaxed">
-              No touchpoint is emitting <code>surface.interaction</code> yet, so
-              there is nothing to report. This is an absent signal, not a zero.
+              No touchpoint is reporting interactions yet, so there is nothing
+              to report. This is an absent signal, not a zero — set a tablet up
+              on a touchpoint from the activation&apos;s settings and every tap
+              is counted from then on.
             </p>
           )}
         </Panel>

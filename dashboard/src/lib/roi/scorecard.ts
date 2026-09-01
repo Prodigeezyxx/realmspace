@@ -53,6 +53,12 @@ export interface EngagementLayer {
   engagedVisitors: number;
   engagementRate: number; // engaged / unique
   zoneParticipation: { zoneId: string; visitors: number; pct: number }[];
+  /**
+   * Every tap a touchpoint measured — **not** every tap we can name somebody
+   * for. A tablet has no camera, so the backend attributes a tap only when
+   * exactly one person was in the zone; the rest are real interactions with an
+   * unknown visitor. They count here and never into `engagedVisitors`.
+   */
   surfaceInteractions: number;
 }
 export interface AffinityLayer {
@@ -199,11 +205,28 @@ export function computeScorecard(
         if (p.durationSec >= threshold) engagedPersons.add(p.anonId);
         break;
       }
+      case "surface.touched": {
+        // A tap the tablet measured, whether or not the backend could say who
+        // made it. Counted here and **not** into `engagedPersons`: an
+        // interaction is a thing that happened, and an engaged visitor is a
+        // claim about a person. Keeping them apart is the same rule the rest of
+        // this file applies to an absence and a zero.
+        //
+        // The attributed ones arrive separately as `surface.interaction`, so a
+        // tap the resolver named is counted once here and adds its person
+        // there. Counting the interaction in both places would double a
+        // touchpoint's tally.
+        surfaceInteractions++;
+        break;
+      }
       case "surface.interaction": {
         const p = e.payload as SurfaceInteractionPayload;
         persons.add(p.anonId);
         engagedPersons.add(p.anonId);
-        surfaceInteractions++;
+        // Only when nothing produced the raw tap this explains — booth
+        // hardware posting an interaction directly, which the event contract
+        // has always allowed. A tablet's tap is already counted above.
+        if (!p.touchId) surfaceInteractions++;
         break;
       }
       case "consent.captured":

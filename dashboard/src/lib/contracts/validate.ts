@@ -44,6 +44,7 @@ import type {
   PassbyPayload,
   RealmEventType,
   SurfaceInteractionPayload,
+  SurfaceTouchedPayload,
   ZoneMovePayload,
 } from "./events";
 
@@ -74,6 +75,10 @@ const REQUIRED = {
   "spatial.passby": ["anonId"] as const satisfies readonly RequiredKeys<PassbyPayload>[],
   "spatial.gaze": ["anonId", "targetId", "durationSec"] as const satisfies readonly RequiredKeys<GazePayload>[],
   "spatial.group": ["groupId", "memberAnonIds", "size"] as const satisfies readonly RequiredKeys<GroupPayload>[],
+  // Deliberately not `anonId`: a tablet cannot know who pressed it, and
+  // requiring one here would quarantine every tap the backend could not
+  // attribute — the taps this event exists to count.
+  "surface.touched": ["surfaceId"] as const satisfies readonly RequiredKeys<SurfaceTouchedPayload>[],
   "surface.interaction": ["anonId", "surfaceId"] as const satisfies readonly RequiredKeys<SurfaceInteractionPayload>[],
 } satisfies Partial<Record<RealmEventType, readonly string[]>>;
 

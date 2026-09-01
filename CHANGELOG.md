@@ -19,6 +19,43 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-31
 
+### Added — 2026-08-31 — `[neo4j-track]` A tablet at the stand, so "interactions" stops being a dash
+
+One of the four things the client report scores has been blank since it was
+built. It counts how many people actually *used* something on the stand — the
+mirror, the sampler, the screen — and nothing in the system could tell us,
+because measuring it was always going to need hardware in the booth.
+
+It turns out the hardware is a tablet. Prop one next to the thing, open a link on
+it, and every press is recorded. No app, no account, no login on the tablet.
+
+**What it can and cannot tell you, because the difference matters.** A tablet has
+no camera. It knows its button was pressed; it does not know who pressed it. So
+when one person is standing in that part of the booth, the press is credited to
+their visit. When two are, it is counted and left unattributed — we will not
+guess which of them reached out. On a busy stand that will be most presses, and
+the report says both numbers rather than blending them: how many times the thing
+was used, and how many of those we can put a visitor against.
+
+The link is withdrawable on its own. A tablet left in a taxi is one click, not a
+change that takes the cameras down with it, and a stranger who finds the link can
+only add presses to that one touchpoint on that one activation — it reads nothing
+at all.
+
+*`surface.interaction` finally has a producer, four phases after its readers.
+`POST /v1/touch/{token}` appends `surface.touched` (new type, pinned in
+`event-bus-spec.md` §3, no `anon_id` by design); `consumers/touch.py` resolves the
+visitor from `spatial.zone_enter`/`zone_exit` occupancy at event time and emits
+`surface.interaction` only on exactly one occupant, waiting on the tracker's
+cursor rather than reading an empty zone. Credential is a `report_share`-shaped
+token (migration 0015) — hashed, shown once, revocable, with tenant/session/
+surface off the row and never the request. `/touch` is the tablet page with an
+offline queue keyed on an id minted under the finger; `TabletPanel` on the
+calibration screen mints and withdraws. `computeScorecard` counts every
+`surface.touched` as an interaction and only an attributed one into
+`engagedVisitors`. 19 backend tests, 3 scorecard tests, walked end to end against
+a live stack.*
+
 ### Changed — 2026-08-31 — `[neo4j-track]` The AI never learns who the letter is for
 
 The follow-up drafter writes to a real person, so until today it told the model

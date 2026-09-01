@@ -124,7 +124,7 @@ export function RoiScorecard({ report }: { report: SessionReport }) {
             value={fmt(scorecard.engagement.surfaceInteractions)}
             missing={
               scorecard.engagement.surfaceInteractions === 0
-                ? "No touchpoint is reporting interactions yet."
+                ? "No touchpoint is reporting interactions yet — set a tablet up on one from the activation's touchpoints."
                 : undefined
             }
           />

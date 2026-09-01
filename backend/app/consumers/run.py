@@ -37,6 +37,7 @@ from app.consumers.reanonymise import ReAnonymiseConsumer
 from app.consumers.retention import RetentionConsumer
 from app.consumers.rules import RulesConsumer
 from app.consumers.sdr import SdrConsumer
+from app.consumers.touch import TouchConsumer
 from app.consumers.tracker import TrackerConsumer
 from app.graph.driver import connect, disconnect
 
@@ -58,6 +59,13 @@ from app.graph.driver import connect, disconnect
 # single pass could have produced first.
 CONSUMER_CLASSES: list[type[Consumer]] = [
     TrackerConsumer,
+    # Between the two, and both sides of that are load-bearing. It resolves a
+    # tablet's tap against who the tracker says was standing in the zone, and
+    # **refuses to answer until the tracker's cursor has passed the tap** — so
+    # ahead of the tracker every tap would spend a retry backoff waiting for
+    # output this same pass could have produced. Ahead of the graph writer so
+    # one pass carries a finger all the way to `INTERACTED_WITH`.
+    TouchConsumer,
     GraphWriterConsumer,
     IdentityConsumer,
     ReAnonymiseConsumer,

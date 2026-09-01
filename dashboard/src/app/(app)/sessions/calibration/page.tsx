@@ -33,6 +33,7 @@ import { AlertTriangle, Camera, Check, Info, Plus, RefreshCw, Trash2 } from "luc
 import { useState } from "react";
 
 import { MaskEditor } from "@/components/sessions/MaskEditor";
+import { TabletPanel } from "@/components/sessions/TabletPanel";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Panel } from "@/components/ui/Panel";
@@ -171,6 +172,11 @@ export default function CalibrationPage() {
           </Panel>
         </>
       )}
+
+      {/* The other half of setting a stand up: which cameras see it, and which
+          touchpoints report being used. Both are per-activation configuration
+          an operator does once, standing in the room. */}
+      <TabletPanel sessionId={session.id} touchpoints={session.touchpoints} />
     </div>
   );
 }

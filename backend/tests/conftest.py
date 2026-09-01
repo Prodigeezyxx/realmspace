@@ -175,6 +175,10 @@ async def db_session() -> AsyncIterator[AsyncSession]:
     `tenant_purge_watermark` (0014) for a fifth, and the sharpest: it *forbids*
     something. A watermark left behind makes `reset_cursor` refuse in the next
     test, which then fails with a message about a purge it never ran.
+
+    `surface_token` (0015) for `report_share`'s reason exactly — a random tail,
+    so leaked rows accumulate rather than collide, and "the tablets on this
+    activation" stops being the list this test minted.
     """
     # Wipe as the owner: TRUNCATE is a privilege the app role deliberately does
     # not have, and it would in any case only be able to see its own tenant.
@@ -184,7 +188,7 @@ async def db_session() -> AsyncIterator[AsyncSession]:
             text(
                 "TRUNCATE event_log, consumer_cursor, dead_letter, "
                 "rules, rule_dispatch, tenant_integration, crm_link, "
-                "auth_user, api_key, tenant, report_share, "
+                "auth_user, api_key, tenant, report_share, surface_token, "
                 "tenant_purge_watermark RESTART IDENTITY;"
             )
         )

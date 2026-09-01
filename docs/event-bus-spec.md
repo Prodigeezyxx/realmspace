@@ -98,7 +98,8 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `spatial.gaze` | gaze consumer | anon_id, target_id, duration, confidence | graph, ROI |
 | `spatial.group` | grouping consumer | group_id, members, size, cohesion, status | graph, rules |
 | `spatial.passby` | tracker | anon_id, adjacent (negative signal) | ROI |
-| `surface.interaction` | booth surface | surface_id, anon_id, kind | graph, ROI |
+| `surface.touched` | touchpoint tablet (`POST /v1/touch/{token}`) | surface_id, kind, touch_id — **no person** | touch consumer, ROI |
+| `surface.interaction` | touch consumer (from `surface.touched`), or booth hardware | surface_id, anon_id, kind | graph, ROI |
 | `rfid.read` | RFID reader (MQTT/serial) | reader_id, tag_id, ts | identity, graph, ROI |
 | `spatial.tagged` | vision × RFID fusion | anon_id ↔ tag_id, confidence | identity, graph, ROI |
 | `consent.captured` | capture surface | tier, basis, copy_version | identity, CRM gate |
@@ -815,6 +816,34 @@ make its position in the log depend on traffic.
 `spatial.*` and `surface.interaction`, so no consent, handoff or contact can
 reach it. It is in `ANONYMOUS_EVENT_TYPES` and may travel the anonymised
 cloud-sync path (§6).
+
+**`surface.touched`** — producer: a tablet at a touchpoint
+(`backend/app/routers/touch.py`) *(added 2026-08-31)*:
+
+```jsonc
+{
+  "surface_id": "sf_ar_mirror",  // from the token, never from the request
+  "kind":       "tap",
+  "at":         "2026-08-31T14:02:11.400Z",
+  "touch_id":   "9f1c…"          // minted by the tablet when the finger lands
+}
+```
+
+**No `anon_id`, and that absence is the design.** A tablet has no camera and
+cannot know who pressed it. Naming the visitor is `consumers/touch.py`'s job,
+from zone occupancy at `at`, and it **refuses more often than it succeeds** — a
+tap with two people in the zone is counted and not attributed, because choosing
+between them would put an observation on an append-only log that nothing made.
+
+The three ids that matter — tenant, session, surface — come off the token row
+(migration 0015) and never from the request body, so one tablet cannot post as
+another touchpoint. `touch_id` is minted when the finger lands rather than when
+the request is sent, which is what makes a retry over venue wifi one tap instead
+of two; the `event_id` derives from it.
+
+**Anonymous**, by construction: there is no field here that could name anybody.
+Its derived `surface.interaction` is not — it carries an `anon_id` like every
+other spatial event.
 
 **`followup.drafted`** — producer: the contextual SDR
 (`backend/app/consumers/sdr.py`) *(added 2026-08-18)*:

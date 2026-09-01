@@ -148,6 +148,54 @@ describe("Engagement", () => {
   });
 });
 
+describe("Engagement — a tap and the person who made it", () => {
+  // A tablet at a touchpoint has no camera. It can attest that its button was
+  // pressed and not to who pressed it, so the backend attributes a tap only
+  // when exactly one person was in the zone. The two claims are counted apart:
+  // "we measured 40 taps" and "we can name 11 of the people who made them".
+
+  it("counts an unattributed tap as an interaction and not as an engaged visitor", () => {
+    const card = computeScorecard(
+      [ev("surface.touched", { surfaceId: "sf_mirror", kind: "tap" })],
+      { zones: ZONES }
+    );
+    expect(card.engagement.surfaceInteractions).toBe(1);
+    expect(card.engagement.engagedVisitors).toBe(0);
+  });
+
+  it("counts an attributed tap once, and the person with it", () => {
+    // Both events are on the log for one press: the tablet's raw tap and the
+    // interaction the resolver derived from it. Counting the interaction twice
+    // would double a touchpoint's tally against the taps it actually took.
+    const card = computeScorecard(
+      [
+        ev("surface.touched", { surfaceId: "sf_mirror", kind: "tap", touchId: "t1" }),
+        ev("surface.interaction", {
+          anonId: "P1",
+          surfaceId: "sf_mirror",
+          kind: "tap",
+          touchId: "t1",
+        }),
+      ],
+      { zones: ZONES }
+    );
+    expect(card.engagement.surfaceInteractions).toBe(1);
+    expect(card.engagement.engagedVisitors).toBe(1);
+  });
+
+  it("still counts booth hardware that posts an interaction with no raw tap", () => {
+    // The event contract has always allowed a surface to report an interaction
+    // directly — an RFID plinth has no `surface.touched` behind it, and
+    // dropping it would lose the signal this whole layer is about.
+    const card = computeScorecard(
+      [ev("surface.interaction", { anonId: "P1", surfaceId: "sf_rfid", kind: "scan" })],
+      { zones: ZONES }
+    );
+    expect(card.engagement.surfaceInteractions).toBe(1);
+    expect(card.engagement.engagedVisitors).toBe(1);
+  });
+});
+
 describe("Pipeline — what must stay blank", () => {
   const engaged = [
     ev("spatial.dwell", { anonId: "P1", zoneId: "z_mirror", durationSec: 120 }),

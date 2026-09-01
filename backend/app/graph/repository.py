@@ -583,6 +583,41 @@ async def zones_for_session(
     return zones
 
 
+async def surface(
+    session: AsyncSession, *, tenant_id: str, session_id: str, surface_id: str
+) -> dict[str, Any] | None:
+    """One touchpoint, or None if the operator has removed it.
+
+    What a tablet renders itself from (`routers/touch.tablet`) and what the
+    resolver reads a `zone_id` off (`consumers/touch.py`). Its own query rather
+    than a filter over `surfaces_for_session`: both callers want exactly one,
+    and one of them runs on every tap.
+    """
+    result = await session.run(
+        """
+        MATCH (s:Surface {tenant_id: $tenant_id, session_id: $session_id, id: $surface_id})
+        RETURN s.id      AS id,
+               s.label   AS label,
+               s.type    AS type,
+               s.zone_id AS zone_id,
+               s.active  AS active
+        """,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        surface_id=surface_id,
+    )
+    row = await result.single()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "label": row["label"],
+        "type": row["type"],
+        "zone_id": row["zone_id"],
+        "active": row["active"] if row["active"] is not None else True,
+    }
+
+
 async def surfaces_for_session(
     session: AsyncSession, *, tenant_id: str, session_id: str
 ) -> list[dict[str, Any]]:

@@ -207,6 +207,10 @@ re-run.
       invented** — real interactions need booth hardware, so the figure stays a
       marked zero until something POSTs one. Also `session.ended`, without which
       the visitors still in the room at close were never counted at all.
+      **A producer landed 2026-08-31**, four phases later, and the sentence
+      above is what it argued with: a tablet running a browser page *is* booth
+      hardware. See Phase 6's "Touchpoint tablets" below — the Engagement layer
+      renders a measured number now instead of `0*`.
 - ✅ **Live ROI tile on the dashboard (day-2 optimisation)** — and the bigger
       thing it exposed: `/live` never read the event bus at all. Every figure
       came from the browser's own webcam tracker or a mock file, so an
@@ -1262,6 +1266,66 @@ that the code accepted exactly one form of.
       `spatial.group` for the couple, none for the queue. Then a trio dwelling
       five minutes, after which `data-model.md`'s own "Groups in Lounge for 4
       min+" query returned a row for the first time in the project's life.
+- ✅ **Touchpoint tablets** *(2026-08-31)* — the producer `surface.interaction`
+      never had. Phase 2 built its whole path and wrote "no producer was
+      invented … real interactions need booth hardware", so the Engagement layer
+      of the four the report is sold on rendered `0*` on every real activation
+      for four phases. A tablet running `/touch` is that hardware: one tap, one
+      event, no account and no app.
+
+      **A tablet has no camera, and that is the design problem.**
+      `graph_writer` requires an `anon_id` and the scorecard counts one into
+      `engagedVisitors`, so an interaction *is* a claim about a person — and the
+      only honest source of that claim is who the tracker says was standing in
+      the touchpoint's zone. So the split is `perception.detection` →
+      `tracker` → `spatial.*` again: the tablet emits **`surface.touched`**, the
+      raw fact it can attest to, and `consumers/touch.py` names the visitor only
+      when **exactly one** person was in the zone. Two or more refuses; nobody
+      refuses (a staff member demonstrating it is somebody the cameras may not
+      have as a visitor at all); a touchpoint with no zone refuses, and the
+      operator is told so on the screen where they can still fix it.
+
+      **A busy stand will refuse most taps, and that costs nothing that was
+      being measured before.** The tap is on the log either way, so the report
+      counts every one as an interaction and counts a *visitor* as engaged only
+      where we know which visitor. Two claims kept apart — "40 taps" and "11 of
+      the people who made them" — which is the distinction the scorecard already
+      draws between an absence and a zero.
+
+      **Occupancy is read from the log, not the graph.** `DWELLED_IN` is written
+      from `spatial.dwell`, which the tracker emits when somebody *leaves*; at
+      the moment of a tap they are still standing there. A graph-built answer
+      would say "nobody" live and "one person" on a replay of the same log.
+
+      **And it waits for the tracker rather than guessing.** The `zone_enter`
+      explaining a tap is appended when the tracker *processes* the detection,
+      which can be after the tap has landed — so a touch whose seq the tracker
+      has not passed raises and retries, the shape `consumers/erasure.py` uses
+      to wait for a retraction. Resolving immediately would refuse an
+      attributable tap permanently, because the cursor would have moved on.
+
+      **The credential is a share-link token, not a device key** (migration
+      0015). `api_key` is tenant-wide and cannot be revoked without rotating the
+      camera's — on the device most likely to be picked up and carried off. So:
+      32 random bytes stored as a sha256, shown once, revocable on its own, and
+      the tenant, session and surface come off the row rather than the request,
+      so one tablet posting as another is unwritable. A leaked one inflates one
+      touchpoint's tally on one activation and reads nothing.
+
+      **Walked against a live stack**, which is where the two corrections came
+      from: `touch.DEFAULT_EXPIRY_DAYS` was unreachable because the endpoint
+      took `ShareCreate`'s thirty days, and `use_count` counts *requests* — a
+      retry counts twice there and once on the log — so it answers "is the
+      tablet alive", not "how busy was the floor". Seen end to end: a tap with
+      the zone empty counted and unattributed; five detections in, a tap
+      attributed to `cam-1/P-walk` with `Surface.trigger_count` at 1; two people
+      in the zone, counted and unattributed again; and a withdrawn tablet
+      refused with the same one sentence for expired, revoked and never-real.
+
+      What it deliberately is not: no duration (a tap is an instant, and a
+      figure there would be invented), no QR generator (a dep for one screen),
+      and no count shown on the tablet — the activation's numbers are the
+      client's, not the public's.
 - ✅ **Public share link for a report** *(2026-08-29)* — a read-only URL needing
       no account. "Share with client" now offers both: a viewer seat for somebody
       who will come back, and a link for the one email that ends an engagement.
@@ -1508,6 +1572,7 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 | Attribution decay (30/60/90d) | window on outcome edge — P4 |
 | Multi-booth / cross-event aggregation | 🟡 the client's own history is built — `GET /v1/sessions` lists their activations and `lib/report/useBenchmark.ts` scores each one with the same `computeScorecard` the report uses. The cross-*tenant* network median is not, and needs anonymised aggregates nothing here can compute: RLS fails closed on a cross-tenant read. |
 | Two cameras, one `P-001` | ✅ every visitor is keyed `camera_id/anon_id` (`consumers/ids.person_key`) and zones belong to the camera whose frame they were drawn in. A detection with no camera is refused on a session that declares two, accepted where it cannot collide. Crossing between cameras stays two people, per `privacy.md`. |
+| Surface interactions with no hardware | ✅ `routers/touch.py` + `consumers/touch.py` — a tablet emits `surface.touched`, and the visitor is named only when exactly one person was in the touchpoint's zone. Every tap counts as an interaction; only an attributed one counts a person as engaged. |
 | Cost telemetry / unit economics | `cost.metered` meter — P3 |
 | Group visits | ✅ `consumers/grouping.py` — a pair counts on **co-movement** (their shared midpoint travelled while they stayed together) or **joint arrival and departure** (into and out of a zone within seconds of each other), never on proximity alone: three strangers queueing are close together for minutes, and a detector built on distance-and-time reports every queue as a family. Groups are connected components over confirmed pairs. |
 | Negative signals (pass-by/skip) | ✅ `spatial.passby` — tracker emits at close-out for a zone approached within `tracker_passby_radius` and never entered |

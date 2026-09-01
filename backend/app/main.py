@@ -48,6 +48,7 @@ from app.routers import (
     retention as retention_router,
     sessions,
     share,
+    touch,
     users,
 )
 
@@ -154,6 +155,7 @@ app.include_router(sessions.router)
 # unauthenticated read path into tenant data. `routers/share.py` has what a
 # leaked URL is worth.
 app.include_router(share.router)
+app.include_router(touch.router)
 # After sessions: both mount /v1/sessions, and this one's paths are
 # strictly longer, so no route here can shadow one there.
 app.include_router(calibration.router)

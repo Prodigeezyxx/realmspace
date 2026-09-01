@@ -322,6 +322,53 @@ class ReportShare(Base):
     view_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
+class SurfaceToken(Base):
+    """What a tablet at a touchpoint holds. Migration 0015.
+
+    The same shape as `ReportShare` and for the same reasons — a digest rather
+    than the token, a `hint` so a list is legible, `revoked_at` rather than a
+    DELETE — with one difference that is the whole point of a separate table:
+    this one **writes**. A share token reaches three read routes; this reaches
+    two, one of which appends a single `surface.touched` event.
+
+    `surface_id` is on the row because it must not be in the request. A tablet
+    that could name its own touchpoint could post as any of them on the stand.
+    """
+
+    __tablename__ = "surface_token"
+    __table_args__ = (
+        Index("surface_token_session_idx", "tenant_id", "session_id"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(Text, nullable=False)
+    session_id: Mapped[str] = mapped_column(Text, nullable=False)
+    surface_id: Mapped[str] = mapped_column(Text, nullable=False)
+    token_sha256: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    hint: Mapped[str] = mapped_column(Text, nullable=False)
+    #: What the operator called this tablet — "the plinth by the door". For
+    #: their list, never shown to whoever taps it.
+    label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    #: Not nullable, for `ReportShare`'s reason one step further: this is an
+    #: unauthenticated *write* path, and an activation is over in days.
+    expires_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: "Is the tablet by the door still alive?", which is the question an
+    #: operator asks about a device they cannot see from where they are standing.
+    last_used_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    use_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
 class TenantPurgeWatermark(Base):
     """How far a tenant's log has been purged. Migration 0014.
 

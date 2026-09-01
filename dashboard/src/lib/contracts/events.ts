@@ -27,6 +27,8 @@ export type RealmEventType =
   /** a badge correlated to a tracked person — a guess with a confidence, still anonymous */
   | "spatial.tagged"
   // booth surfaces
+  /** a tablet's button was pressed. No person: a tablet has no camera. */
+  | "surface.touched"
   | "surface.interaction"
   // badge / RFID readers (docs/event-bus-spec.md §3)
   | "rfid.read"
@@ -93,6 +95,7 @@ export const ANONYMOUS_EVENT_TYPES: readonly RealmEventType[] = [
   "spatial.gaze",
   "spatial.group",
   "spatial.passby",
+  "surface.touched",
   "surface.interaction",
   "rule.fired",
   /**
@@ -311,11 +314,35 @@ export interface TaggedPayload {
   method?: "rssi_proximity" | string;
   at?: string;
 }
+/**
+ * A tap on a touchpoint, as the tablet that recorded it knows about it.
+ *
+ * **No `anonId`, and the absence is the design.** A tablet has no camera and
+ * cannot know who pressed it; naming the visitor is the backend's job
+ * (`consumers/touch.py`, from zone occupancy), and it refuses more often than it
+ * succeeds. Every tap counts as an interaction; only an attributed one counts a
+ * *person* as engaged.
+ *
+ * `surfaceId` is written by the backend off the token row and never from the
+ * tablet's request, so one tablet cannot post as another touchpoint.
+ */
+export interface SurfaceTouchedPayload {
+  surfaceId: string;
+  kind: string;
+  /** Minted when the finger lands, so a retry over venue wifi is one tap. */
+  touchId?: string;
+  at?: string;
+}
 export interface SurfaceInteractionPayload {
   anonId: string;
   surfaceId: string;
   kind: string;
   durationSec?: number;
+  /** The tap this explains, when it came from a tablet rather than hardware. */
+  touchId?: string;
+  /** How the person was decided. Only "zone_occupancy" exists today. */
+  attributedBy?: string;
+  zoneId?: string;
 }
 /** Where a consent was taken. Mirrors `Contact.source` in consent-and-identity.md §3. */
 export type ConsentSource = "badge" | "qr" | "kiosk" | "form" | "manual";
@@ -584,6 +611,7 @@ export type RealmEventPayload =
   | PassbyPayload
   | RfidReadPayload
   | TaggedPayload
+  | SurfaceTouchedPayload
   | SurfaceInteractionPayload
   | ConsentCapturedPayload
   | ConsentWithdrawnPayload
