@@ -23,6 +23,7 @@ every response.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import json
 import uuid
@@ -529,3 +530,178 @@ def test_a_reply_without_a_subject_line_keeps_the_composed_draft(reply) -> None:
     from app.consumers.sdr import _split
 
     assert _split(reply) is None
+
+
+# ── who the model is told this is about ───────────────────────────────────────
+#
+# Open decision 5, closed 2026-08-31. `privacy.md` promises AI reasoning calls
+# "receive only structured event summaries"; this prompt used to carry a
+# consented visitor's name and company, because it is writing an email to them.
+# Now it carries `[FIRST_NAME]` and `[COMPANY]` and the person is spliced in on
+# our side. See `app/llm/prompts.splice_identity`.
+
+
+@contextlib.asynccontextmanager
+async def a_model_replying(db_session: AsyncSession, monkeypatch, reply: str):
+    """A connected OpenRouter integration answering with `reply`."""
+    from app import llm, secrets
+    from app.config import get_settings
+    from tests.llm_transport import completion, stub_transport
+
+    settings = get_settings()
+    before = settings.credential_encryption_key
+    settings.credential_encryption_key = secrets.generate_key()
+    try:
+        key = "sk-or-v1-" + "0" * 8
+        await repository.upsert_integration(
+            db_session,
+            tenant_id=T,
+            provider="openrouter",
+            secret_ct=secrets.encrypt(key, tenant_id=T, provider="openrouter"),
+            secret_hint=secrets.hint(key),
+            field_map={},
+            kind=llm.KIND,
+        )
+        await db_session.commit()
+
+        sent: list[str] = []
+
+        def _respond(request):
+            import httpx
+
+            sent.append(
+                json.loads(request.content)["messages"][-1]["content"]
+            )
+            return httpx.Response(200, json=completion(reply))
+
+        stub_transport(monkeypatch, _respond)
+        yield sent
+    finally:
+        settings.credential_encryption_key = before
+
+
+def test_the_prompt_carries_a_placeholder_and_not_a_person() -> None:
+    """The assertion is on the assembled prompt, because that is the exact text
+    the adapter posts to the vendor. Anything checked one layer earlier proves
+    something about our intentions rather than about what left the building."""
+    from app.llm import prompts
+
+    built = prompts.sdr_prompt(
+        contact={"id": "c1", "name": "Jordan Reeve", "company": "Acme Labs"},
+        intent={"zones_visited": ["Entry", "Pod"], "top_dwell_zone": "Pod"},
+        activation="Pavilion No. 7",
+    )
+
+    assert "Jordan" not in built
+    assert "Reeve" not in built
+    assert "Acme" not in built
+    assert prompts.NAME_TOKEN in built
+    assert prompts.COMPANY_TOKEN in built
+
+    # What it still carries, and should: the measurements a consent covers, and
+    # the client's own event name — which is not the visitor's identity and is
+    # what makes a subject line specific.
+    assert "Pod" in built and "Pavilion No. 7" in built
+
+
+def test_a_contact_with_no_company_gets_no_token_to_fill() -> None:
+    """`unknown` is what the rest of this prompt already does with a missing
+    field, and there would be nothing to splice in afterwards."""
+    from app.llm import prompts
+
+    built = prompts.sdr_prompt(
+        contact={"id": "c1", "name": "Jordan Reeve"},
+        intent={},
+        activation="Pavilion No. 7",
+    )
+
+    # Asserted on the field line rather than on the whole prompt: the rule that
+    # tells the model what to write with the tokens names them both, so a bare
+    # `not in built` would fail on the instruction and prove nothing.
+    assert f"Their name:        {prompts.NAME_TOKEN}" in built
+    assert "Their company:     unknown" in built
+
+
+async def test_the_person_is_spliced_back_in_before_a_reviewer_sees_it(
+    db_session: AsyncSession, graph_session: GraphSession, monkeypatch
+) -> None:
+    """The vendor saw a placeholder; the reviewer sees the letter they would
+    have seen either way."""
+    async with a_model_replying(
+        db_session,
+        monkeypatch,
+        "Subject: Thanks for stopping by, [FIRST_NAME]\n\n"
+        "Hi [FIRST_NAME], you spent most of your time at the Pod.",
+    ) as sent:
+        await a_consented_visitor(db_session, graph_session)
+        await run_chain()
+
+    assert sent, "the model was never called"
+    assert "Sam" not in sent[0], "the visitor's name reached the vendor"
+
+    built = await drafts(db_session)
+    assert len(built) == 1
+    assert built[0]["basis"] == "openrouter"
+    # The first name only. "Hi Sam Rivera," is a mail-merge announcing itself.
+    assert built[0]["body"].startswith("Hi Sam,")
+    assert "Rivera" not in built[0]["body"]
+    assert built[0]["subject"] == "Thanks for stopping by, Sam"
+    assert "[" not in built[0]["subject"] + built[0]["body"]
+
+
+async def test_a_placeholder_we_cannot_fill_keeps_the_composed_draft(
+    db_session: AsyncSession, graph_session: GraphSession, monkeypatch
+) -> None:
+    """The prompt forbids inventing a field and a model does it anyway.
+
+    Refused for the reason `_split` refuses a mangled reply: a letter reaching a
+    reviewer with `[LAST_NAME]` in it reads as a broken mail-merge, and a
+    reviewer's job is to check what the draft claims about somebody's visit, not
+    to find our bugs. The composed draft is plainer and finished.
+    """
+    async with a_model_replying(
+        db_session,
+        monkeypatch,
+        "Subject: Thanks\n\nHi [FIRST_NAME] [LAST_NAME], see you at [PRODUCT].",
+    ):
+        await a_consented_visitor(db_session, graph_session)
+        await run_chain()
+
+    built = await drafts(db_session)
+    assert len(built) == 1
+    assert built[0]["basis"] == "deterministic"
+    assert "[" not in built[0]["body"]
+    assert "LAST_NAME" not in built[0]["body"]
+
+
+async def test_a_draft_that_names_nobody_is_kept_as_it_is(
+    db_session: AsyncSession, graph_session: GraphSession, monkeypatch
+) -> None:
+    """"Hello," is a legal opening. The prompt asks for the placeholder; it does
+    not require the model to address anybody by name."""
+    async with a_model_replying(
+        db_session,
+        monkeypatch,
+        "Subject: Thanks for stopping by\n\nHello, you spent time at the Pod.",
+    ):
+        await a_consented_visitor(db_session, graph_session)
+        await run_chain()
+
+    built = await drafts(db_session)
+    assert built[0]["basis"] == "openrouter"
+    assert built[0]["body"] == "Hello, you spent time at the Pod."
+
+
+@pytest.mark.parametrize(
+    ("subject", "body"),
+    [
+        ("Following up, [LAST_NAME]", "Hi [FIRST_NAME], thanks."),
+        ("Following up, [FIRST_NAME]", "Hi Sam, see you at [PRODUCT]."),
+    ],
+)
+def test_both_halves_or_neither(subject, body) -> None:
+    """A subject line reading "Following up, [FIRST_NAME]" beside a correctly
+    addressed body is the same broken mail-merge, one line higher up."""
+    from app.consumers.sdr import _with_identity
+
+    assert _with_identity((subject, body), contact={"name": "Sam Rivera"}) is None

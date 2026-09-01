@@ -84,19 +84,30 @@ contradicts.
   agreement already signed against the old one needs re-reading rather than
   reinterpreting.
 
-  **One of the three AI paths sends more than a summary.** Ask the Room and the
-  ten-minute insight both send measurements only, and the insight digest is
-  anonymous by construction. The follow-up drafter (`consumers/sdr.py`) sends a
-  consented visitor's **name and company**, because it is writing an email to
-  them. That is not an image and so does not break the sentence above, but
-  "structured event summary" does not describe a person's identity either, and
-  saying so here is better than letting the wording carry it.
+  **All three AI paths now send a summary and nothing else.** Ask the Room and
+  the ten-minute insight send measurements only, and the insight digest is
+  anonymous by construction. The follow-up drafter (`consumers/sdr.py`) used to
+  send a consented visitor's **name and company**, because it is writing an email
+  to them — not an image, so it did not break the sentence above, but "structured
+  event summary" does not describe a person's identity either.
 
-  It is answerable either way and the answer is not ours to pick: a T2 consent
-  covers contacting that person, and whether it covers their name reaching a
-  model vendor is a question for whoever signs the pilot agreement. If the answer
-  is no, the draft can be written about a placeholder and the real name spliced
-  in locally — the vendor sees the shape of the email and never the person.
+  **Answered *no*, 2026-08-31**, rather than left for whoever signs the pilot
+  agreement. It was put to them as a question because a T2 consent covers
+  contacting that person and it is not obvious whether it covers their name
+  reaching a model vendor — and the fix turned out to cost nothing that anybody
+  would have to weigh. The prompt carries the literal placeholders
+  `[FIRST_NAME]` and `[COMPANY]`, and `app/llm/prompts.splice_identity` puts the
+  real person in on our side of the wire. The vendor sees the shape of the email
+  and where somebody walked; it never sees who they are. A reviewer sees exactly
+  the letter they would have seen either way.
+
+  A draft that comes back with a placeholder we cannot fill — the model inventing
+  `[LAST_NAME]` or `[PRODUCT]` — is discarded in favour of the composed draft
+  rather than sent on to a reviewer looking like a broken mail-merge.
+
+  This narrows what leaves the building; it does not narrow question 7. The
+  measurements still go to OpenRouter, and where they are processed is still the
+  thing to answer.
 - **No customer-identifiable storage.** We don't know who the people in your
   booth are. Neither do you. Both are by design.
 

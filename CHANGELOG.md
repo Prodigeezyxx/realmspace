@@ -19,6 +19,40 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-31
 
+### Changed — 2026-08-31 — `[neo4j-track]` The AI never learns who the letter is for
+
+The follow-up drafter writes to a real person, so until today it told the model
+that person's name and company. Everything else we send an AI is anonymous —
+where people walked, how long they stayed — and this was the one place a visitor's
+identity left the building.
+
+It does not any more. The model is handed `[FIRST_NAME]` and `[COMPANY]`, writes
+the letter around them, and we put the real person in afterwards on our own
+machine. The reviewer reads exactly the letter they would have read before. The
+AI company sees an email about somebody who stood at the Product Pod for four
+minutes and never finds out who that was.
+
+This was written down as a question for whoever signs the first pilot agreement —
+a visitor agreed to be contacted, and whether that covers their name reaching an
+AI vendor is somebody else's call. It turned out the fix costs nothing anybody
+would have to weigh, so there was nothing left to ask.
+
+One thing had to be handled: a model sometimes invents a placeholder of its own —
+`[LAST_NAME]`, `[PRODUCT]` — and a letter arriving in the review queue with one
+of those in it looks like a broken mail-merge. Those are thrown away and the
+plainer, template-written draft stands instead. A reviewer's attention should go
+on what the letter claims about somebody's visit, not on our bugs.
+
+*Open decision 5 in `docs/roadmap.md`, closed. `app/llm/prompts.py` gains
+`NAME_TOKEN`, `COMPANY_TOKEN` and `splice_identity()`; `sdr_prompt()` sends the
+tokens; `consumers/sdr._with_identity` splices subject and body and refuses both
+or neither, falling back to `deterministic_draft` exactly as `_split` does. The
+activation's own name is still sent — it is the client's event, not the visitor's
+identity. Deliberately not a setting: the "on" position is the thing `privacy.md`
+forbids. Six tests in `tests/test_sdr.py`; the "does a real model copy a bracket
+token verbatim" assertion is in `tests/test_sdr_live.py` and runs with a key.
+`docs/privacy.md`'s AI-calls clause rewritten to match.*
+
 ### Added — 2026-08-31 — `[neo4j-track]` The follow-up letter is written by a model, and Phase 5 is done
 
 The last piece waiting on the API key. When somebody agrees to be contacted, the

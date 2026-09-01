@@ -48,6 +48,14 @@ against it rather than trusting it.
 Nothing here reads a raw event, a frame or a bounding box — `privacy.md`: "AI
 reasoning calls receive only structured event summaries".
 
+**And the vendor is shown strictly less than the reviewer is.** What the draft
+may reference is unchanged; who the model knows it is about is not. The prompt
+carries `[FIRST_NAME]` and `[COMPANY]`, and `_with_identity` puts the real person
+back on this side of the wire — `app/llm/prompts.splice_identity`, and open
+decision 5 in `roadmap.md`, which this answers. The measurements the letter is
+built from are the ones a consent covered; the name is one the visitor gave this
+client, not a model vendor.
+
 ## A withdrawn contact drafts nothing, checked against the graph rather than the
 ## event
 
@@ -167,8 +175,16 @@ class SdrConsumer(Consumer):
                     tokens = written.total_tokens
                     drafted = _split(written.text)
                     if drafted:
-                        subject, body = drafted
-                        basis = provider.provider
+                        # The model drafted about a placeholder; the person goes
+                        # back in here, on our side of the wire. A refusal is
+                        # handled exactly as `_split`'s is — the composed draft
+                        # stands and `basis` stays `deterministic`, because a
+                        # letter with `[LAST_NAME]` in it is worse than a plainer
+                        # one that is finished.
+                        spliced = _with_identity(drafted, contact=contact)
+                        if spliced:
+                            subject, body = spliced
+                            basis = provider.provider
                 except LlmError as exc:
                     # The composed draft stands. A provider outage should cost an
                     # operator some polish, not the follow-up — the same floor
@@ -271,6 +287,20 @@ _SUBJECT_LINE = re.compile(
 #: Trailing emphasis left over once the label is gone: `**Subject:** Your visit**`
 #: is rare, but `**Your visit**` after a bolded label is not.
 _EMPHASIS = re.compile(r"^[*_]+|[*_]+$")
+
+
+def _with_identity(
+    drafted: tuple[str, str], *, contact: dict
+) -> tuple[str, str] | None:
+    """`(subject, body)` with the real person spliced into both, or `None`.
+
+    Both halves or neither: a subject line reading "Following up, [FIRST_NAME]"
+    beside a correctly addressed body is the same broken mail-merge, one line
+    higher up.
+    """
+    subject = prompts.splice_identity(drafted[0], contact=contact)
+    body = prompts.splice_identity(drafted[1], contact=contact)
+    return (subject, body) if subject is not None and body is not None else None
 
 
 def _split(text: str) -> tuple[str, str] | None:

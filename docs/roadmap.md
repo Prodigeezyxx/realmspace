@@ -597,6 +597,10 @@ not go, which is what the tests are pointed at.
       things `prompts.SDR` forbids by name, stays under 120 words, and does not
       leak the `anon_id` into an email.
 
+      **What the vendor is shown narrowed the same day** (open decision 5 below):
+      the prompt carries `[FIRST_NAME]` and `[COMPANY]` and the person is spliced
+      in locally. What the *draft* may reference is unchanged.
+
       **The walk found two bugs, and neither was visible to a mock.**
 
       *The draft came back empty.* `REASONING_HEADROOM` was 1024, tuned to the
@@ -1547,20 +1551,52 @@ From the founder architecture dump; each is designed-for, not hoped-for:
    account exists for any of them, so every adapter is proven against the API its
    vendor documents and none against a real portal.
 4. **Repo:** continue on `genspark_ai_developer` in the main `realmspace` repo.
-5. **Does a visitor's name belong in a prompt sent to a model vendor?** *Raised
-   2026-08-31 by the SDR walk, and a question for whoever signs the pilot
-   agreement rather than a code preference.* `privacy.md` promises AI reasoning
-   calls "receive only structured event summaries — never images". The follow-up
-   drafter sends a consented visitor's name and company, because it is writing an
-   email to them; Ask and the insight digest send measurements only. A name is
-   not an image, so the letter holds — but it is not a structured event summary
-   either.
-   Two related facts in that same clause are simply out of date and are corrected
-   there: the vendor is OpenRouter routing to DeepSeek and Google, not
-   "Claude / GPT-4o", and the answer to the pilot agreement's question 7 about
-   jurisdictions has changed with it.
-   If the answer is no, the fix is small and already sketched: draft about a
-   placeholder, splice the real name in locally.
+5. **Does a visitor's name belong in a prompt sent to a model vendor? No.**
+   *Raised 2026-08-31 by the SDR walk; closed the same day.* `privacy.md`
+   promises AI reasoning calls "receive only structured event summaries — never
+   images". The follow-up drafter sent a consented visitor's name and company,
+   because it is writing an email to them; Ask and the insight digest send
+   measurements only. A name is not an image, so the letter held — but it is not
+   a structured event summary either.
+
+   **Raised as a question for whoever signs the pilot agreement, and answered in
+   code instead, because the fix costs nothing either party would have to weigh.**
+   The prompt carries the literal `[FIRST_NAME]` and `[COMPANY]`
+   (`app/llm/prompts.sdr_prompt`) and `splice_identity` puts the person back on
+   our side of the wire. The vendor sees where somebody walked and never who they
+   are; the reviewer sees the letter they would have seen either way. A decision
+   that only has to be made when it costs something is not one to leave open.
+
+   **Square brackets in capitals, and that is load-bearing.** It is the
+   mail-merge convention, which is why a chat model copies it through verbatim
+   instead of being helpful; a braced `{FIRST_NAME}` reads as a template with a
+   hole in it, and a model writing prose fills holes in. A draft that comes back
+   with a placeholder we cannot fill — the model's own `[LAST_NAME]` or
+   `[PRODUCT]` — is **discarded for the composed draft**, the floor `_split`
+   already falls back to, because a letter that reaches a reviewer looking like a
+   broken mail-merge spends their attention on our bug rather than on what the
+   draft claims about somebody's visit.
+
+   **Deliberately not a setting.** A flag would have an "on" position that is the
+   thing `privacy.md` forbids. Reversing this is an edit with a reason, not a
+   checkbox left lying around.
+
+   **What it does not narrow.** The activation's own name still goes — it is the
+   client's event rather than the visitor's identity, and it is what makes a
+   subject line specific — and so do the zones, dwells and surfaces, which are
+   the measurements a consent covers. Question 7 of the pilot agreement is
+   therefore unchanged by this: where those are processed is still the thing to
+   answer. Two related facts in that `privacy.md` clause were out of date and are
+   corrected there: the vendor is OpenRouter routing to DeepSeek and Google, not
+   "Claude / GPT-4o", and question 7's answer changed with it.
+
+   **Not walked against a real model yet.** The unit tests cover the splice, the
+   refusal and both halves of the prompt; whether a model asked for warm prose
+   copies a bracket token through verbatim is exactly the kind of question a stub
+   answers by construction. So the assertion lives in `tests/test_sdr_live.py`
+   and runs when a key is next to hand — and if a model fumbles the token, that
+   walk fails one line earlier on `basis == "openrouter"`, because the composed
+   draft stands in.
 6. **Does the Booth tier include Ask the Room at all?** *Raised 2026-08-31, and a
    commercial call rather than a code one.* `gtm.md`'s Pavilion row lists
    "unlimited Ask the Room"; the Booth row lists the live counter, zones,

@@ -19,7 +19,7 @@ catalogue entry.
 
 The SDR's prompt is the one that touches a person, and it carries what the
 visitor consented to us holding — zones, dwell, surfaces — never the log rows
-those were computed from.
+those were computed from. **It does not carry their name.** See `NAME_TOKEN`.
 
 ## Why the question is marked
 
@@ -32,6 +32,7 @@ provider that cannot reason keyword-matches the same text a model would read.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from app.llm.catalogue import menu
@@ -77,6 +78,32 @@ QUESTION:
 {question}"""
 
 
+#: A visitor's identity is written by us, after the model has finished.
+#:
+#: `privacy.md`: *"AI reasoning calls receive only structured event summaries"*.
+#: Ask sends catalogue rows and the insight digest sends anonymous measurements,
+#: so both keep that literally; this prompt used to send a consented visitor's
+#: name and company, because it is writing an email to them. A name is not an
+#: image, so the clause's letter held — and a name is not a structured event
+#: summary either, which is open decision 5 in `roadmap.md` and is answered *no*.
+#:
+#: So the model drafts about a placeholder and `splice_identity` puts the real
+#: person in locally. The vendor sees where somebody walked and never who they
+#: are; the reviewer sees the letter they would have seen either way.
+#:
+#: **Square brackets in capitals, not braces.** It is the mail-merge convention,
+#: which is the whole reason a chat model copies it through verbatim instead of
+#: trying to be helpful. `{{FIRST_NAME}}` reads as a template with a hole in it,
+#: and a model asked to write prose will sometimes fill the hole in with a guess
+#: — which is the one outcome this exists to prevent.
+NAME_TOKEN = "[FIRST_NAME]"
+COMPANY_TOKEN = "[COMPANY]"
+
+#: Anything else of that shape, which the prompt forbids and a model invents
+#: anyway: `[LAST_NAME]`, `[PRODUCT]`, `[YOUR NAME]`. See `splice_identity`.
+_LEFTOVER_TOKEN = re.compile(r"\[[A-Z][A-Z0-9 _-]{2,}\]")
+
+
 SDR = """You are drafting a short follow-up email to somebody who visited a \
 client's stand and agreed to be contacted.
 
@@ -93,6 +120,11 @@ What we know, and the only thing you may use:
 Rules, and they matter more than the prose:
 - Reference only what is listed above. If a field says "unknown", do not mention \
 it and do not work around it with a guess.
+- Their name and their company are given to you as the literal placeholders \
+[FIRST_NAME] and [COMPANY]. Write those exactly, character for character, \
+wherever the name or the company belongs. Never guess at what they stand for, \
+and never introduce a placeholder of your own — [LAST_NAME], [PRODUCT] and \
+[YOUR NAME] are not fields we have, and a draft containing one is discarded.
 - Never invent a conversation, a product interest, a promise, a discount, or \
 anything somebody said. We measured where they walked. We did not hear them.
 - No pressure, no false familiarity, no "as we discussed".
@@ -124,13 +156,22 @@ def sdr_prompt(*, contact: dict[str, Any], intent: dict[str, Any], activation: s
     """The follow-up draft, from spatial intent and nothing else.
 
     Every field is filled from a `LeadHandoff/v1` the attribution consumer
-    already built, so this prompt cannot reach past what a consent covered.
+    already built, so this prompt cannot reach past what a consent covered — and
+    the two fields that name a person are replaced by `NAME_TOKEN` and
+    `COMPANY_TOKEN` before it leaves the building.
+
+    A contact with no name gets `"unknown"` rather than a token, which is what
+    the rest of this prompt already does with a missing field: the model is told
+    to leave it alone, and there would be nothing to splice in afterwards.
     """
     zones = intent.get("zones_visited") or []
     surfaces = intent.get("surfaces_engaged") or []
     return SDR.format(
-        name=contact.get("name") or "unknown",
-        company=contact.get("company") or "unknown",
+        # Never the real values. `splice_identity` puts those in after the model
+        # has finished, and `contact` is taken here only so the signature stays
+        # the one every caller and test already knows.
+        name=NAME_TOKEN if contact.get("name") else "unknown",
+        company=COMPANY_TOKEN if contact.get("company") else "unknown",
         activation=activation or "unknown",
         zones=" → ".join(str(z) for z in zones) if zones else "unknown",
         top_zone=intent.get("top_dwell_zone") or "unknown",
@@ -138,6 +179,37 @@ def sdr_prompt(*, contact: dict[str, Any], intent: dict[str, Any], activation: s
         surfaces=", ".join(str(s) for s in surfaces) if surfaces else "none recorded",
         total_seconds=int(intent.get("dwell_seconds_total") or 0),
     )
+
+
+def splice_identity(text: str, *, contact: dict[str, Any]) -> str | None:
+    """The real person, put back into a draft written about a placeholder.
+
+    Returns `None` when the model left a placeholder we cannot fill — its own
+    invention (`[LAST_NAME]`, `[PRODUCT]`), or `[FIRST_NAME]` on a contact whose
+    name we never had and whose prompt therefore said "unknown".
+
+    `None` is a refusal, and the caller keeps the composed draft: the same floor
+    `consumers/sdr._split` falls back to, for the same reason. A letter reaching
+    a reviewer with `[LAST_NAME]` in it reads as a broken mail-merge, and a
+    reviewer's job is to check what the draft claims about somebody's visit, not
+    to find our bugs.
+
+    A draft that uses **no** token is fine and passes through untouched. "Hello,"
+    is a legal opening; the prompt asks for the placeholder, it does not require
+    the model to address anybody by name.
+
+    The first name only, matching `deterministic_draft` — a follow-up that opens
+    "Hi Jordan Reeve," is a mail-merge announcing itself.
+    """
+    name = (contact.get("name") or "").split(" ")[0]
+    company = contact.get("company") or ""
+
+    if name:
+        text = text.replace(NAME_TOKEN, name)
+    if company:
+        text = text.replace(COMPANY_TOKEN, company)
+
+    return None if _LEFTOVER_TOKEN.search(text) else text
 
 
 def deterministic_draft(

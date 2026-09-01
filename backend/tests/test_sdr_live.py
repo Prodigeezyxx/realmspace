@@ -36,6 +36,7 @@ from neo4j import AsyncSession as GraphSession
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import llm, repository, secrets
+from app.llm import prompts
 from app.config import get_settings
 from app.graph import repository as graph_repo
 from tests.test_handoff import ENTRY_POLY, S, T
@@ -201,6 +202,29 @@ async def test_a_real_model_drafts_the_follow_up(
 
     # A tracking id in an email to a customer.
     assert "p-012" not in lowered, "the anon_id reached a customer-facing draft"
+
+    # **Open decision 5, and the half only a real model can answer.** The prompt
+    # carries `[FIRST_NAME]`/`[COMPANY]` and `splice_identity` puts the person
+    # back afterwards, so what OpenRouter is shown is where somebody walked and
+    # never who they are. A stub copies a bracket token through by construction;
+    # whether a model that has been asked to write warm prose does is exactly
+    # the sort of thing this walk exists to find — and if it does not, `basis`
+    # above is already `deterministic` and this test has failed one line up.
+    prompt = prompts.sdr_prompt(
+        contact=(handoff.get("contact") or {}),
+        intent=(handoff.get("spatial_intent") or {}),
+        activation=(handoff.get("activation") or {}).get("name") or "",
+    )
+    for private in ("Sam", "Rivera"):
+        assert private not in prompt, (
+            f"{private!r} was sent to the model vendor — `privacy.md` says a "
+            "reasoning call receives structured event summaries, and a name is "
+            "not one"
+        )
+    assert prompts.NAME_TOKEN in prompt
+
+    # And the reviewer still gets a letter addressed to a person.
+    assert "Sam" in text, "the draft names nobody; the splice did not happen"
 
     # The prompt asks for under 120 words, and a longer one is an email a human
     # has to cut before sending.
