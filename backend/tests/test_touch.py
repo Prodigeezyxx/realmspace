@@ -218,6 +218,10 @@ async def test_a_tap_becomes_an_event_with_no_credential(
     assert len(recorded) == 1
     assert recorded[0]["surface_id"] == "sf_mirror"
     assert recorded[0]["touch_id"] == "tap-1"
+    # The name travels with the tap, as `zone_name` does with every spatial
+    # event: `llm/digest.py` has no graph to look one up in, and without this an
+    # insight reads "sf_mirror was used 3 times" at a client.
+    assert recorded[0]["surface_label"] == "AR Mirror"
     # The thing a tablet cannot know, absent rather than blank.
     assert "anon_id" not in recorded[0]
 
@@ -395,6 +399,7 @@ async def test_one_person_in_the_zone_is_the_person_who_pressed_it(
     assert built[0]["surface_id"] == "sf_mirror"
     assert built[0]["attributed_by"] == "zone_occupancy"
     assert built[0]["zone_id"] == "z_pod"
+    assert built[0]["surface_label"] == "AR Mirror"
 
 
 async def test_two_people_in_the_zone_is_counted_and_not_attributed(

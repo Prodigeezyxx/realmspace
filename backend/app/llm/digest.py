@@ -33,11 +33,12 @@ thousand event ids in a payload is not traceability, it is a haystack.
 
 ## Anonymous by construction
 
-Only `spatial.*` and `surface.interaction` are read. No consent, no handoff, no
-contact — an insight is about the room, which is why `insight.generated` sits in
-`ANONYMOUS_EVENT_TYPES` in the browser contract and on the anonymised cloud-sync
-path in `event-bus-spec.md` §6. The type filter here is what makes that true
-rather than hoped for.
+Only `spatial.*` and the two `surface.*` types are read. No consent, no handoff,
+no contact — an insight is about the room, which is why `insight.generated` sits
+in `ANONYMOUS_EVENT_TYPES` in the browser contract and on the anonymised
+cloud-sync path in `event-bus-spec.md` §6. The type filter here is what makes
+that true rather than hoped for. `surface.touched` joins it without weakening
+anything: it has no field that could name a person, by construction.
 """
 
 from __future__ import annotations
@@ -55,6 +56,14 @@ SOURCE_TYPES = (
     "spatial.zone_enter",
     "spatial.dwell",
     "spatial.passby",
+    # **Both halves of a touchpoint.** `surface.touched` is every tap a tablet
+    # measured; `surface.interaction` is the subset `consumers/touch.py` could
+    # attribute to a visitor. Reading only the second made an insight say "the
+    # AR Mirror was used once" beside a tile reading five, on the same screen —
+    # because "used N times" is a claim about usage, and a tap is a use whether
+    # or not we can name who made it. `computeScorecard` counts them the same
+    # way, and it has to be the same way or `/live` contradicts itself.
+    "surface.touched",
     "surface.interaction",
 )
 
@@ -217,7 +226,18 @@ def _absorb(digest: Digest, row: EventLog) -> None:
     elif row.type == "spatial.passby":
         digest.passbys += 1
 
-    elif row.type == "surface.interaction":
+    elif row.type in ("surface.touched", "surface.interaction"):
+        # A tablet's tap arrives as **both** events — the raw touch, and the
+        # interaction the resolver derived from it, carrying that tap's
+        # `touch_id`. Counting both would double the touchpoint's usage.
+        #
+        # An interaction with no `touch_id` had no raw tap behind it: booth
+        # hardware posting one directly, which `event-bus-spec.md` §3 has always
+        # allowed. Those still count, or the signal disappears for exactly the
+        # producers the taxonomy was written for.
+        if row.type == "surface.interaction" and payload.get("touch_id"):
+            return
+
         surface_id = str(payload.get("surface_id") or "unknown")
         surface = digest.surfaces.setdefault(
             surface_id,

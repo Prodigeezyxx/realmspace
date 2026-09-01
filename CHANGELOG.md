@@ -19,6 +19,51 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-08-31
 
+### Fixed — 2026-08-31 — `[neo4j-track]` The two places on `/live` that disagreed about the same touchpoint
+
+Yesterday's tablet feature split one idea in two: every press, and the presses we
+can put a visitor's name against. The client report was taught the difference.
+Two other things were not, and one of them showed on the same screen — the live
+insight panel said *"the AR Mirror was used once"* beside a tile reading five.
+
+The insight was the wrong one. "Used N times" is a question about the thing on
+the stand, not about how identifiable the crowd happened to be, so it now counts
+presses like everything else does. A press we could attribute is on the record
+twice — once as itself, once as the visit it belongs to — and only the first is
+counted, so the tally cannot double.
+
+**Two more found while fixing it.**
+
+The insight timeline could start late. It anchored its first ten-minute window on
+the first *visitor*, so anything before that — somebody testing the touchpoint
+while the stand is still being set up, which is the ordinary case — fell outside
+every window and was never summarised. It anchors on whichever event came first
+now.
+
+And the insight was calling the touchpoint by its internal id: *"sf_mirror was
+used 3 times"*. The name now travels with the press.
+
+**And a test that could not have caught any of this.** The benchmark on the
+report compares a client's activations against each other, and it fetches a list
+of what to compare — a list with a comment on it warning that forgetting an entry
+makes older activations quietly score worse than today's. There was a test
+guarding that list. It compared the list to a copy of itself, so it could only
+fail if somebody edited the thing it was guarding. It now asks the report what it
+reads and checks nothing is missing, which is what it always claimed to do.
+
+*`digest.SOURCE_TYPES` gains `surface.touched` and skips a `surface.interaction`
+carrying a `touch_id` — the rule `computeScorecard` uses, now pinned in
+`event-bus-spec.md` §3 for both. `insights._first_event_at` takes the min across
+source types rather than the first non-empty one. `routers/touch.py` and
+`consumers/touch.py` carry `surface_label`, as spatial events carry `zone_name`.
+`SCORECARD_EVENT_TYPES` gains `surface.touched`, and its test is derived: one
+event of every `RealmEventType` (a `Record` over the union, so the compiler
+demands a sample for each) through `computeScorecard`, and anything that moves
+the result must be fetched. Also a docstring on `peakZoneConcurrency`, which
+described a per-zone maximum the code has never computed. 3 backend tests, live
+walk on a real stack: 5 taps, 3 attributed, and the window's insight reads 4
+where the old code read 2.*
+
 ### Added — 2026-08-31 — `[neo4j-track]` A tablet at the stand, so "interactions" stops being a dash
 
 One of the four things the client report scores has been blank since it was

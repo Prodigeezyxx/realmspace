@@ -34,10 +34,16 @@ export interface ReachLayer {
   entries: number | null;
   passBy: number; // negative signal — detected nearby, never entered
   /**
-   * Most people inside a zone at once. Named for what it measures: derived from
-   * enter/exit deltas, so someone in the space but not standing in any drawn
-   * zone is not counted. It is a floor on true occupancy, never an estimate of
-   * it — calling it "peak concurrency" overstated what the number knows.
+   * Most people inside *any* drawn zone at once — one counter over every zone,
+   * which is what the label "Peak in zones" says and what the enter/exit deltas
+   * below compute. Three people standing in three different zones is 3.
+   *
+   * **Not the busiest single zone.** That is a different figure, nothing on a
+   * screen asks for one, and this docstring claimed to be it until 2026-08-31.
+   *
+   * Somebody in the space but not standing in any drawn zone is not counted, so
+   * it is a floor on true occupancy and never an estimate of it — which is why
+   * "peak concurrency" was the wrong name for it too.
    */
   peakZoneConcurrency: number;
 }

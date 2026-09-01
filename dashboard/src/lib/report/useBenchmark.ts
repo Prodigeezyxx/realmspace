@@ -66,6 +66,12 @@ export const SCORECARD_EVENT_TYPES = [
   "spatial.zone_exit",
   "spatial.dwell",
   "spatial.passby",
+  // Both halves of a touchpoint, because they mean different things and the
+  // scorecard reads both: `surface.touched` is every tap, `surface.interaction`
+  // the subset a visitor could be named for. Fetching only the second would
+  // score a previous activation's touchpoints by how identifiable its crowd
+  // happened to be.
+  "surface.touched",
   "surface.interaction",
   "consent.captured",
   "identity.resolved",

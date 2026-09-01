@@ -199,6 +199,7 @@ class TouchConsumer(Consumer):
                     payload={
                         "anon_id": anon_id,
                         "surface_id": surface_id,
+                        "surface_label": surface.get("label") or surface_id,
                         "kind": payload.get("kind") or "tap",
                         "at": payload.get("at")
                         or event.occurred_at.isoformat(),

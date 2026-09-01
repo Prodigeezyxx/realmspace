@@ -306,7 +306,22 @@ class InsightsConsumer(Consumer):
         The first window opens there rather than at the triggering event minus an
         interval, so an activation's opening minutes are summarised as their own
         window instead of being cut by a boundary nobody chose.
+
+        **The earliest across every source type, not the first type that has
+        one.** This read used to return as soon as a type had a row, so the
+        answer depended on the order `SOURCE_TYPES` happens to be written in.
+        It was right by luck: `spatial.zone_enter` is first in that tuple and is
+        usually a session's first event anyway.
+
+        Anything that happens before the first person is tracked breaks the
+        luck — a staff member pressing a touchpoint while the stand is being set
+        up is the ordinary case, and `surface.touched` made it a common one.
+        Then the first window opened at the first zone_enter, and every tap
+        before it belonged to no window at all: dropped from the insight
+        timeline silently, which is how this file's own opening argument says a
+        window must never behave.
         """
+        earliest: dt.datetime | None = None
         for type in digest_builder.SOURCE_TYPES:
             rows = await repository.read_events(
                 session,
@@ -315,9 +330,14 @@ class InsightsConsumer(Consumer):
                 type=type,
                 limit=1,
             )
-            if rows:
-                return rows[0].occurred_at
-        return None
+            # `read_events` orders by seq, and seq is arrival rather than event
+            # time — so this is the earliest *recorded* of each type, and the
+            # min over them. Good enough for a window anchor and deliberately
+            # not more: an activation whose very first event arrived late has a
+            # first window that starts a little late, and no event is dropped.
+            if rows and (earliest is None or rows[0].occurred_at < earliest):
+                earliest = rows[0].occurred_at
+        return earliest
 
     async def _write_node(
         self,

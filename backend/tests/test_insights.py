@@ -148,10 +148,162 @@ async def test_the_digest_reads_only_anonymous_types() -> None:
         "spatial.zone_enter",
         "spatial.dwell",
         "spatial.passby",
+        # Both halves of a touchpoint. `surface.touched` names nobody by
+        # construction — a tablet has no camera — so it does not weaken the
+        # property this test is about.
+        "surface.touched",
         "surface.interaction",
     }
     for type in digest_builder.SOURCE_TYPES:
         assert not type.startswith(("consent.", "identity.", "handoff.", "followup."))
+
+
+
+async def test_a_tap_counts_as_usage_whether_or_not_we_know_who_made_it(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """The bug this file did not catch: `/live`'s insight said "used once"
+    beside a tile reading three, from the same log, on the same screen.
+
+    A tablet has no camera, so `consumers/touch.py` names a visitor only when
+    exactly one person was in the zone. Reading only the attributed half made an
+    insight's "used N times" a claim about how identifiable the crowd happened
+    to be. `computeScorecard` counts taps; this has to count the same ones.
+    """
+    await seed_activation(graph_session)
+
+    # Three presses. One the resolver could attribute (so it produced a second,
+    # derived event carrying that tap's id) and two it could not.
+    for i, touch_id in enumerate(("tap-1", "tap-2", "tap-3")):
+        await emit(
+            db_session,
+            type="surface.touched",
+            payload={
+                "surface_id": "s_mirror",
+                "surface_label": "AR Mirror",
+                "kind": "tap",
+                "touch_id": touch_id,
+            },
+            minutes=1 + i,
+        )
+    await emit(
+        db_session,
+        type="surface.interaction",
+        payload={
+            "anon_id": "P-001",
+            "surface_id": "s_mirror",
+            "surface_label": "AR Mirror",
+            "kind": "tap",
+            "touch_id": "tap-1",
+        },
+        minutes=1,
+    )
+    await emit(
+        db_session,
+        type="spatial.zone_enter",
+        payload={"anon_id": "P-009", "zone_id": "z_entry", "zone_name": "Entry"},
+        minutes=11,
+    )
+    await db_session.commit()
+
+    await InsightsConsumer().run_once()
+    built = await insights(db_session)
+
+    # Three, not one — and not four, which is what counting both events of the
+    # attributed press would give.
+    assert built[0]["measurements"]["surfaces"] == [
+        {"surface": "AR Mirror", "interactions": 3}
+    ]
+
+
+async def test_hardware_that_posts_an_interaction_directly_still_counts(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """An interaction with no `touch_id` had no tap behind it — an RFID plinth,
+    which `event-bus-spec.md` §3 has allowed since Phase 2. Skipping those would
+    delete the signal for exactly the producers the taxonomy was written for."""
+    await seed_activation(graph_session)
+    await emit(
+        db_session,
+        type="surface.interaction",
+        payload={
+            "anon_id": "P-001",
+            "surface_id": "s_rfid",
+            "surface_label": "Sample Wall",
+            "kind": "scan",
+        },
+        minutes=2,
+    )
+    # Past the boundary of the window that opens at the first source event
+    # (minute 2), which is what closes it.
+    await emit(
+        db_session,
+        type="spatial.zone_enter",
+        payload={"anon_id": "P-009", "zone_id": "z_entry", "zone_name": "Entry"},
+        minutes=13,
+    )
+    await db_session.commit()
+
+    await InsightsConsumer().run_once()
+    built = await insights(db_session)
+    assert built[0]["measurements"]["surfaces"] == [
+        {"surface": "Sample Wall", "interactions": 1}
+    ]
+
+
+
+async def test_the_first_window_opens_at_the_earliest_event_of_any_type(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """Found while fixing the tap count, and it is the older bug of the two.
+
+    `_first_event_at` returned as soon as *a* source type had a row, so the
+    anchor depended on the order `SOURCE_TYPES` happens to be written in. It was
+    right by luck: `spatial.zone_enter` is written first and is usually a
+    session's first event.
+
+    A touchpoint pressed while the stand is still being set up breaks the luck,
+    and `surface.touched` made that ordinary. The first window then opened at
+    the first zone_enter and every earlier tap belonged to no window at all —
+    dropped from the timeline silently, which is what this consumer's fixed
+    contiguous windows exist to prevent.
+    """
+    await seed_activation(graph_session)
+
+    # Somebody testing the plinth before the doors open. Nobody is tracked yet.
+    await emit(
+        db_session,
+        type="surface.touched",
+        payload={"surface_id": "s_mirror", "surface_label": "AR Mirror", "kind": "tap"},
+        minutes=0,
+    )
+    # The first visitor, five minutes later.
+    await emit(
+        db_session,
+        type="spatial.zone_enter",
+        payload={"anon_id": "P-001", "zone_id": "z_entry", "zone_name": "Entry"},
+        minutes=5,
+    )
+    await emit(
+        db_session,
+        type="spatial.zone_enter",
+        payload={"anon_id": "P-002", "zone_id": "z_entry", "zone_name": "Entry"},
+        minutes=11,
+    )
+    await db_session.commit()
+
+    await InsightsConsumer().run_once()
+    built = await insights(db_session)
+
+    # Anchored at minute 0, so the first window is [0, 10) and the setup tap is
+    # inside it. Anchored at the first zone_enter it would be [5, 15), which has
+    # not closed at minute 11 — so the assertion that bites first is that there
+    # is an insight at all.
+    assert len(built) == 1, "the window never closed; the anchor moved to minute 5"
+    assert built[0]["measurements"]["surfaces"] == [
+        {"surface": "AR Mirror", "interactions": 1}
+    ]
+    assert built[0]["measurements"]["people"] == 1
 
 
 # ── the insight ───────────────────────────────────────────────────────────────

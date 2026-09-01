@@ -822,10 +822,11 @@ cloud-sync path (§6).
 
 ```jsonc
 {
-  "surface_id": "sf_ar_mirror",  // from the token, never from the request
-  "kind":       "tap",
-  "at":         "2026-08-31T14:02:11.400Z",
-  "touch_id":   "9f1c…"          // minted by the tablet when the finger lands
+  "surface_id":    "sf_ar_mirror",  // from the token, never from the request
+  "surface_label": "AR Mirror",     // the operator's name for it
+  "kind":          "tap",
+  "at":            "2026-08-31T14:02:11.400Z",
+  "touch_id":      "9f1c…"          // minted by the tablet when the finger lands
 }
 ```
 
@@ -841,9 +842,23 @@ another touchpoint. `touch_id` is minted when the finger lands rather than when
 the request is sent, which is what makes a retry over venue wifi one tap instead
 of two; the `event_id` derives from it.
 
+`surface_label` travels with the tap the way `zone_name` travels with every
+spatial event, and for the same reason: the readers of a payload do not all have
+the graph. Without it `llm/digest.py` writes *"sf_ar_mirror was used 3 times"* at
+a client.
+
 **Anonymous**, by construction: there is no field here that could name anybody.
 Its derived `surface.interaction` is not — it carries an `anon_id` like every
 other spatial event.
+
+**Usage is counted from `surface.touched`, not from `surface.interaction`.** An
+attributed tap is on the log as *both*, so a reader counting both doubles a
+touchpoint's tally; a reader counting only the second reports how identifiable
+the crowd happened to be. The rule, in `computeScorecard` and `llm/digest.py`
+alike: **count every `surface.touched`, and count a `surface.interaction` only
+when it carries no `touch_id`** — an interaction with none had no tap behind it
+and came from booth hardware posting directly, which this taxonomy has always
+allowed.
 
 **`followup.drafted`** — producer: the contextual SDR
 (`backend/app/consumers/sdr.py`) *(added 2026-08-18)*:

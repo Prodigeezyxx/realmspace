@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { RealmEvent, RealmEventType } from "@/lib/contracts";
+import type { RealmEvent, RealmEventType, ZoneNode } from "@/lib/contracts";
 import { computeScorecard } from "@/lib/roi/scorecard";
 import {
   BENCHMARK_WINDOW,
@@ -99,6 +99,56 @@ function scored(
     }),
   };
 }
+
+/**
+ * One plausible payload per event type, for the derived fetch-list test above.
+ *
+ * A `Record` over the whole union on purpose: adding a member to
+ * `RealmEventType` breaks this file until somebody writes a sample for it, and
+ * the test then decides on its own whether the benchmark has to fetch it.
+ * The payloads only have to be readable by `computeScorecard` — every field it
+ * ignores is noise, and every field it reads has to be here or the type looks
+ * inert when it is not.
+ */
+const ZONES: ZoneNode[] = [
+  { id: "z_entry", name: "Entry", kind: "entry", weight: 1 },
+];
+
+const SAMPLE_PAYLOADS: Record<RealmEventType, Record<string, unknown>> = {
+  "perception.detection": { anonId: "P1", bbox: [0, 0, 1, 1] },
+  "spatial.zone_enter": { anonId: "P1", zoneId: "z_entry" },
+  "spatial.zone_exit": { anonId: "P1", zoneId: "z_entry" },
+  "spatial.dwell": { anonId: "P1", zoneId: "z_entry", durationSec: 90 },
+  "spatial.gaze": { anonId: "P1", targetId: "z_entry", durationSec: 3 },
+  "spatial.group": { groupId: "g1", memberAnonIds: ["P1", "P2"], size: 2 },
+  "spatial.passby": { anonId: "P1", adjacentZoneId: "z_entry" },
+  "spatial.tagged": { anonId: "P1", tagId: "t1", confidence: 0.9 },
+  "surface.touched": { surfaceId: "sf_1", kind: "tap" },
+  "surface.interaction": { anonId: "P1", surfaceId: "sf_1", kind: "tap" },
+  "rfid.read": { readerId: "r1", tagId: "t1" },
+  "consent.captured": { consentId: "c1", anonId: "P1", tier: "T2" },
+  "consent.withdrawn": { consentId: "c1" },
+  "identity.resolved": { anonId: "P1", contactId: "ct1" },
+  "rule.fired": { ruleId: "r1", action: "slack" },
+  "rule.staff_prompt": { message: "go", zoneId: "z_entry" },
+  "rule.screen_swap": { screenId: "s1", contentId: "c1" },
+  "insight.generated": { text: "quiet", refs: [] },
+  "intent.scored": { anonId: "P1", score: 50, band: "warm" },
+  "handoff.lead": { dedupeKey: "k", stage: "final" },
+  "outcome.recorded": { dedupeKey: "k", stage: "won", value: 1000 },
+  "crm.retract": { contactId: "ct1", destination: "all" },
+  "erasure.requested": { requestedBy: "u1" },
+  "erasure.completed": { contactIds: ["ct1"] },
+  "retention.purge_requested": { requestedBy: "u1" },
+  "retention.purged": { purgedThroughSeq: 10 },
+  "followup.drafted": { contact: { id: "ct1" }, subject: "hi", body: "there" },
+  "cost.metered": { kind: "llm_tokens", amount: 10, unit: "tokens" },
+  "drift.detected": { cameraId: "cam-1", metric: "confidence_mean" },
+  "calibration.updated": { cameraId: "cam-1", kind: "privacy_mask" },
+  "session.started": { sessionId: "s_1" },
+  "session.ended": { sessionId: "s_1" },
+  "session.zones_updated": { sessionId: "s_1" },
+};
 
 describe("median", () => {
   it("takes the middle of an odd set", () => {
@@ -209,19 +259,40 @@ describe("the figures are the report's own", () => {
   });
 
   it("fetches every event type the scorecard reads, and no detections", () => {
-    // A type added to computeScorecard's switch and forgotten here would make
+    // A type added to computeScorecard's switch and forgotten here makes
     // previous activations score lower than the current one — a comparison
     // wrong in a flattering direction, which is the worst kind on a document a
     // client reads.
-    expect([...SCORECARD_EVENT_TYPES].sort()).toEqual([
-      "consent.captured",
-      "identity.resolved",
-      "spatial.dwell",
-      "spatial.passby",
-      "spatial.zone_enter",
-      "spatial.zone_exit",
-      "surface.interaction",
-    ]);
+    //
+    // **Derived, not listed.** The first version of this test asserted a
+    // hand-written array against another hand-written array, so it could only
+    // fail when somebody edited the list it was guarding — the exact opposite
+    // of the mistake it is named for. It sat green while `surface.touched` went
+    // into the switch and not into the fetch.
+    //
+    // This version asks the scorecard. One event of each type goes through it
+    // alone; any type that moves the result away from the empty-log scorecard
+    // is a type the benchmark has to fetch, and the compiler makes sure no type
+    // is missing from the sample set — `SAMPLE_PAYLOADS` is a `Record` over the
+    // whole union, so a new event type fails to typecheck until it has one.
+    const emptyLog = JSON.stringify(computeScorecard([], { zones: ZONES }));
+
+    for (const [type, payload] of Object.entries(SAMPLE_PAYLOADS)) {
+      const alone = computeScorecard([ev(type as RealmEventType, payload)], {
+        zones: ZONES,
+      });
+      const reads = JSON.stringify(alone) !== emptyLog;
+      if (reads) {
+        expect(
+          SCORECARD_EVENT_TYPES as readonly string[],
+          `${type} changes the scorecard and is not fetched for previous ` +
+            `activations, so their figures will be lower than this one's`
+        ).toContain(type);
+      }
+    }
+
+    // A separate decision, about page size rather than correctness: a day's log
+    // is almost all detections and the scorecard never reads one.
     expect(SCORECARD_EVENT_TYPES).not.toContain("perception.detection");
   });
 

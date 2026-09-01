@@ -118,6 +118,7 @@ async def touched(
     token: str,
     body: TouchpointIn,
     session: AsyncSession = Depends(get_session),
+    graph: GraphSession = Depends(get_graph_session),
 ) -> EventOut:
     """One tap, appended to the log and nowhere else.
 
@@ -131,6 +132,21 @@ async def touched(
     """
     row = await _open(token, session)
     at = body.at or dt.datetime.now(dt.timezone.utc)
+
+    # The touchpoint's name travels with the tap, the way every spatial event
+    # carries `zone_name`. Without it the insight panel writes "sf_mirror was
+    # used 3 times" at a client, and `llm/digest.py` has no graph to look one up
+    # in. A tap is a human press rather than a frame, so a read per tap is not
+    # the cost it would be on the detection path.
+    #
+    # A touchpoint removed mid-activation still records its tap: the press
+    # happened, and the label is what is missing, not the event.
+    surface = await graph_repo.surface(
+        graph,
+        tenant_id=row.tenant_id,
+        session_id=row.session_id,
+        surface_id=row.surface_id,
+    )
 
     appended, _ = await repository.append_event(
         session,
@@ -147,6 +163,7 @@ async def touched(
             type=TOUCHED,
             payload={
                 "surface_id": row.surface_id,
+                "surface_label": (surface or {}).get("label") or row.surface_id,
                 "kind": body.kind,
                 "at": at.isoformat(),
                 "touch_id": body.touch_id,
