@@ -1,30 +1,36 @@
 """
 A write is not a write until another session can see it.
 
-## Why this file exists, including the part that turned out to be wrong
-
 `test_sessions.py::test_graph_endpoint_reports_dwell_and_unique_people` failed on
-CI on 2026-09-01 and again on 2026-09-02, passed on the runs between, and passes
-on a re-run of the same commit. The failure said `uniquePeople == 1` and
-`dwellByZone == []` — a person visible and their `DWELLED_IN` edge not, from one
-request.
+CI on 2026-09-01 and 2026-09-02 and passed on the runs between, saying
+`uniquePeople == 1` and `dwellByZone == []` — a person visible and their
+`DWELLED_IN` edge not, from one request.
 
-The theory was that the edge had not committed. `session.run` starts an
-auto-commit transaction, and `upsert_person` ends with `await result.single()`
-while every `link_*` discarded its result — so the person would commit and the
-edge would not. It is a good theory and it is **wrong**: measured against
-Neo4j 5.26 and 2026.06, on driver 6.2.0 and CI's 6.3.0, the session bookmark
-advances after `link_dwelled_in` returns and a second session opened immediately
-sees the edge. The driver completes the transaction whether or not anybody reads
-the result.
+## The cause, and the measurement that first said it was not
 
-So the flake's cause is still unknown, and the tests below are kept for what they
-do assert rather than for what they were written to catch: **nothing else in the
-suite reads the graph through a second session.** Every other test writes and
-reads through the one `graph_session` fixture, which is the one arrangement that
-cannot show a visibility problem — while the API is always the other one, since
-`get_graph_session` opens a session per request. These fail if a writer ever
-stops finishing its work before it returns.
+`session.run` starts an auto-commit transaction that finishes when its result is
+consumed. `graph_repo.upsert_person` ends with `await result.single()`; every
+`link_*` discarded its result, so its transaction stayed open until the *next*
+statement on that session ran or the session closed. The last write before a read
+on another session is therefore the one that disappears.
+
+That theory was written, then reported as ruled out, and the report was wrong.
+A standalone probe showed the session bookmark advancing after
+`link_dwelled_in` returned and a second session seeing the edge, on Neo4j 5.26
+and 2026.06 and on both driver versions — so the conclusion was that the writers
+were fine. **A probe of three statements on an idle machine is not the
+situation.** Run inside the full suite, these tests fail exactly as CI did: the
+dwell edge missing, and `['ENTERED', 'LEFT']` with `LOOKED_AT` — the last write —
+gone. Every write consumes its result now, and the note above
+`graph_repo.upsert_person` says so.
+
+## What these tests do that the rest of the suite cannot
+
+They read through a **second session, opened while the first is still open**,
+which is the API's situation: `get_graph_session` opens one per request. Every
+other test writes and reads through the one `graph_session` fixture, which is the
+single arrangement in which this bug is invisible — the fixture's own next
+statement commits the write before anybody looks.
 """
 
 from __future__ import annotations

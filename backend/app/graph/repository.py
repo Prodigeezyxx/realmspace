@@ -37,6 +37,20 @@ from neo4j import AsyncSession
 # ── writes ────────────────────────────────────────────────────────────────────
 
 
+#: **Every write consumes its result.** `session.run` starts an auto-commit
+#: transaction that finishes when its result is consumed — or, failing that, when
+#: the next statement on the same session runs or the session closes. A writer
+#: that discarded its result therefore left its transaction open until something
+#: else happened to close it, so the *last* write before a read on a **different**
+#: session was the one that vanished: `test_graph_visibility.py` reproduced it as
+#: `['ENTERED', 'LEFT']` with `LOOKED_AT` missing, and it is what
+#: `test_sessions.py::test_graph_endpoint_reports_dwell_and_unique_people` had
+#: been failing on intermittently on CI — a person visible and their dwell not.
+#:
+#: Reads consume by iterating or by `single()`. Writes return no rows, so they
+#: say `await result.consume()` and mean it: the statement is finished, and the
+#: API's own session — `get_graph_session` opens one per request — can see it.
+
 async def upsert_person(
     session: AsyncSession,
     *,
@@ -233,7 +247,7 @@ async def link_interacted_with(
     honest under replay: the counter only moves when the relationship is newly
     created, so re-processing an event cannot inflate a sponsor's usage figure.
     """
-    await session.run(
+    result = await session.run(
         """
         MATCH (p:Person  {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
         MATCH (s:Surface {tenant_id: $tenant_id, session_id: $session_id, id: $surface_id})
@@ -249,6 +263,7 @@ async def link_interacted_with(
         kind=kind,
         duration=duration,
     )
+    await result.consume()
 
 
 #: Every scalar property a Session node carries, with the value a *new* session
@@ -376,7 +391,7 @@ async def link_entered(
     produce a second identical edge. Both endpoints are matched with tenant_id
     so a relationship can never be drawn across tenants.
     """
-    await session.run(
+    result = await session.run(
         """
         MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
         MATCH (z:Zone   {tenant_id: $tenant_id, session_id: $session_id, id: $zone_id})
@@ -388,6 +403,7 @@ async def link_entered(
         zone_id=zone_id,
         at=at,
     )
+    await result.consume()
 
 
 async def link_left(
@@ -405,7 +421,7 @@ async def link_left(
     needed somewhere to record a zone exit. Same MERGE-on-timestamp shape as
     link_entered, so replaying the exit event does not draw a second edge.
     """
-    await session.run(
+    result = await session.run(
         """
         MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
         MATCH (z:Zone   {tenant_id: $tenant_id, session_id: $session_id, id: $zone_id})
@@ -417,6 +433,7 @@ async def link_left(
         zone_id=zone_id,
         at=at,
     )
+    await result.consume()
 
 
 async def link_looked_at(
@@ -445,7 +462,7 @@ async def link_looked_at(
     a monocular camera gives a facing direction, not a gaze vector, and a
     reader should be able to weigh that rather than take a verdict.
     """
-    await session.run(
+    result = await session.run(
         """
         MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
         MATCH (z:Zone   {tenant_id: $tenant_id, session_id: $session_id, id: $zone_id})
@@ -460,6 +477,7 @@ async def link_looked_at(
         confidence=confidence,
         started_at=started_at,
     )
+    await result.consume()
 
 
 async def link_dwelled_in(
@@ -479,7 +497,7 @@ async def link_dwelled_in(
     in a session and each visit is its own edge — but replaying the same event
     still merges onto the same one.
     """
-    await session.run(
+    result = await session.run(
         """
         MATCH (p:Person {tenant_id: $tenant_id, session_id: $session_id, anon_id: $anon_id})
         MATCH (z:Zone   {tenant_id: $tenant_id, session_id: $session_id, id: $zone_id})
@@ -494,6 +512,7 @@ async def link_dwelled_in(
         started_at=started_at,
         ended_at=ended_at,
     )
+    await result.consume()
 
 
 # ── reads ─────────────────────────────────────────────────────────────────────
@@ -1065,7 +1084,7 @@ async def set_group_members(
     and inventing one here would produce a person with no position, no zone and
     no history who exists only because they were near somebody.
     """
-    await session.run(
+    result = await session.run(
         """
         MATCH (g:Group {tenant_id: $tenant_id, session_id: $session_id, id: $group_id})
               <-[r:GROUP_MEMBER_OF]-(:Person)
@@ -1077,6 +1096,7 @@ async def set_group_members(
         group_id=group_id,
         members=members,
     )
+    await result.consume()
     result = await session.run(
         """
         MATCH (g:Group  {tenant_id: $tenant_id, session_id: $session_id, id: $group_id})
@@ -1582,7 +1602,7 @@ async def set_contact_dedupe_key(
     exists is inside handoff payloads on the log, and the graph could not answer
     "which deals came from this person" at all.
     """
-    await session.run(
+    result = await session.run(
         """
         MATCH (ct:Contact {tenant_id: $tenant_id, id: $contact_id})
         SET ct.dedupe_key = $dedupe_key
@@ -1591,6 +1611,7 @@ async def set_contact_dedupe_key(
         contact_id=contact_id,
         dedupe_key=dedupe_key,
     )
+    await result.consume()
 
 
 async def person_exists(
