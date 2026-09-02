@@ -132,3 +132,30 @@ class LlmProvider(ABC):
         cannot judge either.
         """
         return {"reasons": False, "streams": False}
+
+
+def unfenced(text: str) -> str:
+    """The JSON out of a fenced code block, if the model wrapped it in one.
+
+    Gemini 3.7 Flash answers the routing prompt with ```json … ``` every time,
+    measured 2026-08-31; DeepSeek answers with bare JSON. Both are asked for JSON
+    and neither is wrong — a fence is how a chat model marks a code block — so
+    this belongs here, in the one place that parses a model's output, rather than
+    in an adapter that would have to re-learn it per vendor.
+
+    Prompting harder is the alternative and it is the weaker one: it fails
+    silently and only for some models, and the failure looks like "I could not
+    match that to anything I can measure" — a refusal an operator reads as the
+    question being wrong.
+
+    It lives here rather than in `routers/ask.py`, where it was written, because
+    there are two places that parse a model's output now — the other is the rule
+    composer — and its own argument is that this belongs in one of them.
+    """
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    body = stripped[3:]
+    if body[:4].lower().startswith("json"):
+        body = body[4:]
+    return body.rsplit("```", 1)[0].strip()

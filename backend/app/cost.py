@@ -109,7 +109,7 @@ async def meter(
 #: Written into `detail` by every LLM spender, so a sum can be asked of one of
 #: them. Not a `Literal` on `meter` itself — `action_unit` spenders have their
 #: own vocabulary and a shared enum would make the meter know about all of them.
-LlmSpender = Literal["ask", "insight", "sdr"]
+LlmSpender = Literal["ask", "insight", "sdr", "compose"]
 
 
 async def spent_tokens(

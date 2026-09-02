@@ -19,6 +19,62 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-09-02
 
+### Added — 2026-09-02 — `[neo4j-track]` An operator can write a rule, and change one
+
+The Agents screen had a **New rule** button that did nothing. It had never done
+anything: an operator could arm one of the ready-made rules, watch it fire and
+delete it, and that was the whole of it. Changing what a rule says — the message
+the floor staff see, the number of people it waits for — meant somebody editing
+the database by hand.
+
+There is a form now. Every part of a rule is on it: what to watch for, in which
+zone, how many people and for how long, what to do about it, and how long to wait
+before saying it again. It reads the rule back as a sentence before anything is
+armed — *"when 5 spatial.dwell events of at least 30s in z_entry within 60s,
+prompt staff: 'Open the second door'"* — and says how often it **would have**
+fired against what this activation has already seen, without dispatching
+anything. The pencil beside a rule opens the same form with that rule in it.
+
+**And you can describe one in a sentence.** "Tell staff when the Entry Arch is at
+capacity" comes back as a document with the fields filled in, which the operator
+then reads, changes and arms. It is never armed for them.
+
+**What the composer is not allowed to decide.** It cannot pick a Slack channel, a
+webhook address or a screen — those send an activation's data somewhere, and
+somewhere is a choice a person makes. Ask for one and you get the hard half, the
+condition, plus a line saying the destination is yours to enter. It cannot name a
+zone this activation does not have, and it cannot choose a rule's id, because a
+composed rule that reused one would quietly replace the rule already armed under
+it.
+
+**Two things the walk found that the tests had not.** A composed rule could not
+be saved at all — the ready-made shapes never gave the rule a *name*, and the API
+requires one, so every one of them came back a 422. The tests had checked the
+fields of the document and never put a whole one through the validator that
+guards the write. And the browser's own error line turned out to be telling the
+truth about something else: a stale backend from an earlier session was still
+answering on the port the dashboard is configured for.
+
+*`POST /v1/rules/compose` behind the same `require_rule_author` as the write —
+provider, budget and metering as `routers/ask.py` does them, with `compose` added
+to `LlmSpender`. The model returns a document validated by the same `RuleIn`
+members `PUT /v1/rules` enforces; `schemas.ComposedRule` narrows the action union
+to `staff_prompt | log`, so an outward destination is unrepresentable rather than
+caught, and the tenant and id are never read from its output. `app/llm/
+rule_shapes.py` is the deterministic floor and the "what I can build" list a
+refusal carries, scored the way `stub.py` scores a question and refusing on a tie
+for the same reason. `llm.base.unfenced` moved out of `routers/ask.py` now that
+two paths parse model output. `components/agents/RuleComposer.tsx` switches on
+the discriminator, so a member added to the rule spec surfaces here rather than
+being unauthorable; `ruleProblems` finally has the caller its docstring has
+described since Phase 3, and Arm is disabled off it.*
+
+**Not walked against a real model.** The unit tests cover the model path with a
+stubbed transport and `tests/test_compose_live.py` is written and gated on
+`OPENROUTER_LIVE_KEY`, unrun. Everything else was walked against a live stack:
+composed, armed, four visitors seeded, the prompt on the log inside the budget,
+then edited and re-saved under the same id.
+
 ### Added — 2026-09-02 — `[neo4j-track]` The room can say when it is full
 
 The session wizard has asked operators for a **capacity** on every zone since the

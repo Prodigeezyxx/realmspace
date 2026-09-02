@@ -26,6 +26,24 @@ import { useCallback, useEffect, useState } from "react";
 import { busEmail, busUrl, ensureToken, isRemoteBusEnabled } from "@/lib/bus";
 import type { RuleDocument, StoredRule } from "@/lib/contracts/rules";
 
+/**
+ * What `POST /v1/rules/compose` returns: a document nobody has armed.
+ *
+ * `rule` is null when nothing was built, and then `reason` says why and
+ * `canBuild` lists what it could have. `basis` is `deterministic` or the
+ * provider's name, and the screen renders it — an operator who cannot tell a
+ * model's draft from a keyword match cannot judge either of them.
+ */
+export interface ComposedRule {
+  instruction: string;
+  rule: RuleDocument | null;
+  reason: string;
+  warnings: string[];
+  basis: string;
+  canBuild: { shape: string; asks: string; examples: string[] }[];
+  tookMs: number;
+}
+
 export type RulesStatus = "loading" | "ready" | "offline" | "error";
 
 export interface RulesState {
@@ -137,6 +155,41 @@ export function useRules() {
     [refresh]
   );
 
+  /**
+   * Plain English in, an **unsaved** document out. Nothing is armed here.
+   *
+   * The composing happens on the edge because that is where the provider key
+   * and the budget are, and because the document is validated by the same
+   * members `PUT /v1/rules` enforces — a second validator in the browser would
+   * be a fourth place that knows the rule language.
+   *
+   * A refusal is not an error: "I could not turn that into a rule" is an answer
+   * and the request succeeded, which is `/v1/ask`'s reasoning. What is returned
+   * here is a *transport* failure, so the screen can tell "we could not reach
+   * our own backend" from "that instruction is not a rule".
+   */
+  const compose = useCallback(
+    async (
+      instruction: string,
+      sessionId: string
+    ): Promise<ComposedRule | string> => {
+      if (!isRemoteBusEnabled()) {
+        return "No backend configured, so there is nothing to compose with.";
+      }
+      const res = await authed("/v1/rules/compose", {
+        method: "POST",
+        body: JSON.stringify({ instruction, sessionId }),
+      });
+      if (!res) return "Could not authenticate with the bus.";
+      if (res.status === 403) {
+        return "Composing a rule is part of building agents — that needs an analyst or admin account.";
+      }
+      if (!res.ok) return `The bus refused it (${res.status}).`;
+      return (await res.json()) as ComposedRule;
+    },
+    []
+  );
+
   const remove = useCallback(
     async (ruleId: string): Promise<string | null> => {
       if (!isRemoteBusEnabled()) return "No backend configured.";
@@ -151,5 +204,5 @@ export function useRules() {
     [refresh]
   );
 
-  return { ...state, refresh, save, remove };
+  return { ...state, refresh, save, remove, compose };
 }

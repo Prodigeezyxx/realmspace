@@ -330,6 +330,51 @@ the surfaces panel shows **no counts at all**, because nothing emits
       report's invented figures were. The browser runs a **dry run** that says
       how often a document would have fired, and dispatches nothing.
       *(2026-08-12)*
+
+      **The composer itself landed 2026-09-02**, which is the half ADR-002 names
+      first — *"an operator writes rules, not an engineer … plain-English → spec
+      → operator confirms"* — and the half that did not exist. `/agents` had one
+      dead control in the whole app, a **New rule** button with no handler, and
+      no way to edit an armed rule: last phase's crowding preset shipped with its
+      message baked in because changing it meant `psql`.
+
+      `components/agents/RuleComposer.tsx` is the form, switched on the
+      condition and action discriminators so a member added to the spec surfaces
+      here rather than being unauthorable. It reuses what was already written for
+      it: `ruleProblems` (whose docstring has said since Phase 3 that it exists
+      "so the composer can say what is wrong before an operator presses save"),
+      `describeRule` as the sentence ADR-002 asks them to confirm, and
+      `previewRule` as the dry run above. Editing is the same form and the same
+      `PUT`, and the id survives it — a rule that changed id when its message was
+      rewritten would leave the old one armed.
+
+      **`POST /v1/rules/compose` is `PRD.md` §6.5's plain-English half.** Built as
+      `routers/ask.py` is built, and it **composes without arming**, which is
+      `consumers/sdr.py`'s rule for a draft. Three things are taken from the
+      model structurally rather than checked: the tenant and the id are never
+      read from its output, and `schemas.ComposedRule` narrows the action union
+      to `staff_prompt | log`, so a Slack channel or a webhook URL it invented is
+      unrepresentable. Ask for one and the *condition* is composed with a line
+      saying the destination is the operator's to enter — the model writes the
+      hard half and a person still decides where a client's data goes. A zone the
+      activation does not have is a refusal, never the nearest match.
+      `app/llm/rule_shapes.py` is the floor with no provider and the "what I can
+      build" list a refusal carries, refusing on a tie the way `stub.py` does.
+
+      **Walked against a live stack**, which found the bug the unit tests could
+      not: a composed rule had no `name`, so arming any of them was a 422 — the
+      tests had asserted the document's fields and never put a whole one through
+      the validator that guards the write. The walk after the fix: composed,
+      armed, four visitors seeded, `spatial.occupancy` → `rule.fired` →
+      `rule.staff_prompt` on the log, then edited and re-saved under the same id.
+      The browser was walked too — the button opens the form, the sentence and
+      the dry run render, and Arm is disabled with "a rule needs a name" beneath
+      it.
+
+      **Not walked against a real model.** `tests/test_compose_live.py` is
+      written and gated on `OPENROUTER_LIVE_KEY` like the SDR's, and has not been
+      run. Every walk that has been run found something no mock caught, so this
+      is a claim about a stubbed transport until it is.
 - ✅ HITL **dead-letter review** screen — `/ops`, plus `GET /v1/dead-letters`
       with retry and resolve. Retry is offered only for consumers that are pure
       functions of the event (the graph writer); the tracker and broadcast

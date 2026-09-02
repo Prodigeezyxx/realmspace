@@ -35,6 +35,7 @@ import json
 import re
 from typing import Any
 
+from app.llm import rule_shapes
 from app.llm.catalogue import menu
 
 ROUTING = """You translate an operator's question about a live retail activation \
@@ -338,3 +339,85 @@ def deterministic_insight(*, measurements: dict[str, Any], minutes: int) -> str:
         )
 
     return " ".join(parts)
+
+COMPOSE = """You translate an operator's plain-English instruction into one rule \
+document for a live retail activation. A rule watches an event stream and, when \
+it matches, tells the floor staff something.
+
+Reply with JSON only, in one of these two shapes:
+
+  {{"rule": {{"name": "...", "triggerType": "...", "triggerZoneId": null, \
+"condition": {{...}}, "action": {{...}}, "cooldownSec": 60}}}}
+  {{"rule": null, "reason": "<why you cannot build it>"}}
+
+`triggerType` is an event on the bus. These are the ones that exist:
+
+{events}
+
+`condition` is exactly one of:
+
+  {{"type": "threshold", "count": <int>, "windowSec": <int>, "zoneId": <id|null>, \
+"minDwellSec": <seconds|null>, "payloadEquals": {{...}}|null}}
+      N distinct people producing that event inside the window.
+  {{"type": "any", "zoneId": <id|null>, "payloadEquals": {{...}}|null}}
+      the event itself, uncounted.
+  {{"type": "none", "windowSec": <int>, "zoneId": <id|null>}}
+      that event NOT happening for the whole window.
+
+`action` is exactly one of:
+
+  {{"type": "staff_prompt", "message": "<what a person on the floor should do>", \
+"zoneId": <id|null>}}
+  {{"type": "log", "message": "..."}}
+
+Rules, and they matter more than the wording:
+- **Zones.** The only zones that exist in this activation are listed below, by \
+id. Use an id from that list or `null`, which means every zone. Never invent an \
+id and never use a zone name where an id belongs.
+- **`payloadEquals` when a type says two things.** `spatial.occupancy` reports \
+both that a zone filled (`status: "over"`) and that it cleared \
+(`status: "cleared"`), and `spatial.group` reports `formed`, `changed` and \
+`dissolved`. A rule that does not narrow on the status acts on both, so a prompt \
+about a full room is raised again as it empties.
+- **`minDwellSec` on a dwell rule.** Every stay emits `spatial.dwell`, including \
+a two-second one, so "five people for thirty seconds" without it counts five \
+people who walked past.
+- Ask for Slack, a webhook or a screen and you must still return \
+`staff_prompt` or `log`. Somebody will choose the destination by hand; do not \
+invent a channel, a URL or a screen id.
+- If the instruction is not a rule about this floor — a question, a report, \
+something no event above can see — return `rule: null` with a reason the \
+operator can act on. Do not build the nearest thing.
+
+The zones in this activation:
+
+{zones}
+
+Shapes operators usually ask for, as a guide rather than a menu — a rule that \
+fits none of them is still a rule:
+
+{shapes}
+
+QUESTION:
+{instruction}"""
+
+
+def compose_prompt(
+    *, instruction: str, zones: list[dict[str, Any]], event_types: list[str]
+) -> str:
+    """The rule language, this activation's zones, and what was asked.
+
+    `QUESTION:` on its own line for `stub.py`'s reason — one path through the
+    system, whichever provider is on the end of it — though the deterministic
+    composer is reached through `rule_shapes.deterministic_compose` rather than
+    through `complete()`, because what it returns is a document and not a name.
+    """
+    return COMPOSE.format(
+        events="\n".join(f"  - {t}" for t in event_types),
+        zones=(
+            "\n".join(f'  - {z["id"]}  ({z.get("name") or z["id"]})' for z in zones)
+            or "  (none configured — every rule must use null)"
+        ),
+        shapes=json.dumps(rule_shapes.menu(), indent=2),
+        instruction=instruction.strip(),
+    )

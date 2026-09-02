@@ -65,7 +65,7 @@ from app.cost import meter
 from app.db import get_session
 from app.graph.driver import get_graph_session
 from app.llm import catalogue, prompts
-from app.llm.base import LlmError
+from app.llm.base import LlmError, unfenced
 from app.schemas import _to_camel
 
 router = APIRouter(prefix="/v1/ask", tags=["ask"])
@@ -249,7 +249,7 @@ async def _route(provider, question: str) -> tuple[dict[str, Any], int]:
         )
 
     try:
-        routed = json.loads(_unfenced(completion.text))
+        routed = json.loads(unfenced(completion.text))
     except ValueError:
         return (
             {
@@ -265,29 +265,6 @@ async def _route(provider, question: str) -> tuple[dict[str, Any], int]:
             completion.total_tokens,
         )
     return routed, completion.total_tokens
-
-
-def _unfenced(text: str) -> str:
-    """The JSON out of a fenced code block, if the model wrapped it in one.
-
-    Gemini 3.7 Flash answers the routing prompt with ```json … ``` every time,
-    measured 2026-08-31; DeepSeek answers with bare JSON. Both are asked for JSON
-    and neither is wrong — a fence is how a chat model marks a code block — so
-    this belongs here, in the one place that parses a model's output, rather than
-    in an adapter that would have to re-learn it per vendor.
-
-    Prompting harder is the alternative and it is the weaker one: it fails
-    silently and only for some models, and the failure looks like "I could not
-    match that to anything I can measure" — a refusal an operator reads as the
-    question being wrong.
-    """
-    stripped = text.strip()
-    if not stripped.startswith("```"):
-        return stripped
-    body = stripped[3:]
-    if body[:4].lower().startswith("json"):
-        body = body[4:]
-    return body.rsplit("```", 1)[0].strip()
 
 
 def _since(started: float) -> int:

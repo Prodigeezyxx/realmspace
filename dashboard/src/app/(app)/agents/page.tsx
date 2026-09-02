@@ -29,11 +29,16 @@
  * only one of the two can be checked.
  */
 
-import { Plus, Sparkles, Trash2, Zap } from "lucide-react";
+import { Pencil, Plus, Sparkles, Trash2, Zap } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { listAgents } from "@/agents/registry";
 import { capacityRules, notARuleReason, toRule } from "@/agents/presets";
+import {
+  blankRule,
+  mintRuleId,
+  RuleComposer,
+} from "@/components/agents/RuleComposer";
 import { previewRule, type RulePreview } from "@/agents/preview";
 import type { AgentDefinition } from "@/agents/types";
 import { Button } from "@/components/ui/Button";
@@ -57,6 +62,13 @@ export default function AgentsPage() {
   // a memo keyed on the guess reads an empty partition on a first load.
   const tenantId = useTenantId();
   const [notice, setNotice] = useState<string | null>(null);
+  // The document being written, or null when the composer is closed. One piece
+  // of state for both doors into it — a new rule is a blank document and an
+  // edit is a stored one, and everything after that is the same screen.
+  const [draft, setDraft] = useState<{
+    rule: RuleDocument;
+    editing: boolean;
+  } | null>(null);
 
   const definitions = useMemo(() => listAgents(), []);
   // One per zone the operator gave a capacity — see `capacityRules`. Empty for
@@ -84,6 +96,10 @@ export default function AgentsPage() {
   async function save(rule: RuleDocument) {
     const problem = await rules.save(rule);
     setNotice(problem ?? `Saved “${rule.name}”. The edge will act on it.`);
+    // Closed only on success: a 402 from a plan limit or a 422 from the
+    // validator is something to fix in the fields that are still open, not a
+    // reason to lose what was typed.
+    if (!problem) setDraft(null);
   }
 
   return (
@@ -104,7 +120,13 @@ export default function AgentsPage() {
             evaluated on the edge, never in this browser.
           </p>
         </div>
-        <Button variant="primary" icon={<Plus size={14} />} disabled>
+        <Button
+          variant="primary"
+          icon={<Plus size={14} />}
+          onClick={() =>
+            setDraft({ rule: blankRule(mintRuleId("rule")), editing: false })
+          }
+        >
           New rule
         </Button>
       </div>
@@ -131,6 +153,24 @@ export default function AgentsPage() {
           accent="violet"
         />
       </div>
+
+      {draft && (
+        <Panel title={draft.editing ? "Edit rule" : "Compose a rule"}>
+          <RuleComposer
+            // Keyed on the id so opening a different rule remounts the form
+            // rather than merging one document's fields into another's.
+            key={draft.rule.ruleId}
+            initial={draft.rule}
+            editing={draft.editing}
+            zones={activeSession.zones}
+            events={events}
+            sessionId={activeSession.id}
+            compose={rules.compose}
+            onArm={save}
+            onClose={() => setDraft(null)}
+          />
+        </Panel>
+      )}
 
       <Panel
         title="Armed rules"
@@ -159,6 +199,7 @@ export default function AgentsPage() {
               <RuleRow
                 key={rule.ruleId}
                 rule={rule}
+                onEdit={() => setDraft({ rule, editing: true })}
                 fired={activity.countByRule[rule.ruleId] ?? 0}
                 lastFired={activity.lastFiredByRule[rule.ruleId]}
                 now={now}
@@ -243,6 +284,7 @@ function RuleRow({
   lastFired,
   now,
   preview,
+  onEdit,
   onRemove,
 }: {
   rule: StoredRule;
@@ -250,6 +292,7 @@ function RuleRow({
   lastFired?: number;
   now: number;
   preview: RulePreview;
+  onEdit: () => void;
   onRemove: () => void;
 }) {
   return (
@@ -275,12 +318,23 @@ function RuleRow({
           </span>
         ) : null}
       </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        icon={<Trash2 size={14} />}
-        onClick={onRemove}
-      />
+      <div className="flex items-center gap-1">
+        {/* Editing replaces the whole document through the same PUT an operator
+            writing one uses — ADR-002's "no partial update", and the reason the
+            id must survive the edit: a new id would leave the old rule armed. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<Pencil size={14} />}
+          onClick={onEdit}
+        />
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<Trash2 size={14} />}
+          onClick={onRemove}
+        />
+      </div>
     </li>
   );
 }

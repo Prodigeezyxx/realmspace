@@ -945,6 +945,61 @@ RuleAction = (
 )
 
 
+#: What a *composed* rule may do, which is narrower than what an operator may
+#: write. `log` and `staff_prompt` stay inside the room; Slack, a webhook and a
+#: screen swap send a client's floor data somewhere, and a model choosing the
+#: channel or the URL would be inventing where. The composer returns the
+#: condition and names what the operator has to supply, and they change the
+#: action by hand — which is the moment a person decides a rule should reach
+#: outside. Structural rather than a check afterwards: the destination fields
+#: are not in the union the model's output is validated against.
+ComposableAction = StaffPromptAction | LogAction
+
+
+class ComposedRule(BaseModel):
+    """The document a model returns, before an operator has confirmed anything.
+
+    `RuleIn` minus the three fields the model must not decide. `ruleId` and the
+    tenant are minted by `routers/rules.py` from the credential — a model that
+    picks an id can overwrite an operator's existing rule, and that is silent
+    loss rather than an error — and the action union is narrowed above.
+
+    Everything else is validated by the *same* members `PUT /v1/rules` enforces
+    on a hand-written rule. There is no second validator, which is the point:
+    `docs/adr/003-nl-query-catalogue.md` refuses model-written Cypher because
+    arbitrary query text cannot be validated, and a rule document is data with a
+    closed union that already can be.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=_to_camel, populate_by_name=True, extra="forbid"
+    )
+
+    name: str = Field(min_length=1, max_length=120)
+    trigger_type: str = Field(min_length=1)
+    trigger_zone_id: str | None = None
+    condition: RuleCondition = Field(discriminator="type")
+    action: ComposableAction = Field(discriminator="type")
+    cooldown_sec: int = Field(default=60, ge=0)
+
+    @field_validator("trigger_type")
+    @classmethod
+    def trigger_is_in_a_known_namespace(cls, value: str) -> str:
+        """The same prefix test `RuleIn` applies, for the same reason.
+
+        Not narrowed to the types that have producers: `event-bus-spec.md` §3
+        registers six of those ahead of the code that emits them precisely so a
+        rule can name one, and the composer says so in a warning instead.
+        """
+        if not value.startswith(EVENT_NAMESPACES):
+            raise ValueError(
+                f"unknown event namespace in triggerType {value!r}; "
+                f"expected one of {', '.join(EVENT_NAMESPACES)} "
+                "(taxonomy: docs/event-bus-spec.md §3)"
+            )
+        return value
+
+
 class RuleIn(BaseModel):
     """A rule document as an operator POSTs it.
 
