@@ -166,6 +166,41 @@ on each side stayed green: each had been written in its own dialect and agreed
 with itself. `tests/test_phase3_acceptance.py` runs the chain end to end for
 exactly that class of failure.
 
+## One field added, 2026-09-02: `condition.payloadEquals`
+
+Recorded here rather than in a new ADR, because it does not change the shape of
+a rule — it narrows the same way `zoneId` and `minDwellSec` already do, in the
+same place (`_matches_scope`).
+
+**A status is not a zone.** `spatial.occupancy` says both that a zone reached its
+capacity and that it dropped back below it, and `spatial.group` has said both
+that a group formed and that it dissolved since Phase 6. On one type, so a rule
+armed with `condition.any` acts on both ends: the crowding preset would have
+raised "Entry Arch is at capacity" at the moment it stopped being true. The group
+half of that was already latent — nobody had armed a rule on `spatial.group`, so
+nothing had found it.
+
+`payloadEquals` is a flat map of payload field → value, all of which must match,
+compared as strings and read through `_payload_field`, so a document written in
+camelCase matches a producer's snake_case. Strings on purpose: this narrows an
+event to a *kind* of event, and comparing numbers is what `threshold` is for — a
+`>=` here would be a second, quieter way of saying the same thing.
+
+**Unknown keys on a condition are now refused** (`extra="forbid"` on all three).
+A condition is a filter, and a misspelled filter narrows nothing: `payloadEqals`
+would arm a rule that matches every event of its type and reads exactly like the
+one the operator wrote. That is the failure recorded two paragraphs above, in the
+other direction.
+
+Not accepted on `none`, which is judged by looking back for the last event of a
+type rather than by scoping the events in a window — there is no payload there to
+match against.
+
+The browser's dry run honours it too (`agents/preview.ts::inScope`), because a
+preview that ignored a filter would tell an operator a rule fires twice as often
+as it will, and two runners of one document disagreeing is what this ADR exists
+to prevent.
+
 ## Rejected
 
 - **Rules as Python/TypeScript predicates.** Fastest to write, impossible for an

@@ -142,6 +142,17 @@ function inScope(rule: RuleDocument, event: RealmEvent): boolean {
     rule.condition.type === "none" ? null : rule.condition.zoneId ?? null;
   if (wantZone && zone !== wantZone) return false;
 
+  // The same narrowing the edge evaluator does (`consumers/rules._matches_scope`).
+  // A dry run that ignored it would tell an operator a crowding rule fires twice
+  // as often as it will — and the two halves disagreeing about one document is
+  // the split-brain ADR-002 exists to end.
+  const wanted =
+    rule.condition.type === "none" ? null : rule.condition.payloadEquals;
+  for (const [field, value] of Object.entries(wanted ?? {})) {
+    const actual = payload[field];
+    if (actual === undefined || String(actual) !== String(value)) return false;
+  }
+
   if (rule.condition.type === "threshold" && rule.condition.minDwellSec != null) {
     const duration = payload.durationSec ?? payload.duration;
     if (typeof duration !== "number" || duration < rule.condition.minDwellSec) {

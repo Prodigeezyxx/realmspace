@@ -15,6 +15,25 @@ import type { RealmEvent, ZoneMovePayload } from "@/lib/contracts";
 import type { StaffPromptPayload } from "@/lib/contracts/rules";
 
 /**
+ * Zone transitions, oldest first by **event time**.
+ *
+ * Everything below decides who is where by replaying enters and exits, and that
+ * only gives the right answer in the order things happened. A producer that
+ * appends one visitor's whole journey at a time, or a batch replayed after an
+ * outage, arrives in a different order from the one it happened in — which is
+ * the 2026-08-25 walk's defect 7, where the scorecard read 1 where three
+ * visitors overlapped. `consumers/occupancy.py` walks the same events the same
+ * way, for the same reason.
+ */
+function transitionsInOrder(events: RealmEvent[]): RealmEvent[] {
+  return events
+    .filter(
+      (e) => e.type === "spatial.zone_enter" || e.type === "spatial.zone_exit"
+    )
+    .sort((a, b) => a.occurredAt - b.occurredAt);
+}
+
+/**
  * People currently inside a zone: an entry with no matching exit.
  *
  * Counts *people*, not zone occupancies. Somebody who walks from the entrance to
@@ -23,12 +42,13 @@ import type { StaffPromptPayload } from "@/lib/contracts/rules";
  * the figure is that an operator can compare it with what they see on the floor.
  *
  * A person who left and came back is present again: the last event for them
- * decides, which is why this walks the log in order rather than counting.
+ * decides, which is why this replays the transitions in event-time order rather
+ * than counting.
  */
 export function presentNow(events: RealmEvent[]): number {
   const inZone = new Set<string>();
 
-  for (const e of events) {
+  for (const e of transitionsInOrder(events)) {
     if (e.type === "spatial.zone_enter") {
       const p = e.payload as ZoneMovePayload;
       if (p.anonId) inZone.add(p.anonId);
@@ -43,6 +63,39 @@ export function presentNow(events: RealmEvent[]): number {
   }
 
   return inZone.size;
+}
+
+/**
+ * How many people are in each zone right now, keyed by zone id.
+ *
+ * The per-zone twin of `presentNow`, and it has to count differently: a person
+ * is in exactly one place there and is *removed* by any exit, while here an exit
+ * only empties the zone it names. Somebody moving from the entrance to the
+ * product wall is one person present and shows in one zone, because the tracker
+ * emits the exit before the enter.
+ *
+ * Zones with nobody in them are **absent from the map rather than zero**, which
+ * is the distinction `ZoneList` needs: a zone nobody has walked into yet and a
+ * zone the log knows nothing about are the same on screen, and neither should be
+ * confused with a zone this browser has no events for at all.
+ */
+export function zoneOccupancy(events: RealmEvent[]): Map<string, number> {
+  const inside = new Map<string, Set<string>>();
+
+  for (const e of transitionsInOrder(events)) {
+    const p = e.payload as unknown as ZoneMovePayload;
+    if (!p.anonId || !p.zoneId) continue;
+    const occupants = inside.get(p.zoneId) ?? new Set<string>();
+    if (e.type === "spatial.zone_enter") occupants.add(p.anonId);
+    else occupants.delete(p.anonId);
+    inside.set(p.zoneId, occupants);
+  }
+
+  const counts = new Map<string, number>();
+  for (const [zoneId, occupants] of inside) {
+    if (occupants.size > 0) counts.set(zoneId, occupants.size);
+  }
+  return counts;
 }
 
 /**

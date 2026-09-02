@@ -17,7 +17,72 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-08-31
+## [Unreleased] — last updated 2026-09-02
+
+### Added — 2026-09-02 — `[neo4j-track]` The room can say when it is full
+
+The session wizard has asked operators for a **capacity** on every zone since the
+first version of it, and nothing anywhere read the number. It sat in the database
+being displayed back to the person who typed it.
+
+It means something now. When a zone reaches the capacity its operator set, the
+system says so once — one message, at the moment it fills, not one per person who
+walks in afterwards — and says so again when it drops back below. A rule can be
+armed on that, and the floor staff get a prompt on the live screen: *"Entry Arch
+is at capacity (3) — slow the queue or open a second point."*
+
+**This was the one thing left on the roadmap that needed nothing from outside.**
+Everything else still open waits on a hosting decision, a payment provider or a
+key somebody has to buy. This half of the "floor orchestrator" was written down a
+phase ago as buildable and measurement rather than prediction, and it is exactly
+that: no model guesses how busy the room is about to get.
+
+**A crowding rule could not be written before today**, which is easy to miss.
+The only signal about a zone was emitted when somebody *left* it, so "five people
+at the entrance" was a thing the system could tell you about ten minutes after it
+mattered.
+
+**Three things it refuses, and the refusals are the design.** A zone the operator
+gave no capacity produces nothing, at any count — a threshold nobody set is not a
+threshold. A room that is already full does not announce itself again on every
+arrival, because a prompt raised nine times in a minute teaches the floor to stop
+reading the panel. And the count is worked out from when things happened rather
+than the order they were written down, so a camera catching up after an outage
+does not report an empty room.
+
+**The live screen was showing a zero it had not measured.** Every zone of every
+real activation read "0 now" under the words "awaiting data", beside a session
+that was running — the demo's curated numbers on one side and a literal zero on
+the other. It reads the log now, shows the ratio against the capacity where there
+is one, turns the count orange at or over it, and shows a dash rather than a zero
+where nothing has been measured at all. "Nobody is here" and "nothing is
+measuring" are different answers, which is the distinction this project has been
+drawing on the report since Phase 2.
+
+**And one thing the rules engine could not say.** A zone filling and a zone
+clearing are the same kind of event, so the first version of the crowding rule
+raised *"Entry Arch is at capacity"* at the moment it stopped being true. Rules
+can now be narrowed to a field of the event, which also closes the same hole for
+group formation — a rule saying "greet the group that just arrived" would have
+greeted them again as they dispersed. Nobody had noticed, because nobody had
+armed one.
+
+*`consumers/occupancy.py`, its own consumer beside grouping and gaze so a
+crowding bug cannot stop dwell being measured, ordered before the rules evaluator
+so a crossing and its prompt land in one pass. `spatial.occupancy` pinned in
+`event-bus-spec.md` §3 — the one `spatial.*` payload with no `anon_id`, because it
+is a statement about a room. The occupant set is recomputed from the log rather
+than accumulated, sharing `occupants_at` with `consumers/touch.py` so a tap and
+the live panel cannot disagree about who is standing there; a rewound cursor
+therefore re-derives the same crossings and the bus dedupes them, verified against
+a live stack. `condition.payloadEquals` in ADR-002 (with unknown condition keys
+now refused, since a misspelled filter narrows nothing and reads like the rule the
+operator wrote), honoured by the browser's dry run as well as the edge.
+`lib/live/derive.ts::zoneOccupancy`, `capacityRules` in `agents/presets.ts`, one
+preset per zone that has a capacity. Walked live: five arrivals into a
+three-person zone gave one `over` at the third, three departures one `cleared`,
+one staff prompt, none on the clearing, and six arrivals into a capacity-less zone
+gave nothing.*
 
 ### Fixed — 2026-08-31 — `[neo4j-track]` The two places on `/live` that disagreed about the same touchpoint
 

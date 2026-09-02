@@ -314,7 +314,7 @@ export default function LivePage() {
           )}
 
           <Panel title="Zones · live" subtitle="Visitors currently in each zone">
-            <ZoneList />
+            <ZoneList occupancy={live.zoneOccupancy} hasData={fromBus} />
           </Panel>
 
           <Panel

@@ -632,8 +632,63 @@ not go, which is what the tests are pointed at.
       cannot answer ("when was it busiest") are served from the log, which is
       what "over the live bus" means. See ADR-003 above. ✅ with Ask the Room on
       2026-08-31: it is the same endpoint and the same provider.
-- 🔲 **Floor orchestrator** (predict density, staff allocation) — if demand
-      proven. **Deferred deliberately, with two preconditions unmet** *(checked
+- 🟡 **Floor orchestrator** (predict density, staff allocation) — **the
+      measurable half landed 2026-09-02; prediction stays deferred with both
+      preconditions intact.**
+
+      This bullet's own last paragraph named what was buildable — *"live
+      occupancy against a configured capacity, prompting through the Phase 3
+      rules engine … measurement, not prediction"* — and that is what exists now:
+      `consumers/occupancy.py`, `spatial.occupancy` pinned in `event-bus-spec.md`
+      §3, a crowding preset on `/agents`, and per-zone counts on `/live`.
+
+      **`Zone.capacity` had been specified since Phase 1 and read by nothing.**
+      `data-model.md` calls it "optional, for crowding alerts"; `ZoneConfig`
+      accepted it, `upsert_zone` stored it, the wizard's zone editor offered a
+      field for it. An operator set a number and it went nowhere — the shape
+      `(:Group)` was in before Phase 6.
+
+      **And a crowding rule could not be written.** `spatial.dwell` is emitted
+      when somebody *leaves*, so "five people at the entrance" was only knowable
+      after they had gone. The consumer emits **one event per crossing**, not per
+      arrival into a full room — `gaze.py`'s rule about a signal that fires on
+      the common case — and a zone with no capacity emits nothing at any count,
+      because a threshold nobody set is not a threshold.
+
+      **The occupant set is recomputed from the log by event time**, sharing one
+      reader with `consumers/touch.py` rather than keeping a second definition of
+      who is in a room. That is ADR-002's first correction, and it is what makes
+      a replay re-derive the same crossings: verified against a live stack by
+      rewinding the cursor to 0 and getting the same two events, same ids, no
+      duplicates.
+
+      **One thing it needed that the rule spec did not have.** Both ends of a
+      crossing are one event type, so a rule armed with `condition.any` raised
+      "Entry Arch is at capacity" at the moment the zone cleared.
+      `condition.payloadEquals` narrows on a payload field, recorded in ADR-002
+      rather than as a new ADR because it narrows the way `zoneId` already does.
+      It closes the same latent hole for `spatial.group`, which has carried
+      `formed`/`dissolved` on one type since Phase 6 with no rule armed on it to
+      find out. Unknown condition keys are refused now, for the reason a
+      misspelled filter is worse than a missing one: it narrows nothing and reads
+      exactly like the rule the operator wrote.
+
+      **`ZoneList` was rendering a hardcoded `0`** beside every zone of every
+      real activation, under "capacity 15 · awaiting data", while the session was
+      running. Same class as the figures Phase 2 struck off `/report` and `/live`,
+      surviving one component over. It reads the log now, shows the ratio where a
+      capacity is set, goes to the action accent at or over it, and renders `—`
+      rather than `0` when the log has nothing — "nobody is here" and "nothing is
+      measuring" being different answers.
+
+      **Walked against a live stack**: five arrivals into a three-person zone
+      produced exactly one `over` (at the third, not the fifth), three departures
+      exactly one `cleared`, one `rule.fired` and one staff prompt on `/live`
+      stamped at the event's own time, no prompt when it cleared, and six
+      arrivals into a capacity-less zone produced nothing at all.
+
+      What is still 🔲 is the prediction, and the two preconditions below are
+      unchanged: *(checked
       2026-08-18, so the next person to ask finds the answer here)*:
       1. *Its own stated gate.* No pilot has asked for it.
       2. *A prediction model.* It appears nowhere in either track except this
@@ -646,10 +701,8 @@ not go, which is what the tests are pointed at.
 
       `floats-agent` has not built it either — the identical 🔲 line, no code.
       Building it now would mean inventing the specification and then writing
-      the acceptance criteria to test against it. The measurable half (live
-      occupancy against a configured capacity, prompting through the Phase 3
-      rules engine) is buildable today and is *measurement, not prediction*; if
-      demand arrives, that is where to start, and it belongs to whoever asks.
+      the acceptance criteria to test against it. The measurable half is built,
+      above; the predictive half belongs to whoever asks for it.
 - ✅ **LLM insight generation every N minutes → `insight.generated`** —
       `consumers/insights.py`, `app/llm/digest.py`, `/live`.
       **Built to `floats-agent`'s specification, adopted verbatim** the way
@@ -699,8 +752,10 @@ summarised from a seeded floor, and the first insight's four citations opened to
 exactly the Product Pod events whose dwells sum to the 300 seconds it claimed —
 not the window's other traffic.
 
-**Phase 5 is complete**, bar the floor orchestrator, which is deferred with its
-two unmet preconditions recorded above. Nothing is left merely unstarted.
+**Phase 5 is complete**, bar the floor orchestrator's *predictive* half, which
+is deferred with its two unmet preconditions recorded above. Its measurable half
+— occupancy against a capacity — landed 2026-09-02. Nothing is left merely
+unstarted.
 
 What was not met was the phrase "AI" in the phase title: with open decision 2
 open, routing was by wording and the draft was composed from a template.
@@ -1573,6 +1628,7 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 | Multi-booth / cross-event aggregation | 🟡 the client's own history is built — `GET /v1/sessions` lists their activations and `lib/report/useBenchmark.ts` scores each one with the same `computeScorecard` the report uses. The cross-*tenant* network median is not, and needs anonymised aggregates nothing here can compute: RLS fails closed on a cross-tenant read. |
 | Two cameras, one `P-001` | ✅ every visitor is keyed `camera_id/anon_id` (`consumers/ids.person_key`) and zones belong to the camera whose frame they were drawn in. A detection with no camera is refused on a session that declares two, accepted where it cannot collide. Crossing between cameras stays two people, per `privacy.md`. |
 | Surface interactions with no hardware | ✅ `routers/touch.py` + `consumers/touch.py` — a tablet emits `surface.touched`, and the visitor is named only when exactly one person was in the touchpoint's zone. Every tap counts as an interaction; only an attributed one counts a person as engaged. |
+| Zone crowding against a capacity | ✅ `consumers/occupancy.py` — `spatial.occupancy` on a crossing, from the operator's own `Zone.capacity`, which `data-model.md` had declared "for crowding alerts" since Phase 1 and nothing read. One event per crossing rather than per arrival, nothing at all for a zone with no capacity, and a `payloadEquals` filter so the staff prompt is not raised again when the zone clears. |
 | Cost telemetry / unit economics | `cost.metered` meter — P3 |
 | Group visits | ✅ `consumers/grouping.py` — a pair counts on **co-movement** (their shared midpoint travelled while they stayed together) or **joint arrival and departure** (into and out of a zone within seconds of each other), never on proximity alone: three strangers queueing are close together for minutes, and a detector built on distance-and-time reports every queue as a family. Groups are connected components over confirmed pairs. |
 | Negative signals (pass-by/skip) | ✅ `spatial.passby` — tracker emits at close-out for a zone approached within `tracker_passby_radius` and never entered |

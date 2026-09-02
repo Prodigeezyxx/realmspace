@@ -807,7 +807,15 @@ class SessionGraphOut(BaseModel):
 class ThresholdCondition(BaseModel):
     """N of something within a window. The only condition that counts."""
 
-    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+    #: Unknown keys are **refused**, on all three conditions. A condition is a
+    #: filter, and a misspelled filter narrows nothing — `payloadEqals` would arm
+    #: a rule that matches every event of its type and looks exactly like the one
+    #: the operator wrote. That is the failure `_payload_field` records having
+    #: shipped once already, in the other direction, and it took an
+    #: end-to-end test to find.
+    model_config = ConfigDict(
+        alias_generator=_to_camel, populate_by_name=True, extra="forbid"
+    )
 
     type: Literal["threshold"]
     count: int = Field(ge=1)
@@ -819,6 +827,19 @@ class ThresholdCondition(BaseModel):
     #: emitted for every stay, including a two-second one, and "5 people at the
     #: entrance" does not mean five people who walked past it.
     min_dwell_sec: float | None = Field(default=None, ge=0)
+    #: Narrows to events whose payload says this. A flat map of field → value,
+    #: all of which must match. It exists because a status is not a zone: a
+    #: `spatial.occupancy` says whether a room filled or emptied and a
+    #: `spatial.group` whether one formed or dissolved, and a rule armed on the
+    #: type alone acts on both — raising "the entrance is at capacity" at the
+    #: moment it clears. Both spellings of a field are accepted when it is read
+    #: (`consumers/rules._payload_field`), since the payload is snake_case and
+    #: this document is camelCase.
+    #:
+    #: Values are strings on purpose. This narrows an event to a *kind* of event,
+    #: which is what a status is; comparing numbers is what `threshold` is for,
+    #: and a `>=` here would be a second, quieter way to say the same thing.
+    payload_equals: dict[str, str] | None = None
 
 
 class AnyCondition(BaseModel):
@@ -826,10 +847,25 @@ class AnyCondition(BaseModel):
     named separately because "any dwell in this zone" is what an operator says,
     and a spec they can read back is the point of ADR-002."""
 
-    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=_to_camel, populate_by_name=True, extra="forbid"
+    )
 
     type: Literal["any"]
     zone_id: str | None = None
+    #: Narrows to events whose payload says this. A flat map of field → value,
+    #: all of which must match. It exists because a status is not a zone: a
+    #: `spatial.occupancy` says whether a room filled or emptied and a
+    #: `spatial.group` whether one formed or dissolved, and a rule armed on the
+    #: type alone acts on both — raising "the entrance is at capacity" at the
+    #: moment it clears. Both spellings of a field are accepted when it is read
+    #: (`consumers/rules._payload_field`), since the payload is snake_case and
+    #: this document is camelCase.
+    #:
+    #: Values are strings on purpose. This narrows an event to a *kind* of event,
+    #: which is what a status is; comparing numbers is what `threshold` is for,
+    #: and a `>=` here would be a second, quieter way to say the same thing.
+    payload_equals: dict[str, str] | None = None
 
 
 class NoneCondition(BaseModel):
@@ -840,7 +876,9 @@ class NoneCondition(BaseModel):
     at a boundary — the first event past the window, or `session.ended`.
     """
 
-    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+    model_config = ConfigDict(
+        alias_generator=_to_camel, populate_by_name=True, extra="forbid"
+    )
 
     type: Literal["none"]
     window_sec: int = Field(gt=0)

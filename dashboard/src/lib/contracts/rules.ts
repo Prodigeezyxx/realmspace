@@ -52,12 +52,36 @@ export interface ThresholdCondition {
    * without this counts five people who walked past it.
    */
   minDwellSec?: number | null;
+  /**
+   * Narrows to events whose payload says this — every entry must match.
+   *
+   * A status is not a zone: `spatial.occupancy` says whether a room filled or
+   * emptied and `spatial.group` whether one formed or dissolved, both on one
+   * type, so a rule armed on the type alone acts on both ends — raising "the
+   * entrance is at capacity" at the moment it clears.
+   *
+   * Values are strings on purpose: this narrows an event to a *kind* of event.
+   * Comparing numbers is what `threshold` is for.
+   */
+  payloadEquals?: Record<string, string> | null;
 }
 
 /** The trigger itself, uncounted. */
 export interface AnyCondition {
   type: "any";
   zoneId?: string | null;
+  /**
+   * Narrows to events whose payload says this — every entry must match.
+   *
+   * A status is not a zone: `spatial.occupancy` says whether a room filled or
+   * emptied and `spatial.group` whether one formed or dissolved, both on one
+   * type, so a rule armed on the type alone acts on both ends — raising "the
+   * entrance is at capacity" at the moment it clears.
+   *
+   * Values are strings on purpose: this narrows an event to a *kind* of event.
+   * Comparing numbers is what `threshold` is for.
+   */
+  payloadEquals?: Record<string, string> | null;
 }
 
 /**
@@ -247,6 +271,13 @@ export function ruleProblems(rule: RuleDocument): string[] {
  * This is the confirming half — the document read back as a sentence, so what is
  * being armed is legible without reading JSON.
  */
+/** "(status over)", or nothing at all. Part of `describeRule`'s sentence. */
+function describeMatch(match?: Record<string, string> | null): string {
+  const entries = Object.entries(match ?? {});
+  if (entries.length === 0) return "";
+  return ` (${entries.map(([k, v]) => `${k} ${v}`).join(", ")})`;
+}
+
 export function describeRule(rule: RuleDocument): string {
   const where = rule.condition.zoneId ?? rule.triggerZoneId;
   const zone = where ? ` in ${where}` : "";
@@ -258,11 +289,11 @@ export function describeRule(rule: RuleDocument): string {
       const dwell = rule.condition.minDwellSec
         ? ` of at least ${rule.condition.minDwellSec}s`
         : "";
-      when = `${rule.condition.count} ${subject} events${dwell}${zone} within ${rule.condition.windowSec}s`;
+      when = `${rule.condition.count} ${subject} events${dwell}${zone}${describeMatch(rule.condition.payloadEquals)} within ${rule.condition.windowSec}s`;
       break;
     }
     case "any":
-      when = `any ${subject}${zone}`;
+      when = `any ${subject}${zone}${describeMatch(rule.condition.payloadEquals)}`;
       break;
     case "none":
       when = `no ${subject}${zone} for ${rule.condition.windowSec}s`;

@@ -33,7 +33,7 @@ import { Plus, Sparkles, Trash2, Zap } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { listAgents } from "@/agents/registry";
-import { notARuleReason, toRule } from "@/agents/presets";
+import { capacityRules, notARuleReason, toRule } from "@/agents/presets";
 import { previewRule, type RulePreview } from "@/agents/preview";
 import type { AgentDefinition } from "@/agents/types";
 import { Button } from "@/components/ui/Button";
@@ -59,6 +59,13 @@ export default function AgentsPage() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const definitions = useMemo(() => listAgents(), []);
+  // One per zone the operator gave a capacity — see `capacityRules`. Empty for
+  // an activation where nobody set one, which is most of them, and that is the
+  // honest state rather than a preset with an invented threshold in it.
+  const crowding = useMemo(
+    () => capacityRules(activeSession.zones),
+    [activeSession.zones]
+  );
 
   // Read once per render rather than subscribing: a preview is a thing the
   // operator asks for by pressing a button, and a feed that re-ran it on every
@@ -171,6 +178,17 @@ export default function AgentsPage() {
         subtitle="Starting points, compiled to the same document an operator would write by hand."
       >
         <ul className="divide-y divide-border-hairline -m-5">
+          {crowding.map((rule) => (
+            <RulePresetRow
+              key={rule.ruleId}
+              rule={rule}
+              // The zone's own capacity, which is why there is one of these per
+              // zone and none at all for a session where nobody set one.
+              note="Fires when the zone reaches the capacity you set for it."
+              events={events}
+              onArm={save}
+            />
+          ))}
           {definitions.map((definition) => (
             <PresetRow
               key={definition.id}
@@ -263,6 +281,41 @@ function RuleRow({
         icon={<Trash2 size={14} />}
         onClick={onRemove}
       />
+    </li>
+  );
+}
+
+/**
+ * A preset that is a rule document outright, with no agent behind it.
+ *
+ * `PresetRow` below compiles an `AgentDefinition` first, because the eight
+ * legacy agents are the thing it renders. These are rules already — see
+ * `capacityRules` — so there is nothing to compile and nothing that can fail to.
+ */
+function RulePresetRow({
+  rule,
+  note,
+  events,
+  onArm,
+}: {
+  rule: RuleDocument;
+  note: string;
+  events: RealmEvent[];
+  onArm: (rule: RuleDocument) => void;
+}) {
+  const preview = previewRule(rule, events);
+
+  return (
+    <li className="grid grid-cols-[1fr_auto] items-center gap-4 px-5 py-3">
+      <div className="min-w-0">
+        <div className="text-sm font-medium">{rule.name}</div>
+        <p className="mt-0.5 text-[11px] text-text-muted">{note}</p>
+        <p className="mt-1 text-xs text-text-secondary">{describeRule(rule)}</p>
+        <PreviewNote preview={preview} />
+      </div>
+      <Button variant="secondary" size="sm" onClick={() => onArm(rule)}>
+        Arm
+      </Button>
     </li>
   );
 }

@@ -33,6 +33,7 @@ from app.consumers.drift import DriftConsumer
 from app.consumers.gaze import GazeConsumer
 from app.consumers.grouping import GroupingConsumer
 from app.consumers.insights import InsightsConsumer
+from app.consumers.occupancy import OccupancyConsumer
 from app.consumers.reanonymise import ReAnonymiseConsumer
 from app.consumers.retention import RetentionConsumer
 from app.consumers.rules import RulesConsumer
@@ -102,6 +103,15 @@ CONSUMER_CLASSES: list[type[Consumer]] = [
     # people in it would find nobody to link. After the tracker for the same
     # reason — the zone enters it reads are the tracker's output.
     GroupingConsumer,
+    # Reads the tracker's zone transitions and writes `spatial.occupancy` back,
+    # so it follows the tracker for the same single-pass reason as everything
+    # else that does. **Before the rules evaluator**, and that is the whole
+    # point of its position: a crossing and the staff prompt it raises are meant
+    # to land inside the `< 3s` of event-bus-spec.md §4, and behind the
+    # evaluator every crowding alert would wait a poll interval for output this
+    # pass could have produced. Its own consumer rather than more tracker,
+    # beside grouping and gaze and for their reason.
+    OccupancyConsumer,
     # Last, and it reads the registry above to find out who must have caught up
     # before it may empty anything. Ordered here so that list is complete by the
     # time it runs; the check itself is by name at handle time, not by position.

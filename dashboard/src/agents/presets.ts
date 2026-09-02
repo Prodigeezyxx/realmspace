@@ -141,6 +141,51 @@ function actionFor(agent: AgentDefinition): RuleDocument["action"] {
   return { type: "log", message: agent.description };
 }
 
+/**
+ * A crowding rule per zone the operator gave a capacity.
+ *
+ * Not an `AgentDefinition`, and deliberately not squeezed into one. The eight
+ * above are the browser's old agents, with skills and outputs and a trigger
+ * vocabulary of their own; this is a rule document and nothing else, which is
+ * what ADR-002 says a rule should be. Compiling it *through* the agent shape
+ * would mean inventing a skills list for something that runs on the edge.
+ *
+ * **One per zone, because the threshold is the zone's.** `capacity` is the
+ * operator's own number (`data-model.md`: "optional, for crowding alerts"), and
+ * `consumers/occupancy.py` is what compares against it — the rule reacts to the
+ * crossing rather than deciding where it is. A zone with no capacity gets no
+ * preset, for the reason the consumer emits nothing for one: a threshold nobody
+ * set is not a threshold.
+ *
+ * `payloadEquals: { status: "over" }` is load-bearing. `spatial.occupancy` says
+ * both that a zone filled and that it cleared, so without it the same prompt —
+ * "the entrance is at capacity" — would be raised at the moment it stops being
+ * true.
+ */
+export function capacityRules(
+  zones: { id: string; name: string; capacity?: number | null }[]
+): RuleDocument[] {
+  return zones
+    .filter((z) => typeof z.capacity === "number" && z.capacity > 0)
+    .map((z) => ({
+      ruleId: `preset_capacity_${z.id}`,
+      name: `${z.name} at capacity`,
+      triggerType: "spatial.occupancy",
+      triggerZoneId: z.id,
+      condition: { type: "any" as const, payloadEquals: { status: "over" } },
+      action: {
+        type: "staff_prompt" as const,
+        message: `${z.name} is at capacity (${z.capacity}) — slow the queue or open a second point`,
+        zoneId: z.id,
+      },
+      enabled: true,
+      // A zone that fills, empties and fills again inside a minute prompts once.
+      // The same judgement the other presets carry, and boundary flicker is
+      // already dealt with once, in the tracker's confirm window.
+      cooldownSec: 60,
+    }));
+}
+
 /** Why a definition is not a rule, for the composer to show. */
 export function notARuleReason(agent: AgentDefinition): string | null {
   if (TRIGGER_EVENTS[agent.trigger.event]) return null;

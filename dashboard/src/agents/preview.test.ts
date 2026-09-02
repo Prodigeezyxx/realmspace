@@ -130,3 +130,42 @@ describe("what the preview refuses to guess at", () => {
     expect(preview.unsupported).toBeTruthy();
   });
 });
+
+describe("previewing a payload filter", () => {
+  const OCCUPANCY: RuleDocument = {
+    ruleId: "preset_capacity_z_entry",
+    name: "Entry Arch at capacity",
+    triggerType: "spatial.occupancy",
+    triggerZoneId: "z_entry",
+    condition: { type: "any", payloadEquals: { status: "over" } },
+    action: { type: "staff_prompt", message: "Entry Arch is at capacity" },
+    enabled: true,
+    cooldownSec: 60,
+  };
+
+  function crossing(offsetSec: number, status: "over" | "cleared"): RealmEvent {
+    seq += 1;
+    return {
+      seq,
+      eventId: `e-${seq}`,
+      tenantId: "t_test",
+      sessionId: "s_preview",
+      type: "spatial.occupancy",
+      payload: { zoneId: "z_entry", occupancy: 3, capacity: 3, status },
+      occurredAt: BASE + offsetSec * 1000,
+      recordedAt: BASE + offsetSec * 1000,
+    } as unknown as RealmEvent;
+  }
+
+  it("would fire on the zone filling and not on it clearing", () => {
+    // Twin of `test_the_prompt_is_not_raised_again_when_the_zone_clears`. A dry
+    // run that ignored the filter would tell an operator this fires twice as
+    // often as it will.
+    const preview = previewRule(OCCUPANCY, [
+      crossing(0, "over"),
+      crossing(120, "cleared"),
+    ]);
+    expect(preview.firings).toHaveLength(1);
+    expect(preview.considered).toBe(1);
+  });
+});

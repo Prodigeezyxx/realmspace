@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 
 import { agentDefinitions } from "./definitions";
-import { notARuleReason, toRule } from "./presets";
+import { capacityRules, notARuleReason, toRule } from "./presets";
 import { ruleProblems } from "@/lib/contracts/rules";
 
 function byId(id: string) {
@@ -90,5 +90,42 @@ describe("the definitions that are not rules", () => {
       const compiled = toRule(definition);
       expect(compiled === null).toBe(notARuleReason(definition) !== null);
     }
+  });
+});
+
+describe("the crowding presets", () => {
+  const zones = [
+    { id: "z_entry", name: "Entry Arch", capacity: 10 },
+    { id: "z_lounge", name: "Lounge", capacity: null },
+    { id: "z_wall", name: "Product Wall" },
+  ];
+
+  it("offers one per zone the operator gave a capacity, and none for the rest", () => {
+    // A threshold nobody set is not a threshold — the same refusal
+    // `consumers/occupancy.py` makes about emitting anything for those zones.
+    const rules = capacityRules(zones);
+    expect(rules).toHaveLength(1);
+    expect(rules[0].triggerZoneId).toBe("z_entry");
+  });
+
+  it("filters on the status, so the prompt is not raised when the zone clears", () => {
+    // `spatial.occupancy` carries both ends of a crossing. Without the filter
+    // the same prompt — "Entry Arch is at capacity" — would be raised at the
+    // moment it stops being true.
+    const [rule] = capacityRules(zones);
+    expect(rule.condition.type).toBe("any");
+    expect(
+      rule.condition.type !== "none" ? rule.condition.payloadEquals : null
+    ).toEqual({ status: "over" });
+  });
+
+  it("compiles to a document the backend would accept", () => {
+    for (const rule of capacityRules(zones)) {
+      expect(ruleProblems(rule)).toEqual([]);
+    }
+  });
+
+  it("is empty for an activation where nobody set a capacity", () => {
+    expect(capacityRules([{ id: "z_a", name: "A" }])).toEqual([]);
   });
 });

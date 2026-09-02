@@ -39,6 +39,7 @@ import {
   liveInsights,
   presentNow,
   staffPrompts,
+  zoneOccupancy,
   type LiveInsight,
   type StaffPrompt,
 } from "./derive";
@@ -73,6 +74,12 @@ export interface LiveStats {
    * true, while an instruction goes stale.
    */
   insights: LiveInsight[];
+  /**
+   * People in each zone right now, keyed by zone id. A zone with nobody in it
+   * is **absent rather than zero** — see `zoneOccupancy`, and `ZoneList`, which
+   * has to tell "nobody is there" apart from "this browser has no events".
+   */
+  zoneOccupancy: Map<string, number>;
 }
 
 function emptyStats(): LiveStats {
@@ -86,6 +93,7 @@ function emptyStats(): LiveStats {
     cost: summarizeCost([]),
     prompts: [],
     insights: [],
+    zoneOccupancy: new Map(),
   };
 }
 
@@ -145,6 +153,7 @@ export function useLiveStats(session: Session): LiveStats {
         // empty panel, and a live session is unaffected because the two agree.
         prompts: staffPrompts(events, lastEventAt(events) ?? Date.now()),
         insights: liveInsights(events),
+        zoneOccupancy: zoneOccupancy(events),
       });
     };
 

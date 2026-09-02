@@ -132,7 +132,13 @@ async def put_rule(
         # is what the evaluator, the browser preview and a human reading the row
         # all expect. Storing snake_case here would make the stored rule a third
         # dialect, which is the split-brain ADR-002 exists to end.
-        condition=body.condition.model_dump(by_alias=True, mode="json"),
+        # `exclude_none` so an unset narrowing is absent rather than an
+        # explicit null: the evaluator reads with `.get()` either way, and a
+        # document read back in the composer should say what the operator
+        # wrote and not carry a field for every filter they did not use.
+        condition=body.condition.model_dump(
+            by_alias=True, mode="json", exclude_none=True
+        ),
         action=body.action.model_dump(by_alias=True, mode="json"),
         enabled=body.enabled,
         cooldown_sec=body.cooldown_sec,

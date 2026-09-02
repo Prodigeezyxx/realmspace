@@ -98,6 +98,7 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `spatial.gaze` | gaze consumer | anon_id, target_id, duration, confidence | graph, ROI |
 | `spatial.group` | grouping consumer | group_id, members, size, cohesion, status | graph, rules |
 | `spatial.passby` | tracker | anon_id, adjacent (negative signal) | ROI |
+| `spatial.occupancy` | occupancy consumer | zone_id, occupancy, capacity, status | rules, `/live` |
 | `surface.touched` | touchpoint tablet (`POST /v1/touch/{token}`) | surface_id, kind, touch_id — **no person** | touch consumer, ROI |
 | `surface.interaction` | touch consumer (from `surface.touched`), or booth hardware | surface_id, anon_id, kind | graph, ROI |
 | `rfid.read` | RFID reader (MQTT/serial) | reader_id, tag_id, ts | identity, graph, ROI |
@@ -177,8 +178,9 @@ fetch has nothing to answer.
 `person_key`). ByteTrack numbers people per process and one process runs per
 camera, so every camera calls its first visitor `P-001`; keyed on the bare id,
 two cameras' first visitors were one person with merged dwells and nothing
-raised. Every `spatial.*` payload therefore carries the namespaced id in its
-`anon_id`, and `(:Person).anon_id` is the namespaced one too.
+raised. Every `spatial.*` payload that names a person therefore carries the namespaced
+id in its `anon_id`, and `(:Person).anon_id` is the namespaced one too.
+(`spatial.occupancy` names no person — see its payload below.)
 
 Still optional, on two conditions:
 
@@ -303,6 +305,36 @@ One per person per zone for the session, not per approach: someone pacing
 outside a stand is one person who declined it, not twelve. Entering the zone at
 any point cancels it outright; a visitor cannot be both the engagement and the
 skip.
+
+**`spatial.occupancy`** — producer: `consumers/occupancy.py`:
+`{ "zone_id", "zone_name", "occupancy", "capacity", "status", "at" }`
+
+A zone reached the capacity its operator set, or dropped back below it.
+`status` is `"over" | "cleared"`, `occupancy` is how many people were inside at
+the transition that crossed the line, and `capacity` is the number that was
+crossed — carried on the event rather than looked up by a reader, so a rule
+firing or a report rendered later shows the threshold that was actually applied.
+
+**One event per crossing, not per arrival.** The fourth person into a
+three-person zone produces this; the fifth, sixth and seventh produce nothing.
+That is the same refusal `spatial.gaze` and `spatial.group` make — a signal that
+fires on the common case looks like coverage — and downstream it is what keeps a
+staff prompt from being raised nine times in a minute and taught to be ignored.
+
+**A zone with no capacity produces nothing, at any count.** `capacity` is
+optional on `Zone` (`data-model.md`) and blank means the operator did not set a
+threshold, which is not the same as setting a large one.
+
+The only `spatial.*` payload with **no `anon_id`**, and deliberately: it is a
+statement about a zone at a moment, not about a person, and naming whichever
+visitor happened to trip the line would attach a crowding alert to them. It is
+anonymous for the same reason `rule.staff_prompt` is.
+
+Its `event_id` derives from `("occupancy", tenant, session, zone_id, status,
+seq)` — the seq of the transition that crossed the line — so a replay
+re-derives it and the bus dedupes. The occupant set behind it is **recomputed
+from this log by event time** rather than accumulated in memory, which is what
+makes that true after a restart: see the consumer's docstring, and §5.
 
 **`session.ended`** — producer: an operator (the dashboard's End session button):
 `{ "sessionId", "endedBy" }`

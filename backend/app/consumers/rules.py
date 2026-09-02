@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import re
 from typing import Any
 
 from app import db, repository
@@ -334,6 +335,15 @@ class RulesConsumer(Consumer):
         `minDwellSec` matters more than it looks: `spatial.dwell` is emitted for
         every stay including a two-second one, so "5 people at the entrance for
         30 seconds" without it counts five people who walked past.
+
+        `payloadEquals` narrows on any other field, and it is here because a
+        **status is not a zone**. `spatial.occupancy` says whether a room filled
+        or emptied and `spatial.group` whether one formed or dissolved, both on
+        one type — so a rule armed on the type alone acts on both ends, raising
+        "the entrance is at capacity" at the moment it clears. That was already
+        true of groups before anything produced an occupancy; it had simply never
+        been armed. Compared as strings and through `_payload_field`, so a rule
+        written in the document's camelCase matches the producer's snake_case.
         """
         zone = _payload_field(event, "zone_id", "zoneId")
         if rule.trigger_zone_id is not None and zone != rule.trigger_zone_id:
@@ -341,6 +351,15 @@ class RulesConsumer(Consumer):
         want_zone = rule.condition.get("zoneId")
         if want_zone is not None and zone != want_zone:
             return False
+
+        wanted = rule.condition.get("payloadEquals") or {}
+        for field, value in wanted.items():
+            # Both spellings of the field, for the reason `_payload_field`
+            # gives: the rule is camelCase and the payload is not.
+            snake = re.sub(r"([A-Z])", lambda m: f"_{m.group(1).lower()}", field)
+            actual = _payload_field(event, snake, field)
+            if actual is None or str(actual) != str(value):
+                return False
 
         min_dwell = rule.condition.get("minDwellSec")
         if min_dwell is not None:

@@ -41,6 +41,7 @@ import type {
   DwellPayload,
   GazePayload,
   GroupPayload,
+  OccupancyPayload,
   PassbyPayload,
   RealmEventType,
   SurfaceInteractionPayload,
@@ -75,6 +76,11 @@ const REQUIRED = {
   "spatial.passby": ["anonId"] as const satisfies readonly RequiredKeys<PassbyPayload>[],
   "spatial.gaze": ["anonId", "targetId", "durationSec"] as const satisfies readonly RequiredKeys<GazePayload>[],
   "spatial.group": ["groupId", "memberAnonIds", "size"] as const satisfies readonly RequiredKeys<GroupPayload>[],
+  // `occupancy` and `capacity` are the two a reader divides and compares, and
+  // `status` decides whether a zone is shown as full or clear — a missing one
+  // would render a zone as under capacity, which is the reassuring direction to
+  // be wrong in. Deliberately not `anonId`: this event names nobody.
+  "spatial.occupancy": ["zoneId", "occupancy", "capacity", "status"] as const satisfies readonly RequiredKeys<OccupancyPayload>[],
   // Deliberately not `anonId`: a tablet cannot know who pressed it, and
   // requiring one here would quarantine every tap the backend could not
   // attribute — the taps this event exists to count.

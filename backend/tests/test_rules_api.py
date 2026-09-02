@@ -71,8 +71,61 @@ async def test_a_rule_round_trips(client: AsyncClient):
     assert got.status_code == 200
     body = got.json()
     for key, value in RULE.items():
-        assert body[key] == value
+        if isinstance(value, dict):
+            # Every field the operator set, spelled the way they set it. A
+            # response carries the *unset* optionals as explicit nulls too —
+            # `payloadEquals` here — which is what the response model does for
+            # every optional field and not something this rule chose. What is
+            # stored is `exclude_none`, so the row itself carries only what was
+            # written.
+            assert {k: body[key][k] for k in value} == value
+        else:
+            assert body[key] == value
+    assert body["condition"]["payloadEquals"] is None
     assert body["tenantId"] == TENANT
+
+
+async def test_a_payload_filter_round_trips(client: AsyncClient):
+    """`payloadEquals` is what lets a rule tell the two ends of one event type
+    apart — a zone filling from the same zone clearing. It is stored in the
+    document's own camelCase, which is the spelling
+    `consumers/rules._matches_scope` reads back."""
+    rule = {
+        **RULE,
+        "ruleId": "r_entry_full",
+        "triggerType": "spatial.occupancy",
+        "condition": {
+            "type": "any",
+            "zoneId": "z_entry",
+            "payloadEquals": {"status": "over"},
+        },
+    }
+    put = await client.put("/v1/rules/r_entry_full", json=rule)
+    assert put.status_code == 200
+
+    got = await client.get("/v1/rules/r_entry_full")
+    assert got.json()["condition"]["payloadEquals"] == {"status": "over"}
+
+
+async def test_a_payload_filter_is_refused_on_a_silence(client: AsyncClient):
+    """A `none` condition is judged by looking back for the last event of a
+    type, not by scoping the events in a window (`consumers/rules._none`), so
+    there is no payload to match against. Refused rather than accepted and
+    ignored — a filter that silently does nothing is how a rule ends up armed,
+    correct-looking and matching everything."""
+    resp = await client.put(
+        "/v1/rules/r_bad",
+        json={
+            **RULE,
+            "ruleId": "r_bad",
+            "condition": {
+                "type": "none",
+                "windowSec": 300,
+                "payloadEquals": {"status": "over"},
+            },
+        },
+    )
+    assert resp.status_code == 422
 
 
 async def test_a_second_put_replaces_rather_than_duplicates(client: AsyncClient):

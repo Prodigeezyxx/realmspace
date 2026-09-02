@@ -122,6 +122,16 @@ const SAMPLE_PAYLOADS: Record<RealmEventType, Record<string, unknown>> = {
   "spatial.gaze": { anonId: "P1", targetId: "z_entry", durationSec: 3 },
   "spatial.group": { groupId: "g1", memberAnonIds: ["P1", "P2"], size: 2 },
   "spatial.passby": { anonId: "P1", adjacentZoneId: "z_entry" },
+  // Names no visitor, so the scorecard reads nothing from it and the test below
+  // decides it is not fetched. Peak zone occupancy is computed from the enters
+  // and exits above, which is what makes this event a signal for the floor
+  // rather than a figure on the report.
+  "spatial.occupancy": {
+    zoneId: "z_entry",
+    occupancy: 4,
+    capacity: 3,
+    status: "over",
+  },
   "spatial.tagged": { anonId: "P1", tagId: "t1", confidence: 0.9 },
   "surface.touched": { surfaceId: "sf_1", kind: "tap" },
   "surface.interaction": { anonId: "P1", surfaceId: "sf_1", kind: "tap" },

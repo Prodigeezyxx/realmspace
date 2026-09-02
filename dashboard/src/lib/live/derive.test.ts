@@ -9,7 +9,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { RealmEvent, RealmEventType } from "@/lib/contracts";
-import { lastEventAt, presentNow, PROMPT_TTL_MS, staffPrompts } from "./derive";
+import {
+  lastEventAt,
+  presentNow,
+  PROMPT_TTL_MS,
+  staffPrompts,
+  zoneOccupancy,
+} from "./derive";
 
 const T0 = Date.parse("2026-08-04T10:00:00Z");
 
@@ -78,6 +84,61 @@ describe("presentNow", () => {
 
   it("is zero on an empty log rather than throwing", () => {
     expect(presentNow([])).toBe(0);
+  });
+});
+
+describe("zoneOccupancy", () => {
+  it("counts each zone separately", () => {
+    const counts = zoneOccupancy([
+      enter("P1", "z_entry"),
+      enter("P2", "z_entry"),
+      enter("P3", "z_product"),
+    ]);
+    expect(counts.get("z_entry")).toBe(2);
+    expect(counts.get("z_product")).toBe(1);
+  });
+
+  it("an exit empties only the zone it names", () => {
+    // The difference from `presentNow`, which removes the person outright: one
+    // person walking from the entrance to the wall is in one zone, not two and
+    // not none.
+    const counts = zoneOccupancy([
+      enter("P1", "z_entry"),
+      exit("P1", "z_entry"),
+      enter("P1", "z_product"),
+    ]);
+    expect(counts.has("z_entry")).toBe(false);
+    expect(counts.get("z_product")).toBe(1);
+  });
+
+  it("leaves an empty zone out rather than reporting zero", () => {
+    // `ZoneList` has to tell "nobody is in there" apart from "this browser has
+    // no events at all", and a zero here would answer the wrong one of those.
+    expect(zoneOccupancy([enter("P1", "z_a"), exit("P1", "z_a")]).has("z_a")).toBe(
+      false
+    );
+  });
+
+  it("judges on event time, not the order the log was written in", () => {
+    // The 2026-08-25 walk's defect 7: a producer appending one visitor's whole
+    // journey at a time, or a batch replayed after an outage, arrives in a
+    // different order from the one it happened in. Read by seq, this visitor
+    // leaves and then arrives, and the zone reads as occupied after they have
+    // gone.
+    const events = [
+      exit("P1", "z_a", T0 + 5000),
+      enter("P1", "z_a", T0),
+    ];
+    expect(zoneOccupancy(events).has("z_a")).toBe(false);
+    expect(presentNow(events)).toBe(0);
+  });
+
+  it("ignores a transition with no zone or no person", () => {
+    const events = [
+      ev("spatial.zone_enter", { anonId: "P1" }),
+      ev("spatial.zone_enter", { zoneId: "z_a" }),
+    ];
+    expect(zoneOccupancy(events).size).toBe(0);
   });
 });
 

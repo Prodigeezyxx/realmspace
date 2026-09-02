@@ -48,7 +48,10 @@ there and no dwell exists, so the graph would answer "nobody" live and "one
 person" on a replay of the same log — the same input giving two answers.
 
 So this reads the tracker's `spatial.zone_enter` / `zone_exit` and walks them by
-**event time**, which is the same in both directions.
+**event time**, which is the same in both directions. That walk lives in
+`consumers/occupancy.py::occupants_at` — one definition, shared with the
+crowding consumer, because two of them could disagree about whether the room is
+empty and neither answer would be obviously the wrong one.
 
 ## Why it waits for the tracker
 
@@ -66,12 +69,12 @@ answer is not wrong yet, it is not available yet.
 
 from __future__ import annotations
 
-import datetime as dt
 import logging
 
 from app import db, repository
 from app.consumers.base import Consumer
 from app.consumers.ids import derive_event_id
+from app.consumers.occupancy import occupants_at
 from app.config import get_settings
 from app.graph import repository as graph_repo
 from app.graph.driver import get_driver
@@ -82,8 +85,6 @@ log = logging.getLogger(__name__)
 
 TOUCHED = "surface.touched"
 INTERACTION = "surface.interaction"
-ZONE_ENTER = "spatial.zone_enter"
-ZONE_EXIT = "spatial.zone_exit"
 
 #: The consumer whose output this reads. Named rather than inferred, because the
 #: wait below is a correctness condition and a renamed tracker should break
@@ -165,7 +166,7 @@ class TouchConsumer(Consumer):
                     f"{event.seq}; who was in {zone_id} is not knowable yet"
                 )
 
-            occupants = await self._occupants(
+            occupants = await occupants_at(
                 session,
                 tenant_id=event.tenant_id,
                 session_id=event.session_id,
@@ -215,61 +216,3 @@ class TouchConsumer(Consumer):
                 ),
             )
             await session.commit()
-
-    async def _occupants(
-        self,
-        session,
-        *,
-        tenant_id: str,
-        session_id: str,
-        zone_id: str,
-        at: dt.datetime,
-    ) -> set[str]:
-        """Who the tracker says was inside `zone_id` at `at`.
-
-        Walked by **event time** rather than by seq, because the two disagree
-        exactly when it matters: a batch replayed after an outage arrives in one
-        order and happened in another. `consumers/insights.py` and the
-        scorecard's peak-occupancy pass both learned this, the second of them by
-        reading 1 where three people overlapped.
-
-        Read whole rather than windowed. A window would have to assume a longest
-        possible visit, and being wrong about that drops somebody who has been
-        standing there since before it — turning two occupants into one, which
-        is the one error that produces a *confident wrong attribution* rather
-        than a refusal.
-        """
-        inside: set[str] = set()
-        since_seq = 0
-
-        while True:
-            rows = await repository.read_events(
-                session,
-                tenant_id=tenant_id,
-                session_id=session_id,
-                types=(ZONE_ENTER, ZONE_EXIT),
-                since_seq=since_seq,
-                limit=repository.MAX_LIMIT,
-            )
-            if not rows:
-                break
-
-            for row in rows:
-                if row.occurred_at > at:
-                    continue
-                p = row.payload
-                if p.get("zone_id") != zone_id:
-                    continue
-                anon_id = p.get("anon_id")
-                if not anon_id:
-                    continue
-                if row.type == ZONE_ENTER:
-                    inside.add(anon_id)
-                else:
-                    inside.discard(anon_id)
-
-            since_seq = rows[-1].seq
-            if len(rows) < repository.MAX_LIMIT:
-                break
-
-        return inside

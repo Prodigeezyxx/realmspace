@@ -24,6 +24,12 @@ export type RealmEventType =
   | "spatial.gaze"
   | "spatial.group"
   | "spatial.passby"
+  /**
+   * A zone reached the capacity its operator set, or dropped back below it.
+   * One event per crossing, not per arrival — and the only `spatial.*` type
+   * that names no visitor, because it is a statement about a room.
+   */
+  | "spatial.occupancy"
   /** a badge correlated to a tracked person — a guess with a confidence, still anonymous */
   | "spatial.tagged"
   // booth surfaces
@@ -95,6 +101,12 @@ export const ANONYMOUS_EVENT_TYPES: readonly RealmEventType[] = [
   "spatial.gaze",
   "spatial.group",
   "spatial.passby",
+  /**
+   * A zone, a count and a threshold. No visitor is named — see its payload —
+   * which is what keeps a crowding alert on the anonymous side of `privacy.md`
+   * beside `rule.staff_prompt`, the thing it usually raises.
+   */
+  "spatial.occupancy",
   "surface.touched",
   "surface.interaction",
   "rule.fired",
@@ -281,6 +293,22 @@ export interface GroupPayload {
    * the same shape as the `reason` the tracker puts on a visit ending.
    */
   status: "formed" | "changed" | "dissolved";
+}
+export interface OccupancyPayload {
+  zoneId: string;
+  /** As the operator named it. A staff prompt saying `z_entry` needs translating. */
+  zoneName?: string;
+  /** How many people were inside at the transition that crossed the line. */
+  occupancy: number;
+  /**
+   * The number that was crossed, carried rather than looked up: a rule that
+   * fired, or a report rendered next year, shows the threshold that was applied
+   * and not the one configured since.
+   */
+  capacity: number;
+  /** Reached or passed the capacity, or dropped back below it. */
+  status: "over" | "cleared";
+  at?: string;
 }
 export interface PassbyPayload {
   anonId: string;
@@ -609,6 +637,7 @@ export type RealmEventPayload =
   | GazePayload
   | GroupPayload
   | PassbyPayload
+  | OccupancyPayload
   | RfidReadPayload
   | TaggedPayload
   | SurfaceTouchedPayload
