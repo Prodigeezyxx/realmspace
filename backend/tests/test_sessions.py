@@ -788,10 +788,21 @@ async def test_graph_endpoint_reports_dwell_and_unique_people(
     )
 
     body = (await operator.get(f"/v1/sessions/{S}/graph")).json()
-    assert body["uniquePeople"] == 1
+
+    # Every assertion carries the whole body, because this test has failed twice
+    # on CI (2026-09-01 and 2026-09-02) and passed on a re-run of the same
+    # commit, and both times the only evidence was `uniquePeople == 1` beside
+    # `dwellByZone == []`. Whether the *zone* was there decides between two
+    # completely different causes, and nothing recorded it. The zone assertion is
+    # ahead of the dwell one for the same reason: `dwell_by_zone` needs the Zone
+    # node, so a missing zone should fail as a missing zone rather than as a
+    # missing dwell. See `tests/test_graph_visibility.py` for the theory this
+    # ruled out.
+    assert body["uniquePeople"] == 1, body
+    assert [z["id"] for z in body["zones"]] == ["z_a"], body
     assert body["dwellByZone"] == [
         {"zoneId": "z_a", "zone": "Mirror Room", "avgDwell": 90.0, "visitors": 1}
-    ]
+    ], body
     assert body["zones"][0]["weight"] == 2.0
 
 
