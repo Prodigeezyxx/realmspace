@@ -121,6 +121,25 @@ export interface Privacy {
   consentSignage: boolean;
   retentionDays: number;
   recipients?: string[];
+  /**
+   * The exact wording a consent kiosk shows, and the version recorded with
+   * every consent given through it.
+   *
+   * The version is the load-bearing half, not the tier
+   * (`docs/event-bus-spec.md` §3): the tier says what somebody was asked for,
+   * this says what they read before agreeing, and it is the only thing that
+   * settles a withdrawal argued after the fact. A kiosk cannot be minted until
+   * both are set — the backend refuses with that sentence.
+   */
+  consentCopy?: string;
+  consentCopyVersion?: string;
+  /**
+   * What the kiosk asks for. **T2 by default**: below it the CRM gate refuses
+   * every delivery, so a kiosk set to T1 would collect consents all day and
+   * send nothing — the surface failing quietly, which is the failure mode this
+   * repo keeps designing against.
+   */
+  consentTier?: "T1" | "T2" | "T3";
 }
 
 /**

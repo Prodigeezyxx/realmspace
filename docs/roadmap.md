@@ -434,8 +434,55 @@ consumers, without touching Phase-1 producers.*
       whole consent history through a corrected identity consumer without
       re-asking anybody. `consentId` comes from the capture surface, which is
       what stops a kiosk's retry on bad wifi producing two consent records for
-      one conversation. The **surfaces** themselves (badge/QR/kiosk hardware)
-      are not built. *(2026-08-13)*
+      one conversation. *(2026-08-13)*
+
+      **The surfaces landed 2026-09-03**, and until they did this endpoint's
+      only producer was `curl` — the whole identified half of the funnel, four
+      phases of it, reachable by nobody at a stand. A QR code on a plinth opens
+      `/consent`, which is `/touch`'s shape for the other half of the same
+      problem: an opaque stored token (migration 0016), three ids off the row
+      and none from the request, one 404 for unknown, expired and revoked.
+      **Its own table, not a column on `surface_token`**: a kiosk's credential
+      is photographed off a plinth, and one leaked copy must not also be able to
+      post taps, or take the tablet down with it when revoked.
+
+      **The tier and the copy version are read off the activation.** A surface
+      that could name its own tier could record a T3 for somebody shown the T1
+      wording, and `event-bus-spec.md` §3 calls `copy_version` the field a
+      disputed withdrawal is settled by. The wizard derives it from the wording
+      itself (`lib/session/consentCopy.ts`), so an edited sentence cannot keep
+      an old version; minting refuses outright until both are set, at the desk
+      rather than in front of a visitor.
+
+      **A kiosk has no camera, and that is where this differs from the tablet.**
+      `consumers/kiosk_consent.py` resolves the visitor through
+      `occupancy.occupants_at` and waits on the tracker's cursor rather than
+      guessing — `consumers/touch.py`'s shape — but where an ambiguous zone
+      makes that consumer refuse the tap, this one still records the consent and
+      declines only the *path*. A tap is a claim about somebody the device
+      cannot observe; a consent is the visitor's own claim about themselves, and
+      discarding it would lose the lead for want of the second half. What is not
+      built is a Contact for a consent no zone could attribute: `identity`
+      raises on a track that does not exist, so an unattributed consent stops at
+      the log rather than parking a correct decision in the dead-letter queue.
+
+      **`consent.given` is PII in both halves of the system.** It is where the
+      email first appears — and, for the unattributed consents, the only place
+      it appears — so it joins `PII_TYPES` and `LINKING_TYPES`, which the share
+      link's redaction and the retention purge inherit.
+
+      **Walked against a live stack**: a seeded walk-in, a consent at the kiosk,
+      `consent.given` → `consent.captured` → `identity.resolved` →
+      `handoff.lead`, with the `IDENTIFIED_AS` edge in the graph; two people at
+      the desk recorded and unattributed; a revoked link refused; and an erasure
+      by consent id alone — the reference on the visitor's own receipt — leaving
+      no part of the name in any of the three events. **The browser walk found
+      the one bug**: a kiosk *opened* during an outage showed "Opening…" for
+      ever, because the wording it must display lives on the server. The last
+      wording served is cached per token now, `perception/mask.py`'s reason
+      exactly — the thing that must exist before the surface may run has to
+      survive the network — and honest because the version travels with the
+      consent.
 - ✅ **Identity consumer**: `consumers/identity.py`, `consent.captured` →
       `(:ConsentEvent)`, `(Person)-[:IDENTIFIED_AS]->(:Contact)`,
       `identity.resolved`. The gate is inside `graph_repo.identify`'s single
@@ -1672,6 +1719,7 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 | Attribution decay (30/60/90d) | window on outcome edge — P4 |
 | Multi-booth / cross-event aggregation | 🟡 the client's own history is built — `GET /v1/sessions` lists their activations and `lib/report/useBenchmark.ts` scores each one with the same `computeScorecard` the report uses. The cross-*tenant* network median is not, and needs anonymised aggregates nothing here can compute: RLS fails closed on a cross-tenant read. |
 | Two cameras, one `P-001` | ✅ every visitor is keyed `camera_id/anon_id` (`consumers/ids.person_key`) and zones belong to the camera whose frame they were drawn in. A detection with no camera is refused on a session that declares two, accepted where it cannot collide. Crossing between cameras stays two people, per `privacy.md`. |
+| Consent with no capture surface | ✅ `routers/kiosk.py` + `consumers/kiosk_consent.py` — a QR code on a plinth opens `/consent`, the tier and the versioned wording come off the activation rather than the request, and the visitor is named only when exactly one person was in the kiosk's zone. Unlike a tap, an unattributable consent is still recorded: it is the visitor's own claim about themselves, and the path is the half we decline to invent. |
 | Surface interactions with no hardware | ✅ `routers/touch.py` + `consumers/touch.py` — a tablet emits `surface.touched`, and the visitor is named only when exactly one person was in the touchpoint's zone. Every tap counts as an interaction; only an attributed one counts a person as engaged. |
 | Zone crowding against a capacity | ✅ `consumers/occupancy.py` — `spatial.occupancy` on a crossing, from the operator's own `Zone.capacity`, which `data-model.md` had declared "for crowding alerts" since Phase 1 and nothing read. One event per crossing rather than per arrival, nothing at all for a zone with no capacity, and a `payloadEquals` filter so the staff prompt is not raised again when the zone clears. |
 | Cost telemetry / unit economics | `cost.metered` meter — P3 |

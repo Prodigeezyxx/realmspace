@@ -235,6 +235,141 @@ class TouchpointTokenCreated(TouchpointTokenOut):
     token: str
 
 
+class CapturedContact(BaseModel):
+    """The PII half of a consent, and the only PII in the payload.
+
+    Lives here rather than in `routers/consent.py`, where it was written,
+    because two capture surfaces now build one: the operator-credentialled
+    endpoint and the kiosk a member of the public is standing at. Two copies of
+    this model would be two answers to "what may a consent carry about
+    somebody", and `erasure.CONTACT_PII` redacts against exactly one list.
+
+    Every field optional: a badge scan may carry nothing at capture time, with
+    the details arriving from the registry later. Everything outside this object
+    is anonymous, which is what lets a deployment keep the consent record after
+    erasing the person it was about.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    email: str | None = Field(default=None, max_length=320)
+    name: str | None = Field(default=None, max_length=200)
+    company: str | None = Field(default=None, max_length=200)
+    title: str | None = Field(default=None, max_length=200)
+
+
+class KioskCreate(BaseModel):
+    """What an operator asks for when they want a consent kiosk on a plinth.
+
+    `TabletCreate`'s shape and its expiry, for its reason — an activation, not a
+    conversation. Its own model rather than a shared one because the two
+    credentials are deliberately separate: see migration 0016.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    #: The operator's note to self — "the QR by the coffee". Never shown to the
+    #: visitor, who sees the touchpoint's own label instead.
+    label: str | None = None
+    #: Bounded by `app.kiosk.MAX_EXPIRY_DAYS`, and `expires_at` is NOT NULL, so
+    #: a kiosk link that never expires cannot be asked for.
+    expires_in_days: int = Field(default=14, ge=1, le=365)
+
+
+class KioskTokenOut(BaseModel):
+    """One kiosk, as the operator who set it up sees it. **Never the token.**
+
+    `TouchpointTokenOut`'s shape. The counts are that file's counts and not the
+    report's: `kiosk.note_use` counts scans, including the visitors who read the
+    copy and declined, and the log counts consents.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    id: str
+    session_id: str
+    surface_id: str
+    label: str | None
+    hint: str
+    created_by: str
+    created_at: dt.datetime
+    expires_at: dt.datetime
+    revoked_at: dt.datetime | None
+    last_used_at: dt.datetime | None
+    use_count: int
+    #: Derived from `revoked_at` and `expires_at` rather than stored, so a
+    #: column can never disagree with the two that decide it.
+    active: bool
+
+
+class KioskTokenCreated(KioskTokenOut):
+    """The one response that carries the token, at the one moment it exists.
+
+    Whatever an operator prints the QR code from is the last copy; no endpoint
+    returns it again.
+    """
+
+    token: str
+
+
+class KioskOut(BaseModel):
+    """What the visitor's phone is told, and the whole of it.
+
+    The wording they are about to agree to, the version of it, and what tier
+    they are being asked for. No activation name beyond the touchpoint's own
+    label, no counts, no visitors — `TabletOut` refuses the same things for the
+    same reason: whoever is holding this phone is a member of the public.
+
+    `copyText` and `copyVersion` travel together and are the point of this
+    endpoint.
+    `event-bus-spec.md` §3: *"a capture surface that cannot say which wording it
+    displayed has not really captured consent"* — so the surface reads both from
+    the activation rather than carrying its own, and an operator who corrects
+    the wording in the wizard changes what the stand shows without re-minting
+    anything or walking round with a laptop.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    surface_id: str
+    label: str
+    #: `copy_text`, not `copy`: pydantic's `BaseModel.copy` is a method, and a
+    #: field that shadows one is a warning today and somebody's confusing bug
+    #: later.
+    copy_text: str
+    copy_version: str
+    tier: Literal["T1", "T2", "T3"]
+    basis: Literal["explicit_optin", "contract", "legitimate_interest"]
+
+
+class ConsentGivenIn(BaseModel):
+    """What a kiosk knows about the consent in front of it.
+
+    No `anonId`: a plinth has no camera. Which visitor this was is
+    `consumers/kiosk_consent.py`'s question, answered from zone occupancy, and
+    the consent is captured either way — see that consumer's docstring for why
+    it does not refuse the way `consumers/touch.py` does.
+
+    No `tier` or `copyVersion` either, and that is the load-bearing half: both
+    come off the activation the token resolves to. A surface that could name its
+    own tier could claim a T3 for somebody who was shown the T1 wording, and the
+    consent record is the evidence a disputed withdrawal is settled by.
+    """
+
+    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
+
+    #: Minted in the browser **before** the copy is shown, not when the request
+    #: is sent. `routers/consent.py`'s module docstring has the argument and it
+    #: applies here unchanged: it is what makes a retry over bad venue wifi one
+    #: consent rather than two records of one conversation.
+    consent_id: str = Field(min_length=1, max_length=128)
+    #: When they pressed agree, on the phone's own clock. Defaults to arrival,
+    #: which is wrong by exactly the length of an outage, and is why a queued
+    #: consent sends its own.
+    at: dt.datetime | None = None
+    contact: CapturedContact | None = None
+
+
 class TouchpointIn(BaseModel):
     """What the tablet knows about its own tap, which is not very much.
 
@@ -549,6 +684,31 @@ class SessionConfigIn(BaseModel):
     #: — a sub-minute window on a busy floor says "two people entered a zone",
     #: which is a reading rather than an insight.
     insight_interval_minutes: int = Field(default=10, ge=1, le=240)
+
+    #: The exact wording a consent kiosk displays, and its version. Both are
+    #: read by `GET /v1/kiosk/{token}` and neither is carried on the token, so
+    #: an operator who corrects a sentence changes what every plinth shows
+    #: without re-minting a QR code.
+    #:
+    #: `consent_copy_version` is the load-bearing one, not the tier
+    #: (`event-bus-spec.md` §3): the tier says what somebody was asked for, this
+    #: says what they read before agreeing, and it is the only thing that
+    #: settles a withdrawal argued after the fact. A kiosk cannot be minted
+    #: until it is set — `routers/sessions.py` refuses — because a surface that
+    #: cannot say which wording it displayed has not really captured consent.
+    consent_copy: str | None = Field(default=None, max_length=8000)
+    consent_copy_version: str | None = Field(default=None, max_length=128)
+
+    #: What the kiosk asks for. **T2 by default**, alone among the defaults
+    #: here in being the higher of two reasonable answers: below T2 the CRM gate
+    #: in `app/consent_tier.py` refuses every delivery, so a kiosk set to T1
+    #: would capture consents all day and deliver nothing — the whole purpose of
+    #: the surface failing quietly. T1 is a deliberate choice an operator makes
+    #: when the activation is measuring and not collecting.
+    consent_tier: Literal["T1", "T2", "T3"] = "T2"
+    consent_basis: Literal[
+        "explicit_optin", "contract", "legitimate_interest"
+    ] = "explicit_optin"
 
     #: **Omitted leaves the zone set untouched; a list replaces it entirely**,
     #: including an empty one. The wizard always posts the whole set, so a zone

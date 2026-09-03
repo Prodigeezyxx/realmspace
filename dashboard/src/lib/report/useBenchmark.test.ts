@@ -136,6 +136,10 @@ const SAMPLE_PAYLOADS: Record<RealmEventType, Record<string, unknown>> = {
   "surface.touched": { surfaceId: "sf_1", kind: "tap" },
   "surface.interaction": { anonId: "P1", surfaceId: "sf_1", kind: "tap" },
   "rfid.read": { readerId: "r1", tagId: "t1" },
+  // No `anonId`: a kiosk has no camera. The scorecard reads nothing from it —
+  // the lead count comes from `consent.captured`, which the consumer derives —
+  // so the test below decides it is not fetched.
+  "consent.given": { consentId: "c1", tier: "T2", copyVersion: "consent-1" },
   "consent.captured": { consentId: "c1", anonId: "P1", tier: "T2" },
   "consent.withdrawn": { consentId: "c1" },
   "identity.resolved": { anonId: "P1", contactId: "ct1" },

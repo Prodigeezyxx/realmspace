@@ -179,6 +179,10 @@ async def db_session() -> AsyncIterator[AsyncSession]:
     `surface_token` (0015) for `report_share`'s reason exactly — a random tail,
     so leaked rows accumulate rather than collide, and "the tablets on this
     activation" stops being the list this test minted.
+
+    `consent_token` (0016) for the same reason as `surface_token`, and it is the
+    one that proved the paragraph above is worth keeping: without it a kiosk
+    test asserting "this activation has one kiosk" read six.
     """
     # Wipe as the owner: TRUNCATE is a privilege the app role deliberately does
     # not have, and it would in any case only be able to see its own tenant.
@@ -189,7 +193,7 @@ async def db_session() -> AsyncIterator[AsyncSession]:
                 "TRUNCATE event_log, consumer_cursor, dead_letter, "
                 "rules, rule_dispatch, tenant_integration, crm_link, "
                 "auth_user, api_key, tenant, report_share, surface_token, "
-                "tenant_purge_watermark RESTART IDENTITY;"
+                "consent_token, tenant_purge_watermark RESTART IDENTITY;"
             )
         )
         await cleaner.commit()

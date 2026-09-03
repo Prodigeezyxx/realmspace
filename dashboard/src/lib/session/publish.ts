@@ -240,6 +240,13 @@ export function sessionToWire(session: Session) {
     attributionModel: m.attributionModel ?? "influenced",
     revenueInfluenced: m.revenueInfluenced ?? null,
     qualifiedLeads: m.qualifiedLeads ?? null,
+    // What a consent kiosk displays. Sent even when unset — an operator who
+    // clears the wording should clear it everywhere, and a kiosk that kept
+    // showing the last version it saw would be recording agreement to a
+    // sentence nobody can point at any more.
+    consentCopy: session.privacy?.consentCopy?.trim() || null,
+    consentCopyVersion: session.privacy?.consentCopyVersion?.trim() || null,
+    consentTier: session.privacy?.consentTier ?? "T2",
     zones: session.zones.map(zoneToWire),
     // Touchpoints become Surface nodes. Without them the graph writer drops
     // every interaction a real kiosk sends, because it refuses to invent a

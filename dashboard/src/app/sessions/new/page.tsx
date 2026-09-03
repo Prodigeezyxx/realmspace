@@ -45,6 +45,10 @@ import { setActivePrefabId } from "@/lib/prefab-store";
 import { applyPrefabToDraft } from "@/lib/prefabs/apply";
 import { getPrefab } from "@/lib/prefabs";
 import { busEmail } from "@/lib/bus";
+import {
+  DEFAULT_CONSENT_COPY,
+  copyVersionFor,
+} from "@/lib/session/consentCopy";
 import { publishSessionConfig } from "@/lib/session/publish";
 import { sessionActions } from "@/lib/session/store";
 import { blockedReason } from "@/lib/session/wizard-validation";
@@ -128,6 +132,12 @@ export default function NewSessionPage() {
   // ── Step 5: privacy + goals
   const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("default");
   const [consentSignage, setConsentSignage] = useState(true);
+  // What a consent kiosk shows. Seeded rather than blank: an operator who never
+  // opens this step still gets a working kiosk with wording somebody wrote,
+  // instead of a 409 at the stand — and the version moves on its own the moment
+  // they change a word. See `lib/session/consentCopy.ts`.
+  const [consentCopy, setConsentCopy] = useState(DEFAULT_CONSENT_COPY);
+  const [consentTier, setConsentTier] = useState<"T1" | "T2" | "T3">("T2");
   const [retentionDays, setRetentionDays] = useState<number | "">(30);
   const [recipientsCsv, setRecipientsCsv] = useState("");
   const [primaryObjective, setPrimaryObjective] = useState<PrimaryObjective>("brand_awareness");
@@ -249,6 +259,9 @@ export default function NewSessionPage() {
       privacy: {
         mode: privacyMode,
         consentSignage,
+        consentCopy: consentCopy.trim() || undefined,
+        consentCopyVersion: copyVersionFor(consentCopy) || undefined,
+        consentTier,
         retentionDays:
           typeof retentionDays === "number" ? retentionDays : 30,
         recipients: recipientsCsv
@@ -685,6 +698,56 @@ export default function NewSessionPage() {
                     onChange={(e) => setRecipientsCsv(e.target.value)}
                     placeholder="amaka@brand.com, ed@agency.com"
                   />
+                </Field>
+              </div>
+
+              {/* The kiosk's wording. Its own block rather than a fourth column
+                  because it is the one thing on this step a visitor actually
+                  reads, and because the version beneath it is the field a
+                  withdrawal argument is settled by. */}
+              <div className="grid md:grid-cols-3 gap-5">
+                <div className="md:col-span-2">
+                  <Field
+                    label="Consent wording at the kiosk"
+                    hint="Shown on the phone or plinth a visitor scans. This exact text is what they agree to."
+                  >
+                    <TextArea
+                      rows={5}
+                      value={consentCopy}
+                      onChange={(e) => setConsentCopy(e.target.value)}
+                    />
+                  </Field>
+                  <p className="mt-2 text-xs text-text-muted">
+                    Recorded as{" "}
+                    <span className="font-mono">
+                      {copyVersionFor(consentCopy) || "— nothing to record"}
+                    </span>
+                    . The version follows the words: change one and it changes,
+                    so every consent can be traced to what was on the screen.
+                  </p>
+                </div>
+                <Field
+                  label="What the kiosk asks for"
+                  hint="T2 and above may be contacted. Below it, nothing reaches a CRM."
+                >
+                  <div className="flex flex-col gap-2">
+                    {(["T1", "T2", "T3"] as const).map((tier) => (
+                      <button
+                        key={tier}
+                        type="button"
+                        onClick={() => setConsentTier(tier)}
+                        className={`h-10 px-3 rounded-xl border text-sm text-left transition-colors ${
+                          consentTier === tier
+                            ? "bg-accent/8 border-accent/40 text-accent"
+                            : "bg-bg-panel border-border-subtle text-text-secondary"
+                        }`}
+                      >
+                        {tier === "T1" && "T1 — keep details with this visit"}
+                        {tier === "T2" && "T2 — and may be contacted"}
+                        {tier === "T3" && "T3 — and may be enriched"}
+                      </button>
+                    ))}
+                  </div>
                 </Field>
               </div>
             </section>

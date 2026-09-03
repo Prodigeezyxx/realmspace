@@ -33,6 +33,7 @@ from app.consumers.drift import DriftConsumer
 from app.consumers.gaze import GazeConsumer
 from app.consumers.grouping import GroupingConsumer
 from app.consumers.insights import InsightsConsumer
+from app.consumers.kiosk_consent import KioskConsentConsumer
 from app.consumers.occupancy import OccupancyConsumer
 from app.consumers.reanonymise import ReAnonymiseConsumer
 from app.consumers.retention import RetentionConsumer
@@ -67,6 +68,13 @@ CONSUMER_CLASSES: list[type[Consumer]] = [
     # output this same pass could have produced. Ahead of the graph writer so
     # one pass carries a finger all the way to `INTERACTED_WITH`.
     TouchConsumer,
+    # Beside the touch consumer, and for the same reason: it resolves a kiosk's
+    # consent against who the tracker says was standing at the plinth, and
+    # refuses to answer until the tracker's cursor has passed it. Ahead of the
+    # graph writer so one pass carries a yes all the way to `IDENTIFIED_AS`,
+    # and ahead of the identity consumer necessarily — it is what produces the
+    # `consent.captured` that consumer handles.
+    KioskConsentConsumer,
     GraphWriterConsumer,
     IdentityConsumer,
     ReAnonymiseConsumer,

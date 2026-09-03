@@ -288,6 +288,14 @@ SESSION_DEFAULTS: dict[str, Any] = {
     "qualified_leads": None,
     "anonymous_handoffs": False,
     "insight_interval_minutes": 10,
+    # What a consent kiosk shows and asks for. Stored on the activation rather
+    # than on the token, so correcting the wording changes what every plinth
+    # displays without re-minting anything — and so the version a capture
+    # records is the one the operator can point at afterwards.
+    "consent_copy": None,
+    "consent_copy_version": None,
+    "consent_tier": "T2",
+    "consent_basis": "explicit_optin",
 }
 
 

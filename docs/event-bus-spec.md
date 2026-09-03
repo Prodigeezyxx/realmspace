@@ -103,7 +103,8 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `surface.interaction` | touch consumer (from `surface.touched`), or booth hardware | surface_id, anon_id, kind | graph, ROI |
 | `rfid.read` | RFID reader (MQTT/serial) | reader_id, tag_id, ts | identity, graph, ROI |
 | `spatial.tagged` | vision × RFID fusion | anon_id ↔ tag_id, confidence | identity, graph, ROI |
-| `consent.captured` | capture surface | tier, basis, copy_version | identity, CRM gate |
+| `consent.given` | consent kiosk (`POST /v1/kiosk/{token}/consent`) | consent_id, copy_version, contact — **no person** | kiosk consumer |
+| `consent.captured` | capture surface, or the kiosk consumer (from `consent.given`) | tier, basis, copy_version | identity, CRM gate |
 | `consent.withdrawn` | anywhere | contact_id | re-anonymiser, CRM retract |
 | `identity.resolved` | identity consumer | anon_id ↔ contact | CRM, follow-up |
 | `rule.fired` | rules evaluator | rule_id, action, matched | dispatcher, report |
@@ -607,6 +608,52 @@ additions that does. §6 applies to it in full: it must never ride the anonymise
 cloud-sync path, and `dashboard/src/lib/contracts/events.ts` lists it in
 `PII_EVENT_TYPES` so `isPiiEventType` gates it without every caller remembering.
 
+**`consent.given`** — producer: a consent kiosk, via
+`POST /v1/kiosk/{token}/consent`:
+
+```json
+{
+  "consent_id":   "c_01J...",         // minted by the browser before the copy is shown
+  "tier":         "T2",               // read off the activation, never from the request
+  "basis":        "explicit_optin",   // likewise
+  "copy_version": "consent-en-2026-09",  // likewise — see below
+  "captured_by":  "the plinth by the door",  // the kiosk's own label
+  "source":       "kiosk",
+  "surface_id":   "sf_kiosk_entry",   // which kiosk, off the token's row
+  "at":           "2026-09-03T10:04:02Z",
+  "contact": {                        // the PII, as consent.captured carries it
+    "email":   "sam@example.com",
+    "name":    "Sam Rivera"
+  }
+}
+```
+
+**No `anon_id`, for `surface.touched`'s reason.** A plinth has no camera. Which
+visitor gave this consent is `consumers/kiosk_consent.py`'s question, answered
+from zone occupancy at the moment it was given, and it emits the
+`consent.captured` below with the answer. The two events are one conversation:
+the raw fact the surface can attest to, and the derived one everything
+downstream reads.
+
+**The tier and the copy version are read off the activation, not received.** A
+surface that could name its own tier could record a T3 for somebody who was
+shown the T1 wording, and the consent record is the evidence a disputed
+withdrawal is settled by. `GET /v1/kiosk/{token}` returns both, so the wording
+displayed and the version recorded cannot drift apart.
+
+**Unlike a tap, a consent is never refused for being unattributable.** A tablet's
+tap is a claim about somebody the device cannot observe, so
+`consumers/touch.py` declines to guess. A consent is a claim the visitor makes
+about themselves; the spatial path is the second half. What an unattributable
+consent loses is the path, not the permission.
+
+**This event carries PII** (`contact`) and is listed in `PII_TYPES` and
+`LINKING_TYPES` in `backend/app/erasure.py`, and in `PII_EVENT_TYPES` in
+`dashboard/src/lib/contracts/events.ts`. It is where a kiosk consent's email
+first appears — and, for the consents no zone could attribute, the only place it
+appears — so an erasure that walked only from `consent.captured` would leave the
+name behind.
+
 **`consent.captured`** — producer: a capture surface (badge, QR, kiosk, form),
 via `POST /v1/consent`:
 
@@ -1021,6 +1068,7 @@ dead-letters on repeated failure.
 | **Tracker** | edge | detections → tracked anon persons + spatial events | real-time |
 | **Graph writer** | edge | events → nodes/edges (`data-model.md`) | near-real-time |
 | **Rules engine** | edge | IF/THEN → `rule.fired` (staff prompts, alerts) | **< 3s** |
+| **Kiosk consent** | edge | `consent.given` → `consent.captured`, naming the visitor from zone occupancy | seconds |
 | **Identity** | edge | on `consent.captured` link anon → contact | seconds |
 | **Attribution** | edge/cloud | build LeadHandoff, apply model+window | post-event ok |
 | **CRM adapters** | cloud | LeadHandoff → HubSpot/SF/… (retry/replay) | eventually |

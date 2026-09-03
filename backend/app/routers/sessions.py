@@ -47,11 +47,11 @@ from neo4j import AsyncSession as GraphSession
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import plans, repository, share, touch
+from app import kiosk, plans, repository, share, touch
 from app.auth.principal import Principal, require_operator, require_reader, utcnow
 from app.db import get_session
 from app.graph import repository as graph_repo
-from app.models import ReportShare, SurfaceToken
+from app.models import ConsentToken, ReportShare, SurfaceToken
 from app.graph.driver import get_graph_session
 from app.schemas import (
     ShareCreate,
@@ -63,6 +63,9 @@ from app.schemas import (
     SessionConfigOut,
     SessionGraphOut,
     SessionSummaryOut,
+    KioskCreate,
+    KioskTokenCreated,
+    KioskTokenOut,
     TabletCreate,
     TouchpointOut,
     TouchpointTokenCreated,
@@ -112,6 +115,10 @@ def _config_out(
         qualified_leads=props.get("qualified_leads"),
         anonymous_handoffs=bool(props.get("anonymous_handoffs")),
         insight_interval_minutes=props.get("insight_interval_minutes") or 10,
+        consent_copy=props.get("consent_copy"),
+        consent_copy_version=props.get("consent_copy_version"),
+        consent_tier=props.get("consent_tier") or "T2",
+        consent_basis=props.get("consent_basis") or "explicit_optin",
         zones=[ZoneConfig(**z) for z in zones],
         touchpoints=[TouchpointOut(**s) for s in surfaces],
         cameras=[CameraOut(**c) for c in cameras],
@@ -787,3 +794,164 @@ async def revoke_tablet(
         await db.commit()
         await db.refresh(row)
     return _tablet_out(row)
+
+
+# ── consent kiosks ────────────────────────────────────────────────────────────
+#
+# The producer half of `consent.captured`, which has had every reader since
+# Phase 4 and whose only producer was `curl`. A phone at a plinth runs
+# `/consent` and posts one `consent.given` per visitor;
+# `consumers/kiosk_consent.py` decides whether it can name who gave it. These
+# three routes are the operator's side — minting, listing and withdrawing. The
+# visitor's side is `routers/kiosk.py`, which no credential reaches.
+
+
+def _kiosk_out(row) -> KioskTokenOut:
+    """One kiosk, without the token — there is no field on it for one."""
+    now = utcnow()
+    return KioskTokenOut(
+        id=row.id,
+        session_id=row.session_id,
+        surface_id=row.surface_id,
+        label=row.label,
+        hint=row.hint,
+        created_by=row.created_by,
+        created_at=row.created_at,
+        expires_at=row.expires_at,
+        revoked_at=row.revoked_at,
+        last_used_at=row.last_used_at,
+        use_count=row.use_count,
+        active=row.revoked_at is None and row.expires_at > now,
+    )
+
+
+@router.post(
+    "/{session_id}/surfaces/{surface_id}/kiosk",
+    response_model=KioskTokenCreated,
+    status_code=status.HTTP_201_CREATED,
+    summary="Mint a link for a consent kiosk at one surface",
+)
+async def create_kiosk(
+    session_id: str,
+    surface_id: str,
+    body: KioskCreate,
+    principal: Principal = Depends(require_operator),
+    db: AsyncSession = Depends(get_session),
+    graph: GraphSession = Depends(get_graph_session),
+) -> KioskTokenCreated:
+    """Returns the token **once**, like a tablet's and for its reasons.
+
+    **Two refusals, both of them things an operator would otherwise discover at
+    the stand.** The surface has to exist, as it does for a tablet. And the
+    activation has to have its consent wording set: `copy_version` is the
+    load-bearing field of a consent record (`event-bus-spec.md` §3), so a kiosk
+    minted without one would hand back a URL that renders the 409 in
+    `routers/kiosk.py` to every visitor who scanned it. That is the failure the
+    report's dead "Export PDF" button taught this repo to design against — the
+    operator finds out in front of the client.
+    """
+    surface = await graph_repo.surface(
+        graph,
+        tenant_id=principal.tenant_id,
+        session_id=session_id,
+        surface_id=surface_id,
+    )
+    if surface is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"no surface {surface_id!r} on activation {session_id!r} — "
+                "add it in the session's touchpoints first"
+            ),
+        )
+
+    props = await graph_repo.session_config(
+        graph, tenant_id=principal.tenant_id, session_id=session_id
+    )
+    if not (props or {}).get("consent_copy_version") or not (props or {}).get(
+        "consent_copy"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "this activation has no consent wording set. A capture surface "
+                "that cannot say which wording it displayed has not really "
+                "captured consent — set `consentCopy` and `consentCopyVersion` "
+                "on the activation first."
+            ),
+        )
+
+    row, token = await kiosk.create(
+        db,
+        tenant_id=principal.tenant_id,
+        session_id=session_id,
+        surface_id=surface_id,
+        created_by=principal.subject,
+        label=body.label,
+        expires_in_days=body.expires_in_days,
+        now=utcnow(),
+    )
+    await db.commit()
+    await db.refresh(row)
+    return KioskTokenCreated(**_kiosk_out(row).model_dump(), token=token)
+
+
+@router.get(
+    "/{session_id}/kiosks",
+    response_model=list[KioskTokenOut],
+    summary="Consent kiosks minted for this activation",
+)
+async def list_kiosks(
+    session_id: str,
+    principal: Principal = Depends(require_operator),
+    db: AsyncSession = Depends(get_session),
+) -> list[KioskTokenOut]:
+    """Revoked and expired ones are listed too, for `list_tablets`' reason:
+    "was this kiosk ever live, and is it still being scanned" is a question
+    about the activation, and hiding the dead ones answers it wrongly by
+    omission."""
+    rows = await kiosk.for_session(
+        db, tenant_id=principal.tenant_id, session_id=session_id
+    )
+    return [_kiosk_out(row) for row in rows]
+
+
+@router.delete(
+    "/{session_id}/kiosks/{token_id}",
+    response_model=KioskTokenOut,
+    summary="Revoke a consent kiosk",
+)
+async def revoke_kiosk(
+    session_id: str,
+    token_id: str,
+    principal: Principal = Depends(require_operator),
+    db: AsyncSession = Depends(get_session),
+) -> KioskTokenOut:
+    """Marks it revoked. The row stays, and so do the consents it recorded — a
+    withdrawn credential does not unmake the permissions people gave through it,
+    and unmaking them would be the one thing nobody may do on this path.
+
+    `consent_token` is outside RLS (migration 0016), so the tenant match is
+    written out rather than enforced by a policy, and there is a test asserting
+    one organisation cannot revoke another's kiosk.
+    """
+    row = (
+        await db.execute(
+            select(ConsentToken).where(
+                ConsentToken.id == token_id,
+                ConsentToken.tenant_id == principal.tenant_id,
+                ConsentToken.session_id == session_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"no kiosk {token_id!r} on session {session_id!r}",
+        )
+
+    if row.revoked_at is None:
+        row.revoked_at = utcnow()
+        await db.commit()
+        await db.refresh(row)
+    return _kiosk_out(row)

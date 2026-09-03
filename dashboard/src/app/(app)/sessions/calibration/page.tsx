@@ -33,6 +33,7 @@ import { AlertTriangle, Camera, Check, Info, Plus, RefreshCw, Trash2 } from "luc
 import { useState } from "react";
 
 import { MaskEditor } from "@/components/sessions/MaskEditor";
+import { KioskPanel } from "@/components/sessions/KioskPanel";
 import { TabletPanel } from "@/components/sessions/TabletPanel";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -177,6 +178,7 @@ export default function CalibrationPage() {
           touchpoints report being used. Both are per-activation configuration
           an operator does once, standing in the room. */}
       <TabletPanel sessionId={session.id} touchpoints={session.touchpoints} />
+      <KioskPanel sessionId={session.id} touchpoints={session.touchpoints} />
     </div>
   );
 }

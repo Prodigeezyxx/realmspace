@@ -80,18 +80,25 @@ from typing import Any
 from app.attribution.ledger import redact_dedupe_key
 
 CAPTURED = "consent.captured"
+GIVEN = "consent.given"
 RESOLVED = "identity.resolved"
 HANDOFF = "handoff.lead"
 OUTCOME = "outcome.recorded"
 FOLLOWUP = "followup.drafted"
 
 #: The types that join one identifier to another. Read to resolve the subject.
-LINKING_TYPES = (CAPTURED, RESOLVED, HANDOFF, FOLLOWUP)
+#:
+#: `consent.given` is here as well as in `PII_TYPES` because it is where a kiosk
+#: consent's email first appears — before any consumer has seen it, and for the
+#: consents no zone could attribute, forever. An erasure that walked only from
+#: `consent.captured` would leave the name sitting in the raw event that
+#: produced it.
+LINKING_TYPES = (GIVEN, CAPTURED, RESOLVED, HANDOFF, FOLLOWUP)
 
 #: The types whose payloads actually carry a name or an email. Everything else
 #: on the log about this person is ids and timestamps, and stays — see the
 #: module docstring.
-PII_TYPES = (CAPTURED, HANDOFF, OUTCOME, FOLLOWUP)
+PII_TYPES = (GIVEN, CAPTURED, HANDOFF, OUTCOME, FOLLOWUP)
 
 #: Fields on a `followup.drafted` that quote the person rather than name them.
 #: The draft says "Hi Sam" in its body and "Following up from …" in its subject,
@@ -124,7 +131,10 @@ class Subject:
 
     def covers(self, *, type: str, session_id: str, payload: dict[str, Any]) -> bool:
         """Is this event about this person?"""
-        if type == CAPTURED:
+        if type in (GIVEN, CAPTURED):
+            # A `consent.given` has no `anon_id` — a kiosk has no camera — so
+            # for that half of the pair only the consent id matches, which is
+            # the id the surface minted and everything downstream derives from.
             return (
                 payload.get("consent_id") in self.consent_ids
                 or (session_id, payload.get("anon_id")) in self.tracks

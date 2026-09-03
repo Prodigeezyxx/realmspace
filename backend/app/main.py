@@ -40,6 +40,7 @@ from app.routers import (
     handoffs,
     insights,
     integrations,
+    kiosk,
     ledger,
     live,
     outcomes,
@@ -160,6 +161,7 @@ app.include_router(touch.router)
 # strictly longer, so no route here can shadow one there.
 app.include_router(calibration.router)
 app.include_router(consent.router)
+app.include_router(kiosk.router)
 app.include_router(outcomes.router)
 app.include_router(erasure.router)
 app.include_router(followups.router)

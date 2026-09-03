@@ -55,29 +55,12 @@ from app import repository
 from app.auth.principal import Principal, get_principal
 from app.consumers.ids import derive_event_id
 from app.db import get_session
-from app.schemas import EventIn, EventOut, _to_camel
+from app.schemas import CapturedContact, EventIn, EventOut, _to_camel
 
 router = APIRouter(prefix="/v1/consent", tags=["consent"])
 
 CAPTURED = "consent.captured"
 WITHDRAWN = "consent.withdrawn"
-
-
-class CapturedContact(BaseModel):
-    """The PII half, and the only PII in the payload.
-
-    Every field optional: a badge scan may carry nothing at capture time, with
-    the details arriving from the registry later. Everything outside this object
-    is anonymous, which is what lets a deployment keep the consent record after
-    erasing the person it was about.
-    """
-
-    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True)
-
-    email: str | None = Field(default=None, max_length=320)
-    name: str | None = Field(default=None, max_length=200)
-    company: str | None = Field(default=None, max_length=200)
-    title: str | None = Field(default=None, max_length=200)
 
 
 class ConsentIn(BaseModel):

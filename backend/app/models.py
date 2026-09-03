@@ -369,6 +369,56 @@ class SurfaceToken(Base):
     use_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
+class ConsentToken(Base):
+    """What a consent kiosk holds. Migration 0016.
+
+    `SurfaceToken`'s shape, and a separate table for the reason 0016's docstring
+    gives: this one is printed on a QR code stuck to a plinth, so a photograph
+    of it must not also be able to post taps, and revoking it must not take the
+    tablet beside it down.
+
+    `surface_id` is the kiosk as a `Surface` on the activation —
+    `consent-and-identity.md` §4: *"the kiosk/QR/badge capture is a `Surface`
+    that emits a `consent` event onto the bus like any other signal"*. It is on
+    the row rather than in the request because the zone hanging off that Surface
+    is what `consumers/kiosk_consent.py` attributes the consent with, and a
+    caller that could name its own kiosk could choose its own zone.
+    """
+
+    __tablename__ = "consent_token"
+    __table_args__ = (
+        Index("consent_token_session_idx", "tenant_id", "session_id"),
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(Text, nullable=False)
+    session_id: Mapped[str] = mapped_column(Text, nullable=False)
+    surface_id: Mapped[str] = mapped_column(Text, nullable=False)
+    token_sha256: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    hint: Mapped[str] = mapped_column(Text, nullable=False)
+    #: What the operator called this kiosk — "the plinth by the door". For their
+    #: list; the visitor sees the touchpoint's own label instead.
+    label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    #: Not nullable, for `SurfaceToken`'s reason: this is an unauthenticated
+    #: write path and an activation is over in days.
+    expires_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: "Is the kiosk by the door still being scanned?" — a question about the
+    #: device, not about the floor. `kiosk.note_use` has the distinction.
+    last_used_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    use_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
 class TenantPurgeWatermark(Base):
     """How far a tenant's log has been purged. Migration 0014.
 

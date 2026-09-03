@@ -17,7 +17,74 @@ purpose, so the two approaches can be compared before one is adopted:
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-09-02
+## [Unreleased] — last updated 2026-09-03
+
+### Added — 2026-09-03 — `[neo4j-track]` A visitor can say yes at the stand
+
+Everything that happens after somebody gives us their details has been built for
+months: the record of what they agreed to, the link to where they walked, the
+lead, the five CRMs it can be delivered to, the follow-up draft, the audit
+trail. There was no way for anybody to actually give them. A consent could only
+be put into the system by hand, on the command line, by us.
+
+There is a kiosk now. An operator prints a QR code from the activation's
+settings; a visitor points a phone at it and gets one screen — the wording the
+operator wrote, a box for their email, and two buttons. Agreeing puts a real
+consent into the system, which becomes a real lead a few seconds later. Saying
+no records nothing at all: the anonymous measurement was never about them by
+name and carries on regardless, which is what the privacy note has always
+promised.
+
+**The wording is the operator's, and the version follows it.** Change a word in
+the wizard and the version changes on its own, so every consent can be traced to
+the exact sentence that was on the screen when somebody read it. A kiosk cannot
+be handed out at all until the wording is set — the refusal is at the moment of
+minting rather than in front of a visitor at the stand.
+
+**What the kiosk cannot know.** It has no camera, so it cannot say which of the
+people in the room agreed. When exactly one person is standing at the plinth the
+consent is joined to their path; when two are, or none, the consent is still
+recorded and the path is simply not claimed. That is the opposite of the choice
+the touchpoint tablets made in August, and deliberately: a tap is a claim about
+somebody the device cannot see, but a consent is what the visitor said about
+themselves. Throwing it away for want of knowing where they walked would mean a
+person handed over their details and heard nothing back.
+
+**It keeps working when the network does not.** The stand's wifi is worst when
+the stand is busiest. A consent given during an outage is held on the phone and
+sends itself when the network returns, exactly once — and a kiosk *opened*
+during an outage still shows the wording it last had, so the plinth by the door
+does not go blank because a server is restarting.
+
+**And an erasure reaches it.** The email a visitor types is on the log from the
+moment they submit, before anything has processed it — and for a consent nobody
+could attribute, that is the only place it ever appears. Asking to be forgotten
+now clears that copy too, from the reference on the visitor's own receipt.
+
+*`consent.given` pinned in `event-bus-spec.md` §3 and classified PII in both
+halves of the system. `POST /v1/kiosk/{token}` and `…/consent`
+(`routers/kiosk.py`) take the tenant, session, surface, tier and copy version off
+the token row and the activation, never from the request, so a leaked QR code
+cannot claim a tier nobody was shown. Migration 0016's `consent_token` is its own
+table rather than a column on `surface_token`, so one printed credential cannot
+also post taps. `consumers/kiosk_consent.py` resolves the visitor through
+`occupancy.occupants_at` — one definition of who is in a room, shared with the
+touch and crowding consumers — and waits on the tracker's cursor rather than
+guessing, the shape `consumers/touch.py` uses. The capture it emits derives the
+same `event_id` `POST /v1/consent` would, so a replay re-derives one consent
+rather than doubling the identification. `consent.given` joins `PII_TYPES` and
+`LINKING_TYPES` in `app/erasure.py`, which the share link's redaction and the
+retention purge inherit. `/consent` and `lib/consent/useKiosk.ts` in the
+dashboard, `KioskPanel` beside the tablet panel on the calibration screen, the
+wording on the wizard's privacy step with `copyVersionFor` deriving the version.
+Walked against a live stack: a seeded walk-in, a consent at the kiosk,
+`consent.given` → `consent.captured` → `identity.resolved` → `handoff.lead` and
+an `IDENTIFIED_AS` edge in the graph; a second consent with two people at the
+desk recorded and unattributed; a revoked link refused with one sentence; and an
+erasure by consent id alone leaving no part of the name in any of the three
+events. The outage was walked in the browser, which is where the wording cache
+came from — before it, a kiosk opened during an outage showed "Opening…" for
+ever.*
 
 ### Added — 2026-09-02 — `[neo4j-track]` An operator can write a rule, and change one
 

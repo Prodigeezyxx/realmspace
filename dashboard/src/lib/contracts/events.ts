@@ -39,6 +39,14 @@ export type RealmEventType =
   // badge / RFID readers (docs/event-bus-spec.md §3)
   | "rfid.read"
   // consent + identity (PII, consent-gated)
+  /**
+   * A consent kiosk's raw fact: this person agreed, to this wording, at this
+   * plinth. **No person id** — a kiosk has no camera, exactly as a tablet has
+   * none for `surface.touched`. Which visitor gave it is the backend consumer's
+   * question, answered from zone occupancy, and its answer is the
+   * `consent.captured` below.
+   */
+  | "consent.given"
   | "consent.captured"
   | "consent.withdrawn"
   | "identity.resolved"
@@ -147,6 +155,12 @@ export const ANONYMOUS_EVENT_TYPES: readonly RealmEventType[] = [
 
 /** Event types that may carry PII and therefore require a consent basis. */
 export const PII_EVENT_TYPES: readonly RealmEventType[] = [
+  /**
+   * Carries the `contact` a visitor typed into the kiosk, and for a consent no
+   * zone could attribute it is the *only* place that contact appears — so it is
+   * classified here as well as in `backend/app/erasure.py`'s `PII_TYPES`.
+   */
+  "consent.given",
   "consent.captured",
   "consent.withdrawn",
   "identity.resolved",
