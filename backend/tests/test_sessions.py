@@ -1025,3 +1025,119 @@ async def test_listing_the_empty_case_is_a_list_and_not_a_404(
     res = await operator.get("/v1/sessions")
     assert res.status_code == 200
     assert res.json() == []
+
+
+# ── a correction is not a re-agreement ───────────────────────────────────────
+#
+# `roi-framework.md` §5 asks for the engagement threshold, the attribution model
+# and its window to be agreed with the client before doors open. An editor that
+# let somebody move one after the results were in, silently, is the argument
+# that section rules out — and refusing all edits is worse, because the cost and
+# the client's revenue figure legitimately arrive late. So: allowed, recorded.
+
+
+async def _walked_in(db_session: AsyncSession, anon_id: str = "P-1") -> None:
+    """One detection, which is what makes this activation one that has run."""
+    await repository.append_event(
+        db_session,
+        EventIn(
+            event_id=uuid.uuid4(),
+            tenant_id=T,
+            session_id=S,
+            type="perception.detection",
+            payload={"anon_id": anon_id, "bbox": [0, 0, 1, 1]},
+            occurred_at=dt.datetime.now(dt.timezone.utc),
+        ),
+    )
+    await db_session.commit()
+
+
+async def _config_updates(db_session: AsyncSession) -> list[dict]:
+    rows = await repository.read_events(
+        db_session,
+        tenant_id=T,
+        session_id=S,
+        type="session.config_updated",
+        limit=10,
+    )
+    return [row.payload for row in rows]
+
+
+async def test_moving_a_scoring_rule_after_the_floor_ran_is_recorded(
+    operator: AsyncClient, graph_session: GraphSession, db_session: AsyncSession
+) -> None:
+    await operator.post(
+        "/v1/sessions", json=config_body(None, engagedThresholdSeconds=30)
+    )
+    await _walked_in(db_session)
+
+    res = await operator.post(
+        "/v1/sessions", json=config_body(None, engagedThresholdSeconds=60)
+    )
+    assert res.status_code == 200, res.text
+
+    recorded = await _config_updates(db_session)
+    assert len(recorded) == 1
+    assert recorded[0]["changed"] == [
+        {"field": "engaged_threshold_seconds", "from": 30.0, "to": 60.0}
+    ]
+    # Snake_case, like every other producer payload here — the browser turns the
+    # three known names into words a person reads.
+    assert recorded[0]["by"]
+
+
+async def test_correcting_a_cost_is_not_a_scoring_change(
+    operator: AsyncClient, graph_session: GraphSession, db_session: AsyncSession
+) -> None:
+    """The activation cost is final when the build is paid for, and the client's
+    influenced revenue arrives weeks later. Neither is a rule anybody agreed to
+    keep still, and flagging them would teach an operator to ignore the flag."""
+    await operator.post("/v1/sessions", json=config_body(None, activationCost=1000))
+    await _walked_in(db_session)
+
+    await operator.post(
+        "/v1/sessions",
+        json=config_body(
+            None, activationCost=18000, revenueInfluenced=50000, client="Halden"
+        ),
+    )
+
+    assert await _config_updates(db_session) == []
+
+
+async def test_setting_the_rules_before_anybody_arrives_is_silent(
+    operator: AsyncClient, graph_session: GraphSession, db_session: AsyncSession
+) -> None:
+    """Nothing has been scored yet, so there is nothing to have departed from.
+
+    The check is for a *measurement* rather than for any event at all: this
+    endpoint appends a `session.zones_updated` on every save, so a second save
+    would otherwise always look like an activation that had run.
+    """
+    await operator.post(
+        "/v1/sessions", json=config_body(None, engagedThresholdSeconds=30)
+    )
+    await operator.post(
+        "/v1/sessions", json=config_body(None, engagedThresholdSeconds=90)
+    )
+
+    assert await _config_updates(db_session) == []
+
+
+async def test_re_posting_the_same_rule_records_nothing(
+    operator: AsyncClient, graph_session: GraphSession, db_session: AsyncSession
+) -> None:
+    """The wizard posts every field on every launch, and the calibration screen
+    re-saves from a form. A value that did not move is not a decision."""
+    await operator.post(
+        "/v1/sessions",
+        json=config_body(None, engagedThresholdSeconds=45, attributionModel="last_touch"),
+    )
+    await _walked_in(db_session)
+
+    await operator.post(
+        "/v1/sessions",
+        json=config_body(None, engagedThresholdSeconds=45, attributionModel="last_touch"),
+    )
+
+    assert await _config_updates(db_session) == []

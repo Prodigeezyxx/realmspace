@@ -171,6 +171,55 @@ re-run.
       activation runs — zone weights, funnel order, engagement threshold,
       activation cost, attribution model. Zone edits invalidate the tracker's
       cache through a new `session.zones_updated` event.
+
+      **The screen that uses it twice landed 2026-09-03.** This endpoint has
+      been able to take a correction since the Phase 6 acceptance run taught it
+      to write only the fields a request actually set — and nothing could send
+      one. The wizard was `publishSessionConfig`'s only caller, so every
+      parameter here was write-once: a mistyped cost, a client's name, and
+      **the two numbers the headline ROI figure is made of**. `roi-framework.md`
+      §3 says influenced revenue is the client's own figure, supplied *after*
+      the activation; it is the numerator of the ratio on the front of the
+      report and there was no field anywhere to type it into. The only way in
+      was `curl`.
+
+      `/sessions/settings` (`lib/ops/useSessionSettings.ts`) posts
+      `{sessionId, …only what moved}` and deliberately **never**
+      `sessionToWire`, which sends the whole configuration — reusing it would
+      have pruned the zones drawn on the calibration screen, which is defect 4
+      of the Phase 6 run in the other direction and just as quiet.
+
+      **A correction is not a re-agreement.** `roi-framework.md` §5 asks for the
+      engagement threshold, the attribution model and its window to be agreed
+      before doors open. They stay editable — an operator who typed 30 seconds
+      and meant 60 has to be able to fix it, and the alternative to a screen is
+      `psql` — and a change to one on an activation that has already measured
+      something appends `session.config_updated`, which `/report` renders in the
+      `missing[]` list whose contract is that an absence is stated rather than
+      swallowed. Corrections to a cost or a name say nothing: a warning that
+      fires on everything is one nobody reads. "Already measured" is a
+      `perception.detection` or a `spatial.zone_enter`, not any event at all —
+      this endpoint appends a `session.zones_updated` on every save, so the
+      looser test would fire on every second save of an activation nobody had
+      attended.
+
+      **`/live` and `/report` now resolve a figure the same way**
+      (`lib/roi/measurement.ts`, remote then local, field by field). The report
+      had that precedence inline and `/live` had none — it read this browser's
+      store only — so a corrected cost would have moved one screen and not the
+      other, which is precisely what the live ROI tile exists to prevent.
+
+      **Walked against a live stack**, which found the bug worth recording: text
+      typed in the first second after the screen opened was silently erased when
+      the stored configuration arrived and re-seeded the form — and the save
+      then reported success with the field empty. A lying confirmation, the same
+      class as the report's dead "Export PDF" button. A touched form is left
+      alone now. The rest of the walk: cost and influenced revenue entered, the
+      report's ROI ratio rendering **2.2:1** where it had been blank with
+      `/live` agreeing; a camera declared on the calibration screen surviving a
+      settings save and the zones surviving both; the threshold moved and the
+      line appearing on the report; a viewer refused with the backend's own
+      sentence.
 - ✅ **Prerequisite: dashboard ↔ backend wiring** — `NEXT_PUBLIC_BUS_URL` turns on
       a WebSocket feed in (mirrored into the durable local log, `since_seq`
       cursor so a reconnect has no gap), `POST /events` out (buffered in the

@@ -9,6 +9,16 @@
  * perception → bus → tracker, showed *nothing* on the live screen. The feed had
  * been arriving since the bus bridge landed and nothing was reading it.
  *
+ * ## Where the measurement parameters come from
+ *
+ * From the backend first, this browser's store second — `resolveMeasurement`,
+ * the same precedence `/report` uses, in one place so the two screens cannot
+ * disagree. That matters as of the settings screen: an operator correcting a
+ * cost would otherwise move the report and leave this tile showing the old one,
+ * which is the exact failure the live ROI tile exists to prevent — it renders
+ * *the same* scorecard the report does so nobody optimises against a number
+ * their client will never see.
+ *
  * ## Why this is throttled
  *
  * The log fans out on every append, and a running camera appends at frame rate —
@@ -28,6 +38,8 @@ import {
   subscribe,
 } from "@/lib/bus";
 import { computeScorecard, type Scorecard } from "@/lib/roi/scorecard";
+import { resolveMeasurement } from "@/lib/roi/measurement";
+import { fetchSessionConfig, type RemoteSessionConfig } from "@/lib/session/publish";
 import { summarizeCost, type CostSummary } from "@/lib/roi/cost";
 import { useTenantId } from "@/lib/tenant/useTenantId";
 import { ZONE_TYPE_TO_KIND } from "@/lib/session/publish";
@@ -115,6 +127,10 @@ function zonesFor(session: Session): ZoneNode[] {
  */
 export function useLiveStats(session: Session): LiveStats {
   const [stats, setStats] = useState<LiveStats>(emptyStats);
+  // The activation as the backend holds it. Null until it answers, and null
+  // for good on a deployment with no backend — `resolveMeasurement` falls
+  // through to the local session in both cases.
+  const [config, setConfig] = useState<RemoteSessionConfig | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // From the store rather than read once: the verified tenant arrives with
   // the token, after this effect first runs, and a partition keyed on the
@@ -128,7 +144,7 @@ export function useLiveStats(session: Session): LiveStats {
     const recompute = () => {
       if (cancelled) return;
       const events = readAll(tenantId, session.id) as RealmEvent[];
-      const measurement = session.measurement ?? {};
+      const measurement = resolveMeasurement(config, session.measurement);
       const scorecard = computeScorecard(events, {
         zones: zonesFor(session),
         engagedThresholdSec: measurement.engagedThresholdSec,
@@ -190,7 +206,22 @@ export function useLiveStats(session: Session): LiveStats {
       if (timer.current) clearTimeout(timer.current);
       timer.current = null;
     };
-  }, [session, tenantId]);
+  }, [session, tenantId, config]);
+
+  // The stored configuration, fetched once per activation. Its own effect
+  // rather than part of the loop above: it changes when an operator saves on
+  // another screen, not when a visitor walks past a camera.
+  useEffect(() => {
+    let live = true;
+    if (!isRemoteBusEnabled()) return;
+    void (async () => {
+      const stored = await fetchSessionConfig(session.id, busEmail());
+      if (live && stored) setConfig(stored);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [session.id]);
 
   return stats;
 }

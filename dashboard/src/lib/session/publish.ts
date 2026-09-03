@@ -49,15 +49,26 @@ export const ZONE_TYPE_TO_KIND: Record<ZoneType, ZoneKind> = {
  */
 export interface RemoteSessionConfig {
   sessionId: string;
+  client?: string | null;
   venue?: string | null;
   campaign?: string | null;
+  city?: string | null;
+  startedAt?: string | null;
+  endsAt?: string | null;
   engagedThresholdSeconds: number;
   activationCost: number | null;
   currency: string;
   attributionModel: string;
+  attributionWindowDays?: number;
   /** Operator-supplied, never measured. Null means unknown, not zero. */
   revenueInfluenced: number | null;
   qualifiedLeads: number | null;
+  anonymousHandoffs?: boolean;
+  insightIntervalMinutes?: number;
+  /** What a consent kiosk displays, and the version stamped on every consent. */
+  consentCopy?: string | null;
+  consentCopyVersion?: string | null;
+  consentTier?: "T1" | "T2" | "T3";
   zones: {
     id: string;
     name: string;

@@ -39,6 +39,8 @@ import {
 } from "@/lib/session/publish";
 import { seedDemoSession } from "@/lib/mock/seed-demo";
 import { computeScorecard, type Scorecard } from "@/lib/roi/scorecard";
+import { resolveMeasurement } from "@/lib/roi/measurement";
+import { scoringChanges } from "@/lib/report/derive";
 import { getTenantId } from "@/lib/tenant/context";
 import type { RealmEvent, ZoneNode } from "@/lib/contracts";
 import type { Session, ZoneType } from "@/lib/session/types";
@@ -153,16 +155,18 @@ export function useSessionReport(session: Session): SessionReport {
 
       const events = readAll(tenantId, session.id) as RealmEvent[];
       const zones = zonesFor(config, session);
-      const measurement = session.measurement ?? {};
+      // The precedence this file established — the backend is the authority,
+      // this browser's store is the fallback — moved into `resolveMeasurement`
+      // when `/live` had to share it. One rule, so the tile and the report
+      // cannot divide by different numbers.
+      const measurement = resolveMeasurement(config, session.measurement);
 
       const scorecard = computeScorecard(events, {
         zones,
-        engagedThresholdSec:
-          config?.engagedThresholdSeconds ?? measurement.engagedThresholdSec,
-        activationCost: config?.activationCost ?? measurement.activationCost,
-        revenueInfluenced:
-          config?.revenueInfluenced ?? measurement.revenueInfluenced,
-        qualifiedLeads: config?.qualifiedLeads ?? measurement.qualifiedLeads,
+        engagedThresholdSec: measurement.engagedThresholdSec,
+        activationCost: measurement.activationCost,
+        revenueInfluenced: measurement.revenueInfluenced,
+        qualifiedLeads: measurement.qualifiedLeads,
       });
 
       const missing: string[] = [];
@@ -184,16 +188,27 @@ export function useSessionReport(session: Session): SessionReport {
           "No zone is marked as the entry, so footfall cannot be separated from zone traffic."
         );
       }
-      if ((config?.activationCost ?? measurement.activationCost) == null) {
+      if (measurement.activationCost == null) {
         missing.push(
-          "No activation cost is set, so cost per engaged visit and the ROI ratio cannot be computed."
+          "No activation cost is set, so cost per engaged visit and the ROI ratio cannot be computed. Set it in the activation's settings."
         );
       }
-      if ((config?.revenueInfluenced ?? measurement.revenueInfluenced) == null) {
+      if (measurement.revenueInfluenced == null) {
         missing.push(
-          "No influenced revenue has been provided by the client. Attributed revenue arrives with the CRM phase."
+          "No influenced revenue has been provided by the client. It is the client's own figure — enter it in the activation's settings when they supply it."
         );
       }
+      // A scoring rule moved after the floor had been measured.
+      //
+      // `roi-framework.md` §5 asks for the engagement threshold, the
+      // attribution model and its window to be agreed before doors open, "so
+      // the ROI number is pre-agreed and un-arguable afterwards". The settings
+      // screen allows the correction — somebody who typed 30 seconds and meant
+      // 60 must be able to fix it — and the backend records each one as
+      // `session.config_updated`. Saying so here is what keeps that from being
+      // a promise in a document: the report states it on its face, the way it
+      // states an absence rather than rendering a zero.
+      for (const line of scoringChanges(events)) missing.push(line);
       // Events this browser refused as unreadable (`lib/bus/quarantine.ts`).
       // They are not on this report's figures, and the difference between "9
       // visitors came" and "9 visitors were readable" is exactly the kind of

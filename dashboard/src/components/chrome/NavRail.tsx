@@ -71,8 +71,15 @@ export function NavRail() {
         })}
       </div>
       <div className="flex-1" />
+      {/*
+        A cog labelled Settings that went to the landing page. Now it goes to
+        the activation's settings, which is what somebody clicking it is looking
+        for — and which was write-once until that screen existed: the client's
+        own influenced-revenue figure arrives after the activation and is the
+        numerator of the ratio on the front of the report.
+      */}
       <Link
-        href="/"
+        href="/sessions/settings"
         className="w-12 h-12 rounded-full flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors"
         title="Settings"
       >

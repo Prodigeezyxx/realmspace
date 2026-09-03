@@ -20,6 +20,7 @@ import {
   hourlyLeads,
   hourlyVisitors,
   buildGazeRows,
+  scoringChanges,
 } from "./derive";
 
 const T0 = Date.parse("2026-08-03T10:00:00Z");
@@ -392,5 +393,39 @@ describe("a purged activation is not a quiet day", () => {
     // That is "nobody came" or "never configured", which the report already
     // tells apart. Claiming expiry here would invent a third answer.
     expect(isExpired([], FLOOR)).toBe(false);
+  });
+});
+
+
+describe("scoringChanges", () => {
+  it("names the rule that moved, in words a client would read", () => {
+    const lines = scoringChanges([
+      ev("session.config_updated", {
+        changed: [
+          { field: "engaged_threshold_seconds", from: 30, to: 60 },
+        ],
+        by: "u_op",
+      }),
+    ]);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("the engagement threshold");
+    expect(lines[0]).toContain("30");
+    expect(lines[0]).toContain("60");
+  });
+
+  it("shows a rule it cannot name rather than dropping it", () => {
+    // A field added to the backend's `SCORING_PARAMETERS` and not to the map
+    // here is still a rule that moved. Silence would be the worse failure —
+    // the whole point of this line is that the change is not silent.
+    const lines = scoringChanges([
+      ev("session.config_updated", {
+        changed: [{ field: "some_new_rule", from: 1, to: 2 }],
+      }),
+    ]);
+    expect(lines[0]).toContain("some_new_rule");
+  });
+
+  it("says nothing about an activation whose rules never moved", () => {
+    expect(scoringChanges([dwell("P-1", "z_entry", 90)])).toEqual([]);
   });
 });

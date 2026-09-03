@@ -19,6 +19,55 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-09-03
 
+### Added — 2026-09-03 — `[neo4j-track]` An activation can be corrected after the wizard
+
+Everything an activation is scored by was set once, in the five-step wizard, and
+then could never be changed. Not the client's name, not the venue, not the
+engagement threshold — and not the two numbers the headline ROI figure is made
+of. The cost of the build is usually only final once it has been paid for, and
+the revenue the client attributes to the stand arrives weeks later by
+definition. There was nowhere to type either of them. The only way in was the
+command line.
+
+There is a settings screen now, on the cog that used to lead to the front page.
+Open it, correct the figure, save. The report and the live tile both move, and
+the zones, cameras and touchpoints somebody set up on the calibration screen are
+left exactly as they were.
+
+**Two kinds of change, kept apart.** The engagement threshold, the attribution
+model and its window are agreed with the client *before doors open* — that is
+what makes the ROI number un-arguable afterwards. They can still be corrected,
+because somebody who typed 30 seconds and meant 60 has to be able to fix it, but
+once visitors have been counted the change is recorded and the report says so on
+its face: *"the engagement threshold was changed from 60 to 90 after this
+activation had already measured visitors."* Correcting a cost or a client's name
+says nothing, because neither is a rule anybody agreed to keep still — and a
+warning that fires on everything teaches people to ignore it.
+
+**The walk found one bug, and it was the worst kind.** Type into the form in the
+first second after it opens and the backend's answer, arriving a moment later,
+silently emptied the field — then the save reported "Saved." with nothing in it.
+A lying confirmation. The form is now left alone once anybody has touched it.
+
+*`/sessions/settings` on the active session, `lib/ops/useSessionSettings.ts`
+posting only the fields that changed — never `sessionToWire`, which sends the
+whole configuration and would prune the zones drawn elsewhere. `POST
+/v1/sessions` already wrote only what a request set (`model_fields_set`), which
+is what made this a screen rather than an endpoint. `session.config_updated`
+pinned in `event-bus-spec.md` §3, emitted only for the scoring parameters and
+only on an activation that has a `perception.detection` or a
+`spatial.zone_enter` — the endpoint appends a `session.zones_updated` on every
+save, so "any event at all" would fire on every second save. `/report` renders
+it through `derive.scoringChanges`; `/live` and `/report` now share one
+precedence rule for where a figure comes from (`lib/roi/measurement.ts`, remote
+then local), because a corrected cost that moved one and not the other is the
+exact failure the live ROI tile exists to prevent. Walked against a live stack:
+cost and influenced revenue entered on the screen, the report's ROI ratio
+rendering **2.2:1** where it had been blank and `/live` agreeing; a camera
+declared on the calibration screen surviving a settings save and the zones
+surviving both; the threshold moved and the line appearing on the report; a
+viewer refused with the backend's own sentence.*
+
 ### Added — 2026-09-03 — `[neo4j-track]` A visitor can say yes at the stand
 
 Everything that happens after somebody gives us their details has been built for

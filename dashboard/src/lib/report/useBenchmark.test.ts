@@ -162,6 +162,13 @@ const SAMPLE_PAYLOADS: Record<RealmEventType, Record<string, unknown>> = {
   "session.started": { sessionId: "s_1" },
   "session.ended": { sessionId: "s_1" },
   "session.zones_updated": { sessionId: "s_1" },
+  // Read by the report to say a scoring rule moved after the floor ran, and by
+  // nothing that computes a figure — so the test below decides it is not
+  // fetched for a benchmark.
+  "session.config_updated": {
+    changed: [{ field: "engaged_threshold_seconds", from: 30, to: 60 }],
+    by: "u_op",
+  },
 };
 
 describe("median", () => {

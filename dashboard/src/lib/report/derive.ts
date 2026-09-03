@@ -440,3 +440,54 @@ export function buildRecommendations(
 
   return out;
 }
+
+/**
+ * The scoring rules a `session.config_updated` says were moved, in words.
+ *
+ * `roi-framework.md` §5 asks for the engagement threshold, the attribution
+ * model and its window to be agreed with the client *before doors open*, "so
+ * the ROI number is pre-agreed and un-arguable afterwards". The settings screen
+ * allows the correction, because an operator who typed 30 seconds and meant 60
+ * has to be able to fix it, and the backend records each one — but only on an
+ * activation that had already measured something, which is what makes it a
+ * departure rather than the original agreement.
+ *
+ * Rendered in the report's `missing[]` list, whose whole contract is that an
+ * absence is stated rather than swallowed. This is the same rule one step
+ * further along: a number computed under a different definition than the one
+ * agreed is not wrong, but nobody should have to guess that it happened.
+ *
+ * The payload's `field` is the backend's snake_case, like every producer here;
+ * an unrecognised one is shown as-is rather than dropped, because a rule this
+ * report cannot name is still a rule that moved.
+ */
+const SCORING_FIELD_NAMES: Record<string, string> = {
+  engaged_threshold_seconds: "the engagement threshold",
+  attribution_model: "the attribution model",
+  attribution_window_days: "the attribution window",
+};
+
+export function scoringChanges(events: RealmEvent[]): string[] {
+  const out: string[] = [];
+  for (const event of events) {
+    if (event.type !== "session.config_updated") continue;
+    const changed = (event.payload as { changed?: unknown })?.changed;
+    if (!Array.isArray(changed)) continue;
+    for (const change of changed) {
+      const { field, from, to } = (change ?? {}) as {
+        field?: string;
+        from?: unknown;
+        to?: unknown;
+      };
+      if (!field) continue;
+      const name = SCORING_FIELD_NAMES[field] ?? field;
+      out.push(
+        `${name} was changed from ${String(from ?? "unset")} to ${String(
+          to ?? "unset"
+        )} after this activation had already measured visitors. Every figure ` +
+          `here is computed with the current value.`
+      );
+    }
+  }
+  return out;
+}

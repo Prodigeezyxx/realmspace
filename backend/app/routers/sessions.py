@@ -80,6 +80,37 @@ router = APIRouter(prefix="/v1/sessions", tags=["sessions"])
 #: `session.` namespace of event-bus-spec.md §3, which is additive-only.
 ZONES_UPDATED = "session.zones_updated"
 
+#: A scoring rule was changed on an activation that had already measured
+#: something. `event-bus-spec.md` §3.
+CONFIG_UPDATED = "session.config_updated"
+
+#: The parameters `roi-framework.md` §5 asks to be agreed with the client
+#: **before doors open**, "so the ROI number is pre-agreed and un-arguable
+#: afterwards", and §3's principle that we never inflate.
+#:
+#: Everything else on a session is a **correction** — the activation cost that
+#: is only final once the build is paid for, the client's own influenced-revenue
+#: figure that arrives weeks later, a mistyped venue. Refusing those would be
+#: worse than allowing them, because the alternative to editing them is `psql`.
+#:
+#: Changing one of *these* after the floor has been measured is a different act:
+#: it moves the ruler after the run. It is allowed — an operator who set 30
+#: seconds and meant 60 must be able to fix it — and it is **recorded**, so the
+#: report can say so on its face rather than the protection living in a document
+#: nobody reads at the time.
+SCORING_PARAMETERS = (
+    "engaged_threshold_seconds",
+    "attribution_model",
+    "attribution_window_days",
+)
+
+#: What "this activation has already measured something" means: the two events
+#: every downstream figure is ultimately derived from. Deliberately not "any
+#: event at all" — this endpoint appends a `session.zones_updated` on every
+#: save, so a second save would always find one and the rule would fire for
+#: activations that have never seen a visitor.
+MEASURED_TYPES = ("perception.detection", "spatial.zone_enter")
+
 
 def _config_out(
     props: dict,
@@ -186,6 +217,17 @@ async def put_session_config(
         field: getattr(config, field)
         for field in config.model_fields_set & set(graph_repo.SESSION_DEFAULTS)
     }
+
+    # Read before the write, because the comparison below is the whole point: a
+    # scoring parameter that *changed* is the event, and a save that re-posts
+    # the same threshold is not. The wizard posts every field on every launch.
+    before = (
+        await graph_repo.session_config(
+            graph, tenant_id=principal.tenant_id, session_id=config.session_id
+        )
+        or {}
+    )
+
     props = await graph_repo.upsert_session(
         graph,
         tenant_id=principal.tenant_id,
@@ -339,6 +381,41 @@ async def put_session_config(
         graph, tenant_id=principal.tenant_id, session_id=config.session_id
     )
 
+    changed = [
+        {
+            # snake_case, like every other producer payload on this bus
+            # (`event-bus-spec.md` §3). It names a field of `SessionConfigIn`,
+            # and the browser turns the three of them into words a person
+            # reads — a value is not translated by `lib/bus/wire.ts`, which
+            # renames keys.
+            "field": field,
+            "from": before.get(field),
+            "to": props.get(field),
+        }
+        for field in SCORING_PARAMETERS
+        if field in props and before.get(field) != props.get(field)
+    ]
+    if changed and await _has_measured(
+        session, tenant_id=principal.tenant_id, session_id=config.session_id
+    ):
+        await repository.append_event(
+            session,
+            EventIn(
+                # Random, for `session.zones_updated`'s reason: this records
+                # something that just happened, and two corrections to the same
+                # threshold are two decisions rather than one.
+                event_id=uuid.uuid4(),
+                tenant_id=principal.tenant_id,
+                session_id=config.session_id,
+                type=CONFIG_UPDATED,
+                payload={
+                    "changed": changed,
+                    "by": principal.subject,
+                },
+                occurred_at=utcnow(),
+            ),
+        )
+
     await repository.append_event(
         session,
         EventIn(
@@ -359,6 +436,24 @@ async def put_session_config(
     )
 
     return _config_out(props, zones, surfaces, cameras)
+
+
+async def _has_measured(
+    session: AsyncSession, *, tenant_id: str, session_id: str
+) -> bool:
+    """Has this activation seen a visitor yet?
+
+    One row is enough — this asks whether anything has been scored, not how
+    much. See `MEASURED_TYPES` for why it is not "any event at all".
+    """
+    rows = await repository.read_events(
+        session,
+        tenant_id=tenant_id,
+        session_id=session_id,
+        types=MEASURED_TYPES,
+        limit=1,
+    )
+    return bool(rows)
 
 
 def _within(started_at: object, floor: dt.datetime) -> bool:

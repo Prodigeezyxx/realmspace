@@ -125,6 +125,7 @@ Producer → bus → consumers. Types are namespaced and additive-only.
 | `calibration.updated` | calibration UI (operator) | camera_id, kind, revision, masked | drift (baseline reset), perception (mask poll) |
 | `session.started` / `session.ended` | operator | session meta | report, sync |
 | `session.zones_updated` | `POST /v1/sessions` | zone_ids, zone_count, by | tracker (cache invalidation) |
+| `session.config_updated` | `POST /v1/sessions` | changed[] (field, from, to), by | report (states it on its face) |
 
 **Six of these have no producer yet** — `rfid.read`, `spatial.tagged`,
 `intent.scored`, `drift.detected`, `calibration.updated`, `crm.retract`. They are
@@ -358,6 +359,41 @@ for the reason the rule gives: this is a producer recording something that
 genuinely just happened. Two edits to the same zone set are two distinct facts,
 and deriving the id from the zone ids would collapse them onto one, silently
 discarding the second edit.
+
+**`session.config_updated`** — producer: `POST /v1/sessions` (an operator):
+
+```json
+{
+  "changed": [
+    { "field": "engaged_threshold_seconds", "from": 30, "to": 60 }
+  ],
+  "by": "u_op"
+}
+```
+
+**Only the scoring rules, and only once the floor has been measured.**
+`roi-framework.md` §5 asks for the engagement threshold, the attribution model
+and its window to be agreed with the client *before doors open*, "so the ROI
+number is pre-agreed and un-arguable afterwards". Everything else on a session
+is a correction — the activation cost that is final only once the build is paid
+for, the client's own influenced-revenue figure that arrives weeks later, a
+mistyped venue — and none of those produces this event.
+
+Changing a scoring rule after visitors have been counted is allowed, because an
+operator who typed 30 seconds and meant 60 must be able to fix it, and the
+alternative is `psql`. What is not allowed is doing it silently: this event is
+what lets `/report` say a rule moved after N events were recorded, which is the
+same choice the scorecard makes between an absence and a zero.
+
+"Measured" is `perception.detection` or `spatial.zone_enter`, not "any event on
+this session" — the endpoint appends a `session.zones_updated` on every save, so
+any second save would otherwise look like an activation that had run.
+
+Its `event_id` is **random, not derived**, for `session.zones_updated`'s reason:
+two corrections to the same threshold are two decisions, and one id would
+discard the second. `field` is the snake_case name of a `SessionConfigIn` field,
+like every other producer payload here; the dashboard turns the three of them
+into words a person reads.
 
 **`intent.scored`** — producer: the intent consumer. **Provisional.**
 `{ "anon_id", "score", "band", "signals", "model_version" }`

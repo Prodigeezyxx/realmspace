@@ -98,7 +98,15 @@ export type RealmEventType =
   | "session.started"
   | "session.ended"
   /** an operator changed a session's zones or measurement parameters */
-  | "session.zones_updated";
+  | "session.zones_updated"
+  /**
+   * An operator moved one of the rules the ROI is scored by — the engagement
+   * threshold, the attribution model, its window — on an activation that had
+   * already measured something. `roi-framework.md` §5 asks for those to be
+   * agreed before doors open; this is what lets the report say one moved
+   * afterwards instead of the protection living in a document.
+   */
+  | "session.config_updated";
 
 /** All spatial/anonymous event types (safe for aggregate ROI, no consent needed). */
 export const ANONYMOUS_EVENT_TYPES: readonly RealmEventType[] = [
@@ -142,6 +150,8 @@ export const ANONYMOUS_EVENT_TYPES: readonly RealmEventType[] = [
   "session.started",
   "session.ended",
   "session.zones_updated",
+  /** Field names and numbers an operator set. It names nobody. */
+  "session.config_updated",
   /**
    * Retention enforcing itself. The request names the admin who asked, and the
    * receipt carries a floor, a seq and two counts — no visitor is named by
