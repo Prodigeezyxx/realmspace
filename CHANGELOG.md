@@ -26,7 +26,7 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-09-05
 
-### Changed — 2026-09-05 — `[neo4j-track]` `main` catches up with six phases of work
+### Changed — 2026-09-05 — `[neo4j-track]` The trunk is named, and `main` waits for a decision that is not ours
 
 The decision above named a trunk, and `main` said otherwise. It had not moved
 since 2026-07-27 — the day before the two tracks split — so the default branch
@@ -35,10 +35,14 @@ phases and 104 commits behind, while three long-lived branches disagreed about
 which was current. A decision recorded only in a document the reader has to go
 looking for is not one the repo has made.
 
-The trunk goes to `main` as a pull request rather than a push. There is no
-sensible way to review 104 commits as a diff and nobody should pretend
-otherwise — the PR is not a review, it is the linkable record of why this branch
-won, with the ADR as its body and CI running on it.
+So the trunk is named here and in the roadmap, and `main` stays where it is.
+Whether and when six phases of work land on the default branch is the
+supervisor's decision rather than an engineering one, and nothing in this
+session's work assumes it. What exists instead is PR #2, opened and then parked
+as a draft: 107 commits, no divergence, CI green, mergeable the moment somebody
+with the authority to say so says it. It is not a review — there is no sensible
+way to read 107 commits as a diff and it does not pretend otherwise — it is the
+linkable record of why this branch won, with the ADR as its body.
 
 Open decision 4 is closed with it, because it was the same question. It had read
 "continue on `genspark_ai_developer`" since before the split, which stopped

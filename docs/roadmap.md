@@ -1845,7 +1845,7 @@ From the founder architecture dump; each is designed-for, not hoped-for:
    registered. What is still open is not a decision but an absence — no live
    account exists for any of them, so every adapter is proven against the API its
    vendor documents and none against a real portal.
-4. **Repo: `antoniorobles/phase1` is the trunk, and it lands on `main`.**
+4. **Repo: `antoniorobles/phase1` is the trunk. When it lands on `main` is not ours to say.**
    *Closed 2026-09-05*, with open decision 1 and for the same reason — the graph
    store and the branch were one question wearing two numbers.
 
@@ -1861,10 +1861,17 @@ From the founder architecture dump; each is designed-for, not hoped-for:
    reader lands on first showed the pre-bake-off repo, six phases behind, while
    three branches disagreed about what came next.
 
-   **Now:** `antoniorobles/phase1` is the trunk and fast-forwards onto `main`
-   (104 commits, no divergence). `floats-agent` and `genspark_ai_developer` are
-   archived — kept as the record of the comparison and of the pre-split research,
-   not bases for new work. The one thing the trunk was missing from either is
+   **Now:** `antoniorobles/phase1` is the trunk, and that is a statement about
+   which branch the work is on rather than about `main`, which has not moved and
+   is not being moved here. Promotion is a clean fast-forward whenever it is
+   wanted — 107 commits, no divergence, CI green — and the timing is the
+   supervisor's call, not an engineering one. PR #2 holds the case for it and is
+   parked as a draft until that call is made. **Do not merge it without the
+   go-ahead.**
+
+   `floats-agent` and `genspark_ai_developer` are archived — kept as the record
+   of the comparison and of the pre-split research, not bases for new work. The
+   one thing the trunk was missing from either is
    `docs/research/2026-07-27-chi26-digital-twins-and-cv-dump.md`, the paper the
    session-hygiene row on this page has been citing, and it is here now.
 5. **Does a visitor's name belong in a prompt sent to a model vendor? No.**
