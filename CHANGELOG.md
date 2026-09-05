@@ -26,6 +26,35 @@ split and belong to neither.
 
 ## [Unreleased] — last updated 2026-09-05
 
+### Changed — 2026-09-05 — `[neo4j-track]` `main` catches up with six phases of work
+
+The decision above named a trunk, and `main` said otherwise. It had not moved
+since 2026-07-27 — the day before the two tracks split — so the default branch
+anybody landing on the repo sees first showed the pre-bake-off product, six
+phases and 104 commits behind, while three long-lived branches disagreed about
+which was current. A decision recorded only in a document the reader has to go
+looking for is not one the repo has made.
+
+The trunk goes to `main` as a pull request rather than a push. There is no
+sensible way to review 104 commits as a diff and nobody should pretend
+otherwise — the PR is not a review, it is the linkable record of why this branch
+won, with the ADR as its body and CI running on it.
+
+Open decision 4 is closed with it, because it was the same question. It had read
+"continue on `genspark_ai_developer`" since before the split, which stopped
+being true the day that branch stopped moving. `floats-agent` and
+`genspark_ai_developer` are archived: kept as the record, not bases for new work.
+
+One file came across from the archived research branch. The session-hygiene row
+on the roadmap has been citing *"CHI '26: 71% of raw sessions invalid without
+them"* since Phase 1, and the paper it cites was never on this branch — the
+roadmap was arguing from evidence the trunk did not carry. It is here now, and
+reading it sharpened the citation: the 71% (1303 sessions down to 381) is what
+the paper's authors' own cleaning pipeline *removed*, not a measure of what
+survives without one. The roadmap's phrasing states the lesson a step further on
+than the paper does, which is worth knowing before the number is quoted at a
+client.
+
 ### Decided — 2026-09-05 — `[neo4j-track]` The bake-off is over, and the graph stays in Neo4j
 
 Phase 1's backend was built twice on purpose so the two approaches could be

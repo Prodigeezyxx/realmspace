@@ -1845,7 +1845,28 @@ From the founder architecture dump; each is designed-for, not hoped-for:
    registered. What is still open is not a decision but an absence — no live
    account exists for any of them, so every adapter is proven against the API its
    vendor documents and none against a real portal.
-4. **Repo:** continue on `genspark_ai_developer` in the main `realmspace` repo.
+4. **Repo: `antoniorobles/phase1` is the trunk, and it lands on `main`.**
+   *Closed 2026-09-05*, with open decision 1 and for the same reason — the graph
+   store and the branch were one question wearing two numbers.
+
+   **What it said until today** was "continue on `genspark_ai_developer`", which
+   stopped being true on 2026-07-28 when that branch's last commit landed and the
+   Phase 1 bake-off began on two others. Nothing was wrong with the work after
+   that; what was missing was any statement of which of three long-lived branches
+   was the product. The repo answered "the one being committed to", which is only
+   legible to whoever is doing the committing.
+
+   `main` made it worse rather than settling it: it had not moved since
+   `ab09495` on 2026-07-27 — the day *before* the split — so the default branch a
+   reader lands on first showed the pre-bake-off repo, six phases behind, while
+   three branches disagreed about what came next.
+
+   **Now:** `antoniorobles/phase1` is the trunk and fast-forwards onto `main`
+   (104 commits, no divergence). `floats-agent` and `genspark_ai_developer` are
+   archived — kept as the record of the comparison and of the pre-split research,
+   not bases for new work. The one thing the trunk was missing from either is
+   `docs/research/2026-07-27-chi26-digital-twins-and-cv-dump.md`, the paper the
+   session-hygiene row on this page has been citing, and it is here now.
 5. **Does a visitor's name belong in a prompt sent to a model vendor? No.**
    *Raised 2026-08-31 by the SDR walk; closed the same day.* `privacy.md`
    promises AI reasoning calls "receive only structured event summaries — never
