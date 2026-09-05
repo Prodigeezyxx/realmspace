@@ -6,18 +6,72 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Each entry explains what changed **in plain words** first, then the technical detail.
 Sections are dated (with time, local timezone +0100) so you can see when things landed.
 
-**Two tracks are running in parallel.** Phase 1's backend is being built twice on
-purpose, so the two approaches can be compared before one is adopted:
+**Two tracks ran in parallel, and one was adopted on 2026-09-05.** Phase 1's
+backend was built twice on purpose, so the two approaches could be compared
+before one was chosen:
 
-- `[postgres-track]` — `floats-agent`. Graph as relational node/edge tables in the
-  same SQL database as the bus, SQLite by default. Per `docs/adr/001-graph-store.md`.
 - `[neo4j-track]` — `antoniorobles/phase1`. Graph in Neo4j, per `data-model.md`,
-  `PRD.md` and `privacy.md`, which all name it.
+  `PRD.md` and `privacy.md`, which all name it. **Adopted — this is the trunk.**
+- `[postgres-track]` — `floats-agent`. Graph as relational node/edge tables in the
+  same SQL database as the bus, SQLite by default. **Archived**, last commit
+  2026-08-11: kept as the record of the comparison, not a base for new work.
+
+The reasons are in `docs/adr/001-graph-store.md`, which supersedes the ADR of the
+same number on the archived branch. The tags stay on old entries because they say
+which codebase an entry was true of; new entries carry `[neo4j-track]` until the
+tag stops earning its place.
 
 Entries from 2026-07-28 onward carry a track tag. Earlier entries predate the
 split and belong to neither.
 
-## [Unreleased] — last updated 2026-09-03
+## [Unreleased] — last updated 2026-09-05
+
+### Decided — 2026-09-05 — `[neo4j-track]` The bake-off is over, and the graph stays in Neo4j
+
+Phase 1's backend was built twice on purpose so the two approaches could be
+compared. The comparison was never written down. Both branches then ran all the
+way through Phase 6, which meant every feature after Phase 1 was being reasoned
+about twice, and the trunk's own graph store had no recorded reason for being
+what it is — while the other branch carried an ADR marked *Accepted* deciding
+the opposite. That is the state a reader would have found.
+
+Neo4j is the graph of record; the Postgres event bus stays the source of truth
+and does not move. `antoniorobles/phase1` is the trunk and `floats-agent` is
+archived — kept, not merged and not deleted, because it is the other half of the
+evidence.
+
+**It could not have been decided at the start of Phase 1, which is the useful
+part.** The rejected ADR's best argument was that a conference kit has to run
+offline on a laptop with near-zero ops — sound in July, and aimed at a
+single-process edge deployment this track does not have: offline survival turned
+out to be the perception buffer's job, and the graph is a server-side projection
+that catches up on replay. Its second argument was that Ask the Room could
+compile to SQL until Cypher was justified. Phase 2 built that catalogue and it
+compiles to Cypher, against a real model since 2026-08-31. Both arguments were
+answered by things neither branch had when the decision was first deferred.
+
+**The losing argument that survived is priced rather than dismissed.** On a cold
+boot with empty volumes, Neo4j idles at 417.6 MiB against the bus's own
+Postgres at 37.7 MiB — eleven times the weight on an empty database. Cold boot
+is still 13s, so the cost is memory, not startup. That is fine on a server and
+wrong for a laptop in a hall, so the ADR says plainly that anyone who later needs
+the graph on the kit should re-open the question.
+
+**And the gap it leaves is named, not smoothed over.** Neo4j Community cannot do
+row-level security, so the event log has RLS and the graph does not. What holds
+instead is that `tenant_id` is a required argument on every function in the graph
+repository, that every Cypher string sets or filters it, and that a test reads
+through a second concurrent session to prove a write is visible. An RLS violation
+is refused by the database; this one is refused by a convention with a test behind
+it, and the difference is worth saying out loud rather than counting the mitigation
+as a fix.
+
+*`docs/adr/001-graph-store.md` (new, supersedes the `floats-agent` ADR of
+2026-07-27), open decision 1 in `docs/roadmap.md` closed with what the closing run
+found, and ADR-002's note about ADR-001 "not visible from here" corrected. Checked
+rather than asserted before writing: the full backend suite at **867 passed / 14
+skipped**, `tests/test_graph_visibility.py` green, and the boot and memory figures
+measured on a cold `docker compose up --wait` rather than quoted from the roadmap.*
 
 ### Added — 2026-09-03 — `[neo4j-track]` An activation can be corrected after the wizard
 

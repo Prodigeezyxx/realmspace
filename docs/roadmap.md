@@ -1780,8 +1780,40 @@ From the founder architecture dump; each is designed-for, not hoped-for:
 
 ## Open technical decisions (to confirm as we build)
 
-1. **Graph store:** Neo4j (matches docs) vs. embedded SQLite/DuckDB graph for
-   the edge box (lighter, offline-friendly). *Lean: decide at start of P1.*
+1. **Graph store: Neo4j, and the bus stays the source of truth.** *Closed
+   2026-09-05*, five phases after the "decide at start of P1" it was written
+   with — see `docs/adr/001-graph-store.md`, which supersedes the ADR of the
+   same number on `floats-agent`. `antoniorobles/phase1` is the trunk;
+   `origin/floats-agent` is archived as the record of the comparison and is not
+   a base for new work.
+
+   **It could not have been decided in week 1, and that is the finding.** The
+   rejected ADR's strongest argument was that a conference kit must run offline
+   on a laptop with near-zero ops. That premise was aimed at a single-process
+   edge deployment; this track put the boundary elsewhere, and offline survival
+   is the perception buffer's job rather than the graph's. Its second-strongest
+   was that Ask could compile to SQL "until AGE/Neo4j is justified" — P2 built
+   that allow-listed catalogue (ADR-003) and it compiles to Cypher, against a
+   real model since 2026-08-31. Both arguments were sound in July and were about
+   an architecture only one track ended up having.
+
+   **What the decision costs, measured rather than waved at.** On a cold
+   `docker compose up --wait` with empty volumes, `neo4j:5-community` idles at
+   **417.6 MiB** against Postgres's 37.7 MiB — 11× the bus's own store on an
+   empty database. Whole-stack cold boot is still 13s, so the weight is RAM and
+   not startup. That is affordable on a server and is the wrong shape for a
+   laptop in a hall, which is exactly what the rejected ADR was protecting:
+   anyone who later needs the graph *on the kit* should re-open this, and the
+   ADR says so.
+
+   **The gap it leaves is the one below on this page.** Neo4j Community cannot
+   do row-level security, so the graph has no DB-layer tenant isolation while the
+   event log does. What holds instead is `tenant_id` as a required argument on
+   every function in `backend/app/graph/repository.py` and a test that reads
+   through a second concurrent session (`tests/test_graph_visibility.py`). An
+   RLS violation is refused by the database; this one is refused by a convention
+   with a test behind it, and Apache AGE is the named fallback if that ever has
+   to change.
 2. **AI provider: OpenRouter.** *Closed 2026-08-31* — a key was supplied with an
    account-level allow-list, and `app/llm/openrouter.py` is the adapter. Ask the
    Room and the Live Analyst are ✅; what the adapter owes per

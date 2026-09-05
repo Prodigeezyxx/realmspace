@@ -13,10 +13,12 @@ reuse. Existing browser agent runtime becomes *simulation/preview* of edge rules
 **Deciders:** `antoniorobles/phase1` (`[neo4j-track]`), written against the
 evaluator already shipped on `floats-agent` (`backend/app/rules.py`, 2026-08-10).
 
-> **On ADR 001.** It lives on the `floats-agent` branch and is not visible from
-> here. It decides the *graph store* for that track (relational tables in the bus
-> DB, Neo4j deferred) and neither settles nor is settled by this one: a rule spec
-> is a wire contract, not a storage choice. See `CHANGELOG.md` on the two tracks.
+> **On ADR 001.** When this was written it lived only on the `floats-agent`
+> branch and was not visible from here. It is now `docs/adr/001-graph-store.md`
+> on this track (2026-09-05), superseding that one and deciding the graph store
+> the other way. Neither settles nor is settled by this document: a rule spec is
+> a wire contract, not a storage choice — which is why the rule shape below was
+> adopted from `floats-agent` verbatim and survives the branch being archived.
 
 ## Decision
 
