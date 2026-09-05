@@ -21,6 +21,7 @@ Start with `VISION.md`, then `roadmap.md`.
 |---|---|
 | [architecture.md](./architecture.md) | Agent architecture in the current app |
 | [event-bus-spec.md](./event-bus-spec.md) | Append-only, idempotent, replayable bus — the spine |
+| [../backend/README.md](../backend/README.md) | The service implementing that spec — setup, migrations, endpoints |
 | [data-model.md](./data-model.md) | Graph schema (nodes, edges, Cypher) |
 | [integrations.md](./integrations.md) | CRM connector abstraction + bring-your-own |
 | [multi-tenant.md](./multi-tenant.md) | Tenancy, isolation, RBAC, billing hooks |
@@ -38,9 +39,21 @@ Start with `VISION.md`, then `roadmap.md`.
 
 ---
 
+### Running it
+
+```bash
+cp .env.example .env      # set JWT_SECRET and NEO4J_PASSWORD
+docker compose up --build
+```
+
+Postgres, Neo4j and the backend, schemas applied, ~13s from cold. See
+[`../backend/README.md`](../backend/README.md) to run it directly instead, which
+is better if you are working on the backend itself.
+
 ### Reading order for a new engineer
 1. `VISION.md` — what we're building and why
 2. `roadmap.md` — what we build in what order
 3. `event-bus-spec.md` + `data-model.md` — the spine and the schema
+   (then `../backend/README.md` to run the bus locally)
 4. The feature doc for your phase (`roi-framework` / `integrations` / `consent-and-identity`)
 5. `brand.md` — before touching any UI

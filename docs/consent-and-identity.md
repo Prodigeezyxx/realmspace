@@ -83,6 +83,19 @@ non-withdrawn `ConsentEvent` of the required tier exists in the same transaction
 CRM sync consumers refuse to emit a contact without a `≥T2` consent. This is
 enforced in code (the bus consumer), not by convention.
 
+*As built (2026-08-18).* The edge gate has been real since Phase 4 — inside
+`graph_repo.identify`'s single Cypher statement, one layer below where this
+paragraph puts it, so a second caller cannot skip it. **The T2 gate was not.**
+This paragraph described it, `consumers/identity.py` repeated it in a comment,
+and no code read `tier`: every consented lead went to every connected CRM
+regardless. It is now `backend/app/consent_tier.py`, used by `crm_delivery` and
+by the SDR draft — one comparison, one refusal message, and a missing or
+unrecognised tier refuses rather than passing.
+
+It applies to acts that touch a *person*. An anonymous handoff carries no consent
+block, and gating it would make aggregate reach depend on permission from the
+people it deliberately does not identify.
+
 ---
 
 ## 4. The consent capture flow (in the pipeline)
@@ -114,6 +127,36 @@ agreed to and when. The kiosk/QR/badge capture is a `Surface` that emits a
   path survives for aggregate ROI.
 - **Right to erasure (GDPR Art. 17 / CCPA)** → tenant-scoped erasure job that
   removes a `Contact` and all PII edges, keeping only anonymised aggregates.
+  ✅ *built 2026-08-17* — `POST /v1/erasure` (admin), `consumers/erasure.py`.
+
+  **Erasure is withdrawal plus the log.** The bullet above was doing everything
+  this sentence literally asks for and one thing it does not mention: the
+  visitor's email is also sitting in `consent.captured`'s contact object and in
+  every `handoff.lead` built from it. An erasure that leaves those is not an
+  erasure. So the endpoint appends an ordinary `consent.withdrawn` with
+  `reason: "erasure_request"` — the whole existing path runs first, unchanged and
+  not reimplemented — and an `erasure.requested` for the part it cannot reach.
+
+  **It refuses to act until the retraction has landed.** Erasing the `Contact`
+  first would delete the record the re-anonymiser reads to build `crm.retract`,
+  so no retraction would ever be emitted and the copy in the client's CRM would
+  stay. That failure reports success, which is why the ordering is a correctness
+  condition and not an optimisation. A request that cannot complete parks on
+  `/ops`, where a person finds out.
+
+  **What it rewrites, and what append-only now means.** Only `payload`, only on
+  the events that carry a name. `seq`, `event_id`, `type` and the timestamps are
+  untouched — no row deleted, no sequence number reused — so a replay reproduces
+  the same events in the same order with a name missing from a few of them. See
+  `event-bus-spec.md` §3.
+
+  **What is kept is the evidence**: the ConsentEvent with its tier, basis and
+  copy version, the withdrawal, the identification and the retraction. None of it
+  names anybody, and together they are what a disputed erasure would be settled
+  by — the same argument this section makes about keeping the ConsentEvent
+  through a withdrawal. The anonymous path, its zones and its dwells survive
+  untouched, because they were never consent-gated and deleting them would
+  rewrite reports already delivered about somebody those reports never named.
 - **Enrichment API 429 / CRM down** → replayable bus means the handoff retries;
   it never silently drops. Failed handoffs land in the HITL dead-letter queue.
 - **Attribution decay** → after the window (30/60/90d) the booth-touch → outcome

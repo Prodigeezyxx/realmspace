@@ -56,7 +56,7 @@ export function EmptyState({
         {cta && (
           <Link
             href={cta.href}
-            className="mt-8 inline-flex items-center gap-2 bg-accent text-text-inverse h-12 pl-5 pr-2.5 rounded-full font-semibold text-sm hover:bg-accent-bright transition-colors shadow-[var(--glow-green)]"
+            className="mt-8 inline-flex items-center gap-2 bg-accent-action text-text-inverse h-12 pl-5 pr-2.5 rounded-full font-semibold text-sm hover:bg-accent-action-bright transition-colors shadow-[var(--glow-action)]"
           >
             {cta.label}
             <span className="w-9 h-9 rounded-full bg-text-inverse text-accent inline-flex items-center justify-center">

@@ -40,6 +40,14 @@ export function PrefabSelector({ onSelect }: { onSelect?: (id: string) => void }
 
     await dispatchTrigger({
       type: "twin_layout_loaded",
+      // The one suppression in this file, and it is a misread rather than a
+      // exception. `react-hooks/purity` forbids impure calls *during render*;
+      // this is inside `load`, an async click handler, where reading the clock
+      // is both allowed and correct — the trigger records when the operator
+      // applied the prefab. Contorting working code to satisfy a rule that has
+      // mistaken a handler for a render would leave the next reader wondering
+      // what the contortion was protecting.
+      // eslint-disable-next-line react-hooks/purity
       timestamp: Date.now(),
       payload: {
         layout: {

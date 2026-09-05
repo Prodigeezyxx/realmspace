@@ -11,6 +11,7 @@ import {
   Zap,
 } from "lucide-react";
 
+import { useNow } from "@/lib/hooks/useNow";
 import { EventTimeline } from "@/components/viz/EventTimeline";
 import { Heatmap } from "@/components/viz/Heatmap";
 import { TrafficChart } from "@/components/viz/TrafficChart";
@@ -21,12 +22,7 @@ import { Panel } from "@/components/ui/Panel";
 import { Pill } from "@/components/ui/Pill";
 import { Sparkline } from "@/components/ui/Sparkline";
 import { Stat } from "@/components/ui/Stat";
-import {
-  attentionSeries,
-  dwellSeries,
-  liveCounts,
-  triggerSeries,
-} from "@/lib/mock/session";
+import { attentionSeries, liveCounts } from "@/lib/mock/session";
 import { TOUCHPOINT_TYPE_OPTIONS } from "@/lib/session/presets";
 import { useActiveSession } from "@/lib/session/store";
 import {
@@ -36,7 +32,29 @@ import {
 } from "@/lib/live-session/store";
 import type { Track } from "@/lib/tracker";
 import { formatDuration, formatNumber } from "@/lib/utils";
+
 import { useAgentAlerts } from "@/hooks/useAgentStream";
+import { useLiveStats } from "@/lib/live/useLiveStats";
+import { LiveRoiTile } from "@/components/live/LiveRoiTile";
+import { CostTile } from "@/components/live/CostTile";
+import { InsightsPanel } from "@/components/live/InsightsPanel";
+import { StaffPromptTile } from "@/components/live/StaffPromptTile";
+import { BRAND_DATA } from "@/lib/brand";
+
+/**
+ * How stale the feed is, in words.
+ *
+ * A feed that silently stopped ten minutes ago looks exactly like a quiet room,
+ * and the operator staring at the screen is the person least able to tell the
+ * difference.
+ */
+function freshness(lastAt: number | null): string {
+  if (lastAt == null) return "no events yet";
+  const seconds = Math.max(0, Math.round((Date.now() - lastAt) / 1000));
+  if (seconds < 10) return "live";
+  if (seconds < 90) return `${seconds}s since last event`;
+  return `${Math.round(seconds / 60)}m since last event`;
+}
 
 export default function LivePage() {
   const activeSession = useActiveSession();
@@ -49,10 +67,30 @@ export default function LivePage() {
   const realTotalSeen = stats?.totalSeen ?? 0;
   const realFps = stats?.fps ?? 0;
   const sessionStartedAt = stats?.sessionStartedAt;
+  // From the shared clock, not `Date.now()` in render. Read during render this
+  // was captured once at first paint and then never moved: an activation could
+  // run for an hour with the duration still reading the second it started, and
+  // the server and client renders disagreed about the value on top of that.
+  const now = useNow(1000);
   const sessionDurationSec = sessionStartedAt
-    ? Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000))
+    ? Math.max(0, Math.floor((now - sessionStartedAt) / 1000))
     : 0;
   const isDetectorRunning = useLiveSession((s) => s.status === "running");
+
+  /*
+   * The durable log — the thing this page never read.
+   *
+   * Every number here used to come from the browser's own webcam tracker (this
+   * tab, this machine) or from a mock file, so an activation running the way the
+   * backend was built for — a real camera feeding perception → bus → tracker —
+   * showed nothing at all on the live screen.
+   *
+   * Precedence below is bus → detector → honest empty. The bus wins because it
+   * is the durable record of the whole activation across every camera, while the
+   * detector is one tab's view of one webcam.
+   */
+  const live = useLiveStats(activeSession);
+  const fromBus = live.hasData;
 
   return (
     <div className="p-5 space-y-5 max-w-[1600px] mx-auto">
@@ -61,100 +99,112 @@ export default function LivePage() {
           <strong>{alerts[0].title}</strong> — {alerts[0].body}
         </div>
       )}
-      {/* ── Top KPI strip — go LIVE when the detector runs; otherwise reflect
-         the demo's curated numbers OR a clean "no data yet" for fresh sessions. */}
+      {/* ── Top KPI strip.
+         Precedence: the durable log, then this tab's detector, then an honest
+         empty. The old deltas — "+2 in last 5m", "+18 last hour", "+12% wk" —
+         are gone for the same reason the report's "+18% vs Yday" went: there is
+         no previous period in the log to compare against, so they were
+         comparisons with nothing. What replaces them is what is actually known. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiTile
           icon={<Users size={14} />}
           label="People now"
           value={
-            isDetectorRunning
-              ? realPeopleNow.toString()
-              : isDemo
-                ? liveCounts.peopleNow.toString()
+            fromBus
+              ? live.peopleNow.toString()
+              : isDetectorRunning
+                ? realPeopleNow.toString()
                 : "0"
           }
           accent="brand"
-          series={
-            isDetectorRunning
-              ? peopleHistory
-              : isDemo
-                ? [8, 11, 9, 12, 14, 13, 15, 14]
-                : []
-          }
+          series={fromBus ? live.traffic : isDetectorRunning ? peopleHistory : []}
           delta={
-            isDetectorRunning
-              ? {
-                  value: `${realFps.toFixed(1)} fps live`,
-                  direction: realPeopleNow > 0 ? "up" : "flat",
-                }
-              : isDemo
-                ? { value: "+2 in last 5m", direction: "up" }
-                : { value: "camera idle", direction: "flat" }
+            fromBus
+              ? { value: freshness(live.lastEventAt), direction: "flat" }
+              : isDetectorRunning
+                ? {
+                    value: `${realFps.toFixed(1)} fps live`,
+                    direction: realPeopleNow > 0 ? "up" : "flat",
+                  }
+                : { value: "no feed", direction: "flat" }
           }
         />
         <KpiTile
           icon={<Activity size={14} />}
-          label={isDetectorRunning ? "Unique today" : "Today"}
+          label="Unique visitors"
           value={
-            isDetectorRunning
-              ? realTotalSeen.toString()
-              : isDemo
-                ? formatNumber(liveCounts.peopleToday)
+            fromBus
+              ? formatNumber(live.scorecard.reach.uniqueVisitors)
+              : isDetectorRunning
+                ? realTotalSeen.toString()
                 : "0"
           }
-          series={isDetectorRunning ? peopleHistory : isDemo ? [] : []}
+          series={fromBus ? live.traffic : isDetectorRunning ? peopleHistory : []}
           delta={
-            isDetectorRunning
-              ? { value: "this session", direction: "up" }
-              : isDemo
-                ? {
-                    value: `+${Math.round(liveCounts.peopleVsYesterday * 100)}% vs yesterday`,
-                    direction: "up",
-                  }
+            fromBus
+              ? {
+                  value: `${formatNumber(live.eventCount)} events recorded`,
+                  direction: "flat",
+                }
+              : isDetectorRunning
+                ? { value: "this session", direction: "up" }
                 : { value: "session not started", direction: "flat" }
           }
         />
         <KpiTile
           icon={<Timer size={14} />}
-          label={isDetectorRunning ? "Session length" : "Avg dwell"}
+          label="Avg dwell"
           value={
-            isDetectorRunning
-              ? formatDuration(sessionDurationSec)
-              : isDemo
-                ? formatDuration(liveCounts.avgDwellSeconds)
+            fromBus
+              ? formatDuration(live.scorecard.engagement.avgDwellSec)
+              : isDetectorRunning
+                ? formatDuration(sessionDurationSec)
                 : "—"
           }
-          series={isDemo ? dwellSeries.slice(-12) : []}
+          series={[]}
           delta={
-            isDetectorRunning
-              ? { value: "live", direction: "up" }
-              : isDemo
-                ? { value: "+12% wk", direction: "up" }
-                : activeSession.goals.targetDwellSec
-                  ? {
-                      value: `target ${formatDuration(activeSession.goals.targetDwellSec)}`,
-                      direction: "flat",
-                    }
-                  : { value: "no target set", direction: "flat" }
+            activeSession.goals.targetDwellSec
+              ? {
+                  value: `target ${formatDuration(activeSession.goals.targetDwellSec)}`,
+                  direction:
+                    fromBus &&
+                    live.scorecard.engagement.avgDwellSec >=
+                      activeSession.goals.targetDwellSec
+                      ? "up"
+                      : "flat",
+                }
+              : fromBus
+                ? { value: "no target set", direction: "flat" }
+                : { value: "no data yet", direction: "flat" }
           }
         />
         <KpiTile
           icon={<Zap size={14} />}
-          label="Triggers fired"
-          value={isDemo ? formatNumber(liveCounts.triggers) : "0"}
-          accent="amber"
-          series={isDemo ? triggerSeries.slice(-12) : []}
-          delta={
-            isDemo
-              ? { value: "+18 last hour", direction: "up" }
-              : {
-                  value: `${activeSession.touchpoints.length} touchpoints ready`,
-                  direction: "flat",
-                }
+          label="Touchpoint uses"
+          value={
+            fromBus
+              ? formatNumber(live.scorecard.engagement.surfaceInteractions)
+              : "0"
           }
+          accent="amber"
+          series={[]}
+          delta={{
+            value: `${activeSession.touchpoints.length} touchpoints configured`,
+            direction: "flat",
+          }}
         />
       </div>
+
+      <LiveRoiTile stats={live} session={activeSession} />
+
+      {/* Above the cost tile on purpose: this is the one panel on the page that
+          is asking somebody to do something in the next few seconds, and the
+          rest of the screen is reporting on what already happened. */}
+      {/* The log's clock. A prompt *is* an event, so an empty log means an empty
+          panel and the fallback is never the value anything is aged against. */}
+      <StaffPromptTile prompts={live.prompts} now={live.lastEventAt ?? 0} />
+
+      <CostTile cost={live.cost} />
 
       {/* ── Main grid */}
       <div className="grid grid-cols-12 gap-5">
@@ -254,14 +304,17 @@ export default function LivePage() {
             >
               <ul className="space-y-1.5">
                 {stats.activeTracks.map((t) => (
-                  <TrackRow key={t.id} track={t} />
+                  // The clock is passed down rather than read per row: forty
+                  // tracks subscribing individually is forty timers for one
+                  // number they all agree on.
+                  <TrackRow key={t.id} track={t} now={now} />
                 ))}
               </ul>
             </Panel>
           )}
 
           <Panel title="Zones · live" subtitle="Visitors currently in each zone">
-            <ZoneList />
+            <ZoneList occupancy={live.zoneOccupancy} hasData={fromBus} />
           </Panel>
 
           <Panel
@@ -292,7 +345,7 @@ export default function LivePage() {
                     width={220}
                     height={56}
                     stroke="var(--accent)"
-                    fill="rgba(66,250,161,0.10)"
+                    fill="rgba(0,212,170,0.10)"
                     showLast
                   />
                   <div className="mt-1 text-[10px] tabular text-text-muted flex justify-between">
@@ -310,39 +363,7 @@ export default function LivePage() {
             )}
           </Panel>
 
-          <Panel
-            title="Insights"
-            subtitle={
-              isDemo
-                ? "Generated every 10 minutes by the AI"
-                : "Insights generate after the first 50 detections"
-            }
-            action={<Sparkles size={14} className="text-accent-violet" />}
-          >
-            {isDemo ? (
-              <ul className="space-y-3 text-sm">
-                <Insight
-                  text="Visitors who try the Scent Quiz dwell 2.4× longer in the Lounge."
-                  ts="3m ago"
-                />
-                <Insight
-                  text="Bottle Wall captures 86% of gazes for visitors within 1m."
-                  ts="11m ago"
-                />
-                <Insight
-                  text="Entry Arch is dropping 38% of visitors within 30s — queue signage unclear."
-                  ts="22m ago"
-                  warn
-                />
-              </ul>
-            ) : (
-              <EmptyState
-                icon={<Sparkles size={18} />}
-                title="No insights yet."
-                hint="The AI surfaces a fresh round of insights every 10 minutes after detections begin."
-              />
-            )}
-          </Panel>
+          <InsightsPanel insights={live.insights} />
 
           <Panel title="Engine" subtitle="What's running this">
             <dl className="grid grid-cols-2 gap-y-2 text-sm">
@@ -388,8 +409,8 @@ function TouchpointPanel() {
             <span
               className="w-2 h-2 rounded-full"
               style={{
-                background: zone?.color ?? "#42faa1",
-                boxShadow: `0 0 10px ${zone?.color ?? "#42faa1"}`,
+                background: zone?.color ?? BRAND_DATA,
+                boxShadow: `0 0 10px ${zone?.color ?? BRAND_DATA}`,
               }}
             />
             <div className="min-w-0">
@@ -485,32 +506,10 @@ function KpiTile({
   );
 }
 
-function Insight({
-  text,
-  ts,
-  warn,
-}: {
-  text: string;
-  ts: string;
-  warn?: boolean;
-}) {
-  return (
-    <li className="flex gap-3">
-      <span
-        className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${
-          warn ? "bg-accent-amber" : "bg-accent-violet"
-        }`}
-      />
-      <div className="flex-1">
-        <div className="text-text-primary leading-snug">{text}</div>
-        <div className="text-[10px] tabular text-text-muted mt-0.5">{ts}</div>
-      </div>
-    </li>
-  );
-}
-
-function TrackRow({ track }: { track: Track }) {
-  const lifespanSec = (Date.now() - track.firstSeen) / 1000;
+function TrackRow({ track, now }: { track: Track; now: number }) {
+  // `now` is 0 until the clock has ticked on the client, which would read as a
+  // negative lifespan. Clamped, because "in frame for -3s" is worse than "0s".
+  const lifespanSec = now ? Math.max(0, (now - track.firstSeen) / 1000) : 0;
   return (
     <li className="flex items-center gap-3 px-2.5 py-2 rounded-md hover:bg-bg-elevated transition-colors">
       <span
@@ -582,12 +581,12 @@ function LiveTrafficChart({ history }: { history: number[] }) {
       >
         <defs>
           <linearGradient id="liveFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#42faa1" stopOpacity={0.28} />
-            <stop offset="100%" stopColor="#42faa1" stopOpacity={0} />
+            <stop offset="0%" stopColor={BRAND_DATA} stopOpacity={0.28} />
+            <stop offset="100%" stopColor={BRAND_DATA} stopOpacity={0} />
           </linearGradient>
         </defs>
         <path d={`${path} L 100 100 L 0 100 Z`} fill="url(#liveFill)" />
-        <path d={path} stroke="#42faa1" strokeWidth="0.6" fill="none" />
+        <path d={path} stroke={BRAND_DATA} strokeWidth="0.6" fill="none" />
       </svg>
       <div className="absolute top-2 left-2 text-[10px] tabular text-text-muted">
         people in frame

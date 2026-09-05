@@ -38,6 +38,20 @@ Thumbs.db
 .idea/
 *.iml
 
+# Python
+**/.venv/
+**/__pycache__/
+*.py[cod]
+**/.pytest_cache/
+
+# ML model weights — large binaries, downloaded on first run
+*.pt
+
+# Producer offline buffer — unsent events waiting for the bus to come back.
+# Exactly the file somebody would otherwise commit after a bad conference day.
+*.bus-buffer.jsonl
+.bus-buffer.jsonl
+
 # Misc
 *.tsbuildinfo
 **/next-env.d.ts
@@ -48,3 +62,8 @@ Thumbs.db
 # Cursor / Claude noise
 **/CLAUDE.md
 **/AGENTS.md
+
+# The edge box's local copy of its privacy mask. A runtime artefact, and the
+# polygon is deliberately kept off the event log too — a booth's sensitive
+# geometry does not belong in every export of it (privacy.md).
+perception/.mask-cache.json

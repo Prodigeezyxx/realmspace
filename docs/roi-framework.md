@@ -101,8 +101,19 @@ We never inflate. Over-claiming kills the trust that is our moat.
    recommendations. Now templated from real session data.
 2. **The live ROI scorecard** — the four layers as a live dashboard tile during
    the activation, so operators optimise on day 2.
-3. **Benchmark comparison** — this activation vs. the client's own history vs.
-   the anonymised realmspace network median (the multi-tenant network effect).
+3. **Benchmark comparison** — this activation vs. the client's own history
+   ✅ *(2026-08-24)*, vs. the anonymised realmspace network median 🔲.
+
+   The first half is on the report: the median of their last three activations,
+   on unique visitors, engagement rate, average dwell and ROI ratio, each row
+   carrying how many previous activations it rests on. Every figure comes from
+   the same `computeScorecard` the report itself uses, run over each earlier
+   session's own log against the parameters that session was actually run with.
+
+   The second half is named on the card as absent. It needs anonymised
+   aggregates across tenants (`multi-tenant.md` §6) and nothing in the system can
+   read another tenant's data — row-level security fails closed on the attempt,
+   and there is no aggregator. A figure we cannot produce gets a stated absence.
 4. **The attribution ledger** — an exportable, auditable list of every
    booth-touch → outcome link with timestamps and consent basis. This is what a
    CFO/auditor asks for; nobody else in the category ships it.
@@ -133,6 +144,10 @@ The strongest ROI comes from planning it into the activation, not bolting it on:
 - **Live ROI tile**: after the report is real.
 - **Attribution ledger + CFO one-pager**: depends on identity + CRM
   (`integrations.md`, `consent-and-identity.md`).
-- **Network benchmark**: depends on multi-tenant cloud sync (`multi-tenant.md`).
+- **Own-history benchmark**: ✅ built. Needs only the session listing, because
+  the comparison is the same scorecard run over each earlier session's log.
+- **Network benchmark**: still depends on multi-tenant cloud sync
+  (`multi-tenant.md`) — an aggregator that can see across tenants, which is
+  exactly what nothing here is allowed to be.
 
 See `roadmap.md` for exact sequencing and acceptance criteria.

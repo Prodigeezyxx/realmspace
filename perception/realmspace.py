@@ -5,7 +5,8 @@ Open the webcam, detect people with YOLOv8, draw bounding boxes with
 persistent IDs (ByteTrack), and emit structured event JSON to stdout.
 
 Usage:
-    python realmspace.py                       # uses default camera
+    python realmspace.py                       # uses default camera, stdout only
+    python realmspace.py --bus-url http://127.0.0.1:8000 --api-key "$KEY"
     python realmspace.py --source 1            # use camera index 1
     python realmspace.py --source clip.mp4     # use a video file
     python realmspace.py --headless            # no preview window
@@ -25,12 +26,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from dataclasses import dataclass, asdict
 from typing import Iterable
 
 import cv2  # opencv-python
+
+from bus_client import BusClient
+from capture import open_first_frame, read_frame
+from heading import heading_from_keypoints
+from mask import MaskFetcher, MaskUnavailable
 
 
 @dataclass
@@ -41,6 +48,14 @@ class Detection:
     person_id: str
     bbox: list[float]
     confidence: float
+    #: Which way they are facing, radians in the image plane, or None when the
+    #: keypoints did not support an answer. See `heading_from_keypoints` — this
+    #: is the *only* thing derived from the skeleton that leaves this process.
+    heading: float | None = None
+    #: How much to trust it, 0..1. Ships with the heading rather than being
+    #: folded into it, so a reader can judge the measurement instead of a
+    #: verdict — the argument `drift.detected` makes for its own numbers.
+    heading_confidence: float | None = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,8 +67,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--model",
-        default="yolov8n.pt",
-        help="ultralytics model checkpoint (default: yolov8n.pt, downloads on first run)",
+        default="yolov8n-pose.pt",
+        help="ultralytics model checkpoint. The pose default is what gaze needs — a\n             detect model still tracks and dwells, it just carries no heading",
     )
     p.add_argument(
         "--conf",
@@ -70,6 +85,39 @@ def parse_args() -> argparse.Namespace:
         "--save",
         default=None,
         help="optional folder to save annotated frames",
+    )
+    p.add_argument(
+        "--bus-url",
+        default="",
+        help="edge API base URL, e.g. http://127.0.0.1:8000. Omit for stdout only.",
+    )
+    p.add_argument(
+        "--tenant-id",
+        default="t_floats",
+        help="tenant scope for bus events (default: t_floats)",
+    )
+    p.add_argument(
+        "--session-id",
+        default="s_demo",
+        help="activation this run belongs to (default: s_demo)",
+    )
+    p.add_argument(
+        "--camera-id",
+        default="cam-1",
+        help="which camera this process is. Names the privacy mask it fetches "
+             "and the camera drift telemetry is attributed to (default: cam-1).",
+    )
+    p.add_argument(
+        "--api-key",
+        default=os.environ.get("REALMSPACE_API_KEY", ""),
+        help="device key. Prefer REALMSPACE_API_KEY so it stays out of shell history.",
+    )
+    p.add_argument(
+        "--bus-interval",
+        type=float,
+        default=0.2,
+        help="min seconds between posted detections (default 0.2). Throttles the "
+             "bus without throttling stdout.",
     )
     return p.parse_args()
 
@@ -92,7 +140,11 @@ def detections_for_frame(
     for res in yolo_results:
         if res.boxes is None:
             continue
-        for box in res.boxes:
+        # Present only when a pose model is loaded. A plain detect model leaves
+        # this None and every detection simply carries no heading, so an
+        # existing deployment keeps working and gaze is absent rather than wrong.
+        kp = getattr(res, "keypoints", None)
+        for idx, box in enumerate(res.boxes):
             cls = int(box.cls.item()) if hasattr(box.cls, "item") else int(box.cls[0])
             # COCO class 0 = person
             if cls != 0:
@@ -103,6 +155,17 @@ def detections_for_frame(
             xyxy = box.xyxy[0].tolist()
             tid = int(box.id.item()) if box.id is not None else -1
             person_id = f"P-{tid:03d}" if tid >= 0 else "P-???"
+
+            heading = heading_conf = None
+            if kp is not None and kp.xy is not None and idx < len(kp.xy):
+                points = kp.xy[idx].tolist()
+                # `conf` is None on a pose model run without confidences; treat
+                # that as "no evidence" rather than as certainty.
+                raw = kp.conf[idx].tolist() if kp.conf is not None else []
+                found = heading_from_keypoints(points, raw)
+                if found is not None:
+                    heading, heading_conf = found
+
             yield Detection(
                 type="detection",
                 ts=ts,
@@ -110,6 +173,8 @@ def detections_for_frame(
                 person_id=person_id,
                 bbox=[round(v, 2) for v in xyxy],
                 confidence=round(conf, 3),
+                heading=None if heading is None else round(heading, 4),
+                heading_confidence=heading_conf,
             )
 
 
@@ -139,12 +204,52 @@ def main() -> int:
     if source.isdigit():
         source = int(source)
 
+    # A numeric --source is a camera index; anything else is a path. The
+    # distinction decides what a failed read means later on, and it is the one
+    # the old loop did not make.
+    live = isinstance(source, int)
+
     cap = cv2.VideoCapture(source)
     if not cap.isOpened():
         print(f"could not open source: {args.source}", file=sys.stderr)
         return 1
 
     yolo = load_yolo(args.model)
+
+    bus = BusClient(
+        base_url=args.bus_url,
+        tenant_id=args.tenant_id,
+        session_id=args.session_id,
+        api_key=args.api_key,
+    )
+    if bus.enabled:
+        pending = bus.pending()
+        print(
+            json.dumps({"type": "bus_enabled", "url": args.bus_url,
+                        "tenant": args.tenant_id, "session": args.session_id,
+                        "buffered_from_last_run": pending}),
+            file=sys.stderr, flush=True,
+        )
+
+    # Before the first frame is read, and therefore before any inference. A
+    # mask established after the loop has started is a mask that missed frames,
+    # and privacy.md's promise is about every frame. Failing here also fails
+    # before the preview window opens, so a refused start is not a booth showing
+    # unmasked video to the room while somebody reads the error.
+    masker = MaskFetcher(bus, session_id=args.session_id, camera_id=args.camera_id)
+    try:
+        mask = masker.start()
+    except MaskUnavailable as exc:
+        print(json.dumps({"type": "mask_unavailable", "error": str(exc)}),
+              file=sys.stderr, flush=True)
+        cap.release()
+        return 2
+    print(
+        json.dumps({"type": "mask", "camera": args.camera_id,
+                    "masking": mask.masks_anything, "revision": mask.revision,
+                    "source": mask.source}),
+        file=sys.stderr, flush=True,
+    )
 
     print(
         json.dumps(
@@ -158,24 +263,127 @@ def main() -> int:
         ),
         flush=True,
     )
+    # session.started on the bus is a separate thing from the stdout line above:
+    # one is for a human watching the terminal, the other is an event in the log
+    # that the report and the twin will read back later (spec §3).
+    bus.post(
+        "session.started",
+        {"source": str(args.source), "model": args.model,
+         "camera_id": args.camera_id},
+    )
+
+    # Opened is not the same as delivering. A camera that needs a moment to wake
+    # used to end the run here: one failed read, `frames: 0`, and nothing in the
+    # output saying the camera had never produced anything.
+    ok, first_frame, attempts = open_first_frame(cap)
+    if not ok:
+        print(
+            json.dumps({
+                "type": "no_frames",
+                "source": str(args.source),
+                "attempts": attempts,
+                "error": "the source opened but never delivered a frame",
+            }),
+            file=sys.stderr, flush=True,
+        )
+        cap.release()
+        return 3
+    if attempts > 1:
+        # Worth saying and not worth an error: this is what a device waking up
+        # looks like, and an operator seeing it once knows why startup paused.
+        print(
+            json.dumps({"type": "camera_woke", "attempts": attempts}),
+            file=sys.stderr, flush=True,
+        )
 
     frame_id = 0
+    dropped_frames = 0
+    pending_frame = first_frame
     fps_t0 = time.time()
     fps_frames = 0
     fps = 0.0
+    last_bus_post = 0.0
     try:
         while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
+            if pending_frame is not None:
+                # The frame `open_first_frame` already took. Reading again here
+                # would throw away the one that proved the camera works.
+                frame, dropped = pending_frame, 0
+                pending_frame = None
+            else:
+                ok, frame, dropped = read_frame(cap, live=live)
+                if not ok:
+                    # On a file this is the end of the clip. On a camera it is a
+                    # device that has actually gone away, having been given
+                    # DROPOUT_TIMEOUT to come back.
+                    break
+            dropped_frames += dropped
             frame_id += 1
             ts = time.time()
 
+            # Before the model, before the overlay, before --save. The frame is
+            # masked in place and nothing downstream holds the original, which
+            # is the only version of this that cannot leak by omission.
+            if masker.poll():
+                print(
+                    json.dumps({"type": "mask_updated", "camera": args.camera_id,
+                                "masking": masker.mask.masks_anything,
+                                "revision": masker.mask.revision}),
+                    file=sys.stderr, flush=True,
+                )
+            frame = masker.apply(frame, cv2)
+
             results = yolo.track(frame, persist=True, conf=args.conf, classes=[0], verbose=False)
+
+            # frame.shape is (height, width, channels). The bus needs both:
+            # bboxes are in pixels and zone polygons are normalised 0..1, so a
+            # detection without them cannot be placed in a zone and the tracker
+            # dead-letters it (event-bus-spec.md §3).
+            frame_h, frame_w = frame.shape[0], frame.shape[1]
 
             for d in detections_for_frame(results, frame_id, ts, args.conf):
                 print(json.dumps(asdict(d)), flush=True)
                 draw_overlay(frame, d)
+
+                # Throttled. stdout keeps every detection because that is a
+                # debugging stream; the bus is an append-only log, and one row
+                # per person per frame at 20fps would be thousands a minute of
+                # near-identical events nobody will ever read.
+                if bus.enabled and (ts - last_bus_post) >= args.bus_interval:
+                    bus.post(
+                        "perception.detection",
+                        {
+                            "anon_id": d.person_id,
+                            "bbox": d.bbox,
+                            "confidence": d.confidence,
+                            "frame_id": d.frame_id,
+                            "frame_width": frame_w,
+                            "frame_height": frame_h,
+                            # Which camera saw this. Additive to the payload
+                            # event-bus-spec.md §3 pins for perception.detection,
+                            # and the field the drift consumer groups on — a
+                            # confidence mean averaged across two cameras
+                            # describes neither.
+                            "camera_id": args.camera_id,
+                            # Two scalars, and only when the skeleton supported
+                            # them. The keypoints they came from are already
+                            # out of scope by the time this runs: privacy.md
+                            # keeps pose "briefly" for a gaze vector, and the
+                            # bus is append-only and exported, so a skeleton
+                            # posted here would be permanent. The consumer
+                            # applies the confidence threshold, so the decision
+                            # lives in one place rather than at every camera.
+                            **(
+                                {}
+                                if d.heading is None
+                                else {
+                                    "heading": d.heading,
+                                    "heading_confidence": d.heading_confidence,
+                                }
+                            ),
+                        },
+                    )
+                    last_bus_post = ts
 
             fps_frames += 1
             if time.time() - fps_t0 > 1.0:
@@ -206,8 +414,23 @@ def main() -> int:
         cap.release()
         if not args.headless:
             cv2.destroyAllWindows()
+        # In `finally`, so Ctrl-C still closes the session properly rather than
+        # leaving it open forever in the log.
+        bus.post("session.ended", {"frames": frame_id})
+        if bus.enabled and bus.pending():
+            print(
+                json.dumps({"type": "bus_pending_at_exit", "events": bus.pending(),
+                            "note": "will replay on next run"}),
+                file=sys.stderr, flush=True,
+            )
         print(
-            json.dumps({"type": "session_end", "ts": time.time(), "frames": frame_id}),
+            json.dumps({
+                "type": "session_end", "ts": time.time(), "frames": frame_id,
+                # So a run that limped is distinguishable from a clean one.
+                # Without this the only evidence is a frame count nobody has a
+                # baseline for.
+                "dropped_frames": dropped_frames,
+            }),
             flush=True,
         )
 

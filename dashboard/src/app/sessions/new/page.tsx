@@ -44,9 +44,17 @@ import { dispatchTrigger } from "@/lib/agent-engine";
 import { setActivePrefabId } from "@/lib/prefab-store";
 import { applyPrefabToDraft } from "@/lib/prefabs/apply";
 import { getPrefab } from "@/lib/prefabs";
+import { busEmail } from "@/lib/bus";
+import {
+  DEFAULT_CONSENT_COPY,
+  copyVersionFor,
+} from "@/lib/session/consentCopy";
+import { publishSessionConfig } from "@/lib/session/publish";
 import { sessionActions } from "@/lib/session/store";
+import { blockedReason } from "@/lib/session/wizard-validation";
 import type {
   Camera,
+  Measurement,
   PrimaryObjective,
   PrivacyMode,
   SessionDraft,
@@ -54,6 +62,7 @@ import type {
   Touchpoint,
   Zone,
 } from "@/lib/session/types";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 const TOTAL_STEPS = 5;
 
@@ -123,6 +132,12 @@ export default function NewSessionPage() {
   // ── Step 5: privacy + goals
   const [privacyMode, setPrivacyMode] = useState<PrivacyMode>("default");
   const [consentSignage, setConsentSignage] = useState(true);
+  // What a consent kiosk shows. Seeded rather than blank: an operator who never
+  // opens this step still gets a working kiosk with wording somebody wrote,
+  // instead of a 409 at the stand — and the version moves on its own the moment
+  // they change a word. See `lib/session/consentCopy.ts`.
+  const [consentCopy, setConsentCopy] = useState(DEFAULT_CONSENT_COPY);
+  const [consentTier, setConsentTier] = useState<"T1" | "T2" | "T3">("T2");
   const [retentionDays, setRetentionDays] = useState<number | "">(30);
   const [recipientsCsv, setRecipientsCsv] = useState("");
   const [primaryObjective, setPrimaryObjective] = useState<PrimaryObjective>("brand_awareness");
@@ -130,6 +145,23 @@ export default function NewSessionPage() {
   const [targetDwellSec, setTargetDwellSec] = useState<number | "">(240);
   const [targetCaptures, setTargetCaptures] = useState<number | "">(400);
   const [notes, setNotes] = useState("");
+
+  // ── Step 5: measurement — the parameters the ROI report divides by.
+  // Defaults match backend/app/schemas.py and lib/roi/scorecard.ts. If these
+  // three drift apart the same session scores differently in three places.
+  const [engagedThresholdSec, setEngagedThresholdSec] = useState<number | "">(60);
+  const [activationCost, setActivationCost] = useState<number | "">("");
+  const [currency, setCurrency] = useState("USD");
+  const [attributionModel, setAttributionModel] =
+    useState<NonNullable<Measurement["attributionModel"]>>("influenced");
+  // Client-supplied, not measured — see Measurement in session/types.ts.
+  const [revenueInfluenced, setRevenueInfluenced] = useState<number | "">("");
+  const [qualifiedLeads, setQualifiedLeads] = useState<number | "">("");
+
+  // ── Publishing to the backend
+  const { user } = useAuth();
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
 
   // ── When the user picks a type, hydrate zones + touchpoints from presets.
   function selectType(t: SessionType) {
@@ -152,19 +184,23 @@ export default function NewSessionPage() {
 
   const typeMeta = type ? getTypeMeta(type) : null;
 
-  // Validation per step
-  const canAdvance = useMemo(() => {
-    if (step === 1) return Boolean(type && name.trim());
-    if (step === 2) return Boolean(venue.trim() && startAtLocal);
-    if (step === 3)
-      return (
-        Boolean(prefabId) &&
-        zones.length > 0 &&
-        zones.every((z) => z.name.trim())
-      );
-    if (step === 4) return touchpoints.every((t) => t.name.trim());
-    return true;
-  }, [step, type, name, venue, startAtLocal, prefabId, zones, touchpoints]);
+  // Why this step will not advance — the sentence, not a boolean. The rules
+  // live in `lib/session/wizard-validation.ts` so they can be read and tested
+  // without rendering a five-step form.
+  const blocked = useMemo(
+    () =>
+      blockedReason(step, {
+        type,
+        name,
+        venue,
+        startAtLocal,
+        prefabId,
+        zones,
+        touchpoints,
+      }),
+    [step, type, name, venue, startAtLocal, prefabId, zones, touchpoints]
+  );
+  const canAdvance = blocked === null;
 
   function selectPrefab(id: string) {
     const applied = applyPrefabToDraft(id, {
@@ -187,8 +223,8 @@ export default function NewSessionPage() {
     if (step < TOTAL_STEPS) setStep(step + 1);
   }
 
-  function launch() {
-    if (!type) return;
+  async function launch() {
+    if (!type || publishing) return;
     const draft: SessionDraft = {
       name: name.trim(),
       type,
@@ -223,16 +259,47 @@ export default function NewSessionPage() {
       privacy: {
         mode: privacyMode,
         consentSignage,
+        consentCopy: consentCopy.trim() || undefined,
+        consentCopyVersion: copyVersionFor(consentCopy) || undefined,
+        consentTier,
         retentionDays:
           typeof retentionDays === "number" ? retentionDays : 30,
         recipients: recipientsCsv
           ? recipientsCsv.split(",").map((s) => s.trim()).filter(Boolean)
           : undefined,
       },
+      measurement: {
+        engagedThresholdSec:
+          typeof engagedThresholdSec === "number" ? engagedThresholdSec : 60,
+        activationCost:
+          typeof activationCost === "number" ? activationCost : undefined,
+        currency,
+        attributionModel,
+        revenueInfluenced:
+          typeof revenueInfluenced === "number" ? revenueInfluenced : undefined,
+        qualifiedLeads:
+          typeof qualifiedLeads === "number" ? qualifiedLeads : undefined,
+      },
       notes: notes.trim() || undefined,
     };
     const created = sessionActions.createSession(draft, { activate: true });
     if (created.prefabId) setActivePrefabId(created.prefabId);
+
+    // Publish before navigating. If this fails the operator has to know now:
+    // the session looks completely normal in this app — zones on screen, wizard
+    // says launched — while the backend has no zones at all and the tracker is
+    // therefore emitting nothing. Silence here is the exact failure that made
+    // POST /v1/sessions necessary in the first place.
+    setPublishing(true);
+    const result = await publishSessionConfig(
+      created,
+      user?.email ?? busEmail()
+    );
+    setPublishing(false);
+    if (!result.ok) {
+      setPublishError(result.detail ?? "could not publish to the bus");
+      return;
+    }
     void dispatchTrigger({
       type: "twin_layout_loaded",
       timestamp: Date.now(),
@@ -633,6 +700,56 @@ export default function NewSessionPage() {
                   />
                 </Field>
               </div>
+
+              {/* The kiosk's wording. Its own block rather than a fourth column
+                  because it is the one thing on this step a visitor actually
+                  reads, and because the version beneath it is the field a
+                  withdrawal argument is settled by. */}
+              <div className="grid md:grid-cols-3 gap-5">
+                <div className="md:col-span-2">
+                  <Field
+                    label="Consent wording at the kiosk"
+                    hint="Shown on the phone or plinth a visitor scans. This exact text is what they agree to."
+                  >
+                    <TextArea
+                      rows={5}
+                      value={consentCopy}
+                      onChange={(e) => setConsentCopy(e.target.value)}
+                    />
+                  </Field>
+                  <p className="mt-2 text-xs text-text-muted">
+                    Recorded as{" "}
+                    <span className="font-mono">
+                      {copyVersionFor(consentCopy) || "— nothing to record"}
+                    </span>
+                    . The version follows the words: change one and it changes,
+                    so every consent can be traced to what was on the screen.
+                  </p>
+                </div>
+                <Field
+                  label="What the kiosk asks for"
+                  hint="T2 and above may be contacted. Below it, nothing reaches a CRM."
+                >
+                  <div className="flex flex-col gap-2">
+                    {(["T1", "T2", "T3"] as const).map((tier) => (
+                      <button
+                        key={tier}
+                        type="button"
+                        onClick={() => setConsentTier(tier)}
+                        className={`h-10 px-3 rounded-xl border text-sm text-left transition-colors ${
+                          consentTier === tier
+                            ? "bg-accent/8 border-accent/40 text-accent"
+                            : "bg-bg-panel border-border-subtle text-text-secondary"
+                        }`}
+                      >
+                        {tier === "T1" && "T1 — keep details with this visit"}
+                        {tier === "T2" && "T2 — and may be contacted"}
+                        {tier === "T3" && "T3 — and may be enriched"}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+              </div>
             </section>
 
             {/* Goals */}
@@ -700,6 +817,129 @@ export default function NewSessionPage() {
                     placeholder="e.g. The client is also using this as a press moment. The Lounge is sponsored by..."
                   />
                 </Field>
+              </div>
+            </section>
+
+            {/* Measurement — the ROI parameters, agreed before doors open */}
+            <section>
+              <h2 className="text-xl font-semibold tracking-tight inline-flex items-center gap-2 mb-2">
+                <Zap size={18} className="text-accent" />
+                How this gets scored
+              </h2>
+              <p className="text-xs text-text-secondary mb-4 max-w-2xl leading-relaxed">
+                Set now, with the client — not after the results are in. These are
+                the numbers the ROI report divides by, so agreeing them up front is
+                what makes the final figure un-arguable.
+              </p>
+              <div className="grid md:grid-cols-2 gap-5">
+                <Field
+                  label="Engaged after (seconds)"
+                  hint="Dwell above this counts as a real engagement, not a walk-past."
+                >
+                  <NumberInput
+                    min={1}
+                    value={engagedThresholdSec}
+                    onChange={(e) =>
+                      setEngagedThresholdSec(
+                        e.target.value ? parseInt(e.target.value, 10) : ""
+                      )
+                    }
+                  />
+                </Field>
+                <Field
+                  label="Attribution model"
+                  hint="Which touch gets credit for a conversion."
+                >
+                  <Select
+                    value={attributionModel}
+                    onChange={(e) =>
+                      setAttributionModel(
+                        e.target.value as NonNullable<
+                          Measurement["attributionModel"]
+                        >
+                      )
+                    }
+                  >
+                    <option value="influenced">
+                      Influenced — any booth touch in the window
+                    </option>
+                    <option value="first_touch">First touch</option>
+                    <option value="last_touch">Last touch</option>
+                    <option value="linear">Multi-touch — linear</option>
+                    <option value="time_decay">Multi-touch — time decay</option>
+                  </Select>
+                </Field>
+                <Field
+                  label="Total activation cost"
+                  hint="Cost per engaged visit and the ROI ratio are both computed from this. Leave blank if not yet known."
+                >
+                  <NumberInput
+                    min={0}
+                    value={activationCost}
+                    onChange={(e) =>
+                      setActivationCost(
+                        e.target.value ? parseFloat(e.target.value) : ""
+                      )
+                    }
+                  />
+                </Field>
+                <Field label="Currency">
+                  <Select
+                    value={currency}
+                    onChange={(e) => setCurrency(e.target.value)}
+                  >
+                    {["USD", "GBP", "EUR", "NGN", "AED", "ZAR"].map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+
+              <div className="mt-5 panel p-5 space-y-4">
+                <div>
+                  <div className="text-sm font-semibold tracking-tight">
+                    The client&apos;s own pipeline figures
+                  </div>
+                  <p className="text-xs text-text-secondary mt-1.5 leading-relaxed max-w-2xl">
+                    realmspace measures behaviour, not revenue — attributed
+                    revenue arrives with the CRM phase. Until then these are the
+                    client&apos;s numbers, and the report labels them as such
+                    wherever they appear. Leave them blank and the ROI ratio shows
+                    as unknown rather than being estimated.
+                  </p>
+                </div>
+                <div className="grid md:grid-cols-2 gap-5">
+                  <Field
+                    label="Influenced revenue (optional)"
+                    hint="Pipeline or closed revenue the client attributes to this activation."
+                  >
+                    <NumberInput
+                      min={0}
+                      value={revenueInfluenced}
+                      onChange={(e) =>
+                        setRevenueInfluenced(
+                          e.target.value ? parseFloat(e.target.value) : ""
+                        )
+                      }
+                    />
+                  </Field>
+                  <Field
+                    label="Qualified leads (optional)"
+                    hint="Leave blank to use the count of consented captures we measure."
+                  >
+                    <NumberInput
+                      min={0}
+                      value={qualifiedLeads}
+                      onChange={(e) =>
+                        setQualifiedLeads(
+                          e.target.value ? parseInt(e.target.value, 10) : ""
+                        )
+                      }
+                    />
+                  </Field>
+                </div>
               </div>
             </section>
 
@@ -778,6 +1018,24 @@ export default function NewSessionPage() {
                 />
               </div>
             </section>
+
+            {publishError && (
+              <div
+                role="alert"
+                className="panel p-4 border-red-500/40 bg-red-500/5 text-sm"
+              >
+                <div className="font-semibold mb-1">
+                  The session was saved here, but the backend did not accept it.
+                </div>
+                <div className="text-text-secondary leading-relaxed">
+                  {publishError}
+                </div>
+                <div className="text-text-secondary leading-relaxed mt-2">
+                  Until it does, the cameras have no zones to measure against and
+                  the report will have nothing in it. Fix and press Launch again.
+                </div>
+              </div>
+            )}
           </div>
         </WizardStep>
       )}
@@ -786,7 +1044,7 @@ export default function NewSessionPage() {
         back={step > 1 ? back : undefined}
         next={step < TOTAL_STEPS ? next : undefined}
         finish={step === TOTAL_STEPS ? launch : undefined}
-        nextDisabled={!canAdvance}
+        blockedReason={blocked}
       />
     </div>
   );

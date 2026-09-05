@@ -7,6 +7,8 @@
  * get a persistent ID as you move around the room".
  */
 
+import { BRAND_BLUE, BRAND_DATA } from "@/lib/brand";
+
 export interface Detection {
   /** Original bbox from the detector: [x, y, width, height] in pixels. */
   bbox: [number, number, number, number];
@@ -32,8 +34,8 @@ export interface Track {
 }
 
 const PALETTE = [
-  "#42faa1", // brand mint
-  "#4a9eff", // blue
+  BRAND_DATA, // the brand's telemetry colour
+  BRAND_BLUE, // blue
   "#00d4ff", // cyan
   "#b66bff", // violet
   "#ffc83d", // amber

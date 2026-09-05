@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "build:firebase": "next build",
-    "deploy": "npm run build:firebase && cd .. && npx firebase deploy --only hosting"
+    "deploy": "npm run build:firebase && cd .. && npx firebase deploy --only hosting",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
@@ -36,7 +38,9 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "firebase-tools": "^15.18.0",
+    "jsdom": "^29.1.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

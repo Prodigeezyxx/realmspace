@@ -1,44 +1,70 @@
 @import "tailwindcss";
 
 /* ──────────────────────────────────────────────────────────────────
-   RealmSpace — Intellias-inspired design system
-   Black canvas · dark-grey panels · one vivid mint-green accent ·
-   pill-shaped chrome · heavy rounding · big display typography
+   realmspace — the design system, tokenised to docs/brand.md
+   Blue-black canvas · dark panels · teal for telemetry ·
+   orange reserved for things that demand attention
    ────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* Surfaces — true black with rich dark-grey panels */
-  --bg-base: #000000;
-  --bg-canvas: #050505;
-  --bg-panel: #131313;
-  --bg-elevated: #181818;
-  --bg-raised: #1f1f1f;        /* pill containers, raised surfaces */
-  --bg-input: #1a1a1a;
+  /* Surfaces — brand.md §3's Base, and a ramp built from it.
+     Not pure black: `--rs-base #0A0B10` is the book's canonical canvas, and the
+     panels above it carry the same blue cast. Neutral greys on a blue-black
+     base read as a colour error rather than as one system. */
+  --bg-base: #0a0b10;
+  --bg-canvas: #0d0e14;
+  --bg-panel: #14161d;
+  --bg-elevated: #191b23;
+  --bg-raised: #20222b;        /* pill containers, raised surfaces */
+  --bg-input: #1b1d25;
   --bg-inverse: #ffffff;        /* used for buttons on dark, etc. */
-  --bg-viewport: #0a0a0a;       /* video viewport background */
+  --bg-viewport: #0f1017;       /* video viewport background */
 
   /* Borders — very low contrast hairlines */
-  --border-hairline: #1c1c1c;
-  --border-subtle: #262626;
-  --border-strong: #383838;
-  --border-bright: #5a5a5a;
+  --border-hairline: #1e2028;
+  --border-subtle: #282b35;
+  --border-strong: #3a3d49;
+  --border-bright: #5b5f6d;
 
-  /* Text — clean white hierarchy */
+  /* Text — clean white hierarchy. brand.md §3: Foreground #FFFFFF is
+     "reserved for primary text & active elements; max legibility". */
   --text-primary: #ffffff;
-  --text-secondary: #a8a8ad;
-  --text-muted: #6e6e74;
-  --text-faint: #4a4a4f;
-  --text-inverse: #0a0a0a;     /* black text on green / white buttons */
+  --text-secondary: #a8aab5;
+  --text-muted: #6e7180;
+  --text-faint: #4a4d59;
+  --text-inverse: #0a0b10;     /* dark text on teal / white buttons */
 
-  /* Accents — the ONE green is the brand. Everything else is supporting */
-  --accent: #42faa1;                 /* mint-green — primary brand accent */
-  --accent-bright: #5efcab;          /* hover */
-  --accent-soft: rgba(66, 250, 161, 0.12);   /* tints */
+  /* ── The two brand accents, and the rule that keeps them apart ──────────
+     brand.md §3 gives each a job, and the jobs are not interchangeable:
 
-  /* Functional / semantic accents — used sparingly */
+       Data   #00D4AA — "spatial data viz, flow/movement, secondary UI"
+       Action #FF5C00 — "only for things that demand immediate attention:
+                         primary CTAs, live alerts, threshold-breach warnings,
+                         staff prompts. Do not overuse."
+
+     So `--accent` is the *calm* one. It is what the product wears on almost
+     every surface — pills, positive figures, zone strokes, chart series — and
+     pointing it at the alert colour would make an alarm of the whole UI, which
+     is the one thing the book says in bold not to do. `--accent-action` is the
+     loud one and is applied deliberately, at a handful of call sites.
+
+     Measured on `--bg-base` #0A0B10: teal 10.30:1, orange 6.35:1, both well
+     past 4.5:1. On paper they invert — see the print block far below, which is
+     where this palette has caught us out before. */
+  --accent: #00d4aa;                 /* Data — the telemetry colour */
+  --accent-bright: #33ddbb;          /* hover */
+  --accent-soft: rgba(0, 212, 170, 0.12);   /* tints */
+  --accent-action: #ff5c00;          /* Action — CTAs and alerts only */
+  --accent-action-bright: #ff7a2e;   /* hover */
+  --accent-action-soft: rgba(255, 92, 0, 0.12);
+
+  /* Functional / semantic accents — used sparingly. Retained deliberately:
+     brand.md §3 says "Keep functional status colours (success/warning/error)"
+     while mapping the brand accents to orange/teal. A report that encodes
+     meaning in colour needs more than two of them. */
   --accent-red: #ff4d4d;             /* alert / recording */
   --accent-amber: #ffc83d;           /* warn */
-  --accent-blue: #4a9eff;            /* info / chart series */
+  --accent-blue: #3b82f6;            /* info / chart series — brand.md §3 */
   --accent-cyan: #00d4ff;            /* live data / chart series */
   --accent-violet: #b66bff;          /* insights / chart series */
 
@@ -46,12 +72,19 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
   --shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --shadow-lg: 0 12px 40px -16px rgba(0, 0, 0, 0.8);
-  --glow-green: 0 0 32px -8px rgba(66, 250, 161, 0.45);
+  --glow-green: 0 0 32px -8px rgba(0, 212, 170, 0.45);
+  --glow-action: 0 0 32px -8px rgba(255, 92, 0, 0.45);
 
   /* Type */
-  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system,
+  /* brand.md §2. Three faces, three jobs, and the third one is a signal
+     rather than a style: "isolate IBM Plex Mono for data-driven contexts — it
+     is a visual cue that the user is looking at real, extracted telemetry."
+     So mono is not decoration here; it means the number came off the log. */
+  --font-head: var(--font-sora), ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", Roboto, sans-serif;
-  --font-mono: var(--font-mono-jb), ui-monospace, "JetBrains Mono",
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, "IBM Plex Mono",
     SFMono-Regular, Menlo, monospace;
 
   --background: var(--bg-base);
@@ -84,12 +117,15 @@
 
   --color-accent: var(--accent);
   --color-accent-bright: var(--accent-bright);
+  --color-accent-action: var(--accent-action);
+  --color-accent-action-bright: var(--accent-action-bright);
   --color-accent-red: var(--accent-red);
   --color-accent-amber: var(--accent-amber);
   --color-accent-blue: var(--accent-blue);
   --color-accent-cyan: var(--accent-cyan);
   --color-accent-violet: var(--accent-violet);
 
+  --font-head: var(--font-head);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
 
@@ -116,8 +152,11 @@ body {
   font-feature-settings: "tnum" 1, "lnum" 1;
 }
 
-/* ── Tight display tracking for big headings, like Intellias */
+/* ── Tight display tracking for big headings.
+   Sora, per brand.md §2: "Geometric, sophisticated, modern; matches the
+   wordmark for a cohesive brand presence." Body text stays Inter. */
 .display {
+  font-family: var(--font-head);
   font-feature-settings: "ss01", "cv11";
   letter-spacing: -0.022em;
   line-height: 0.94;
@@ -143,12 +182,12 @@ body {
   background:
     radial-gradient(
       80% 60% at 90% 110%,
-      rgba(66, 250, 161, 0.05),
+      rgba(0, 212, 170, 0.05),
       transparent 60%
     ),
     radial-gradient(
       60% 50% at 10% -10%,
-      rgba(66, 250, 161, 0.03),
+      rgba(0, 212, 170, 0.03),
       transparent 60%
     ),
     var(--bg-base);
@@ -162,7 +201,11 @@ body {
 }
 
 .panel-elevated {
-  background: linear-gradient(180deg, #1a1a1a 0%, #111111 100%);
+  /* Literal, not a token, because it is a two-stop gradient — which is exactly
+     why the print block below has to reach in and flatten it by hand. Shifted
+     with the rest of the ramp: neutral greys on a blue-black base read as a
+     colour error rather than as depth. */
+  background: linear-gradient(180deg, #1b1d25 0%, #121419 100%);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
@@ -202,10 +245,10 @@ body {
 @keyframes pulse-green {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(66, 250, 161, 0.5);
+    box-shadow: 0 0 0 0 rgba(0, 212, 170, 0.5);
   }
   50% {
-    box-shadow: 0 0 0 6px rgba(66, 250, 161, 0);
+    box-shadow: 0 0 0 6px rgba(0, 212, 170, 0);
   }
 }
 .alert-dot {
@@ -253,7 +296,7 @@ body {
 
 /* ── Selection — green tint */
 ::selection {
-  background: rgba(66, 250, 161, 0.28);
+  background: rgba(0, 212, 170, 0.28);
   color: var(--text-primary);
 }
 
@@ -298,7 +341,7 @@ input[type="range"]::-webkit-slider-thumb {
   background: linear-gradient(
     180deg,
     transparent 0%,
-    rgba(66, 250, 161, 0.06) 50%,
+    rgba(0, 212, 170, 0.06) 50%,
     transparent 100%
   );
   animation: scan 6s linear infinite;
@@ -319,4 +362,190 @@ input[type="range"]::-webkit-slider-thumb {
   z-index: -1;
   pointer-events: none;
   user-select: none;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Print — which is how /report becomes a PDF.
+
+   The "Export PDF" button on the client report had no `onClick` at all until
+   2026-08-21. It now calls `window.print()`, and this is what makes that
+   produce a document rather than a screenshot of a dark dashboard.
+
+   `window.print()` rather than a PDF library, and it is not the lazy option.
+   This app builds with `output: export` — there is no server to render on — and
+   the client-side libraries (jsPDF, html2canvas) rasterise: a large image of a
+   page, with no selectable text, no real page breaks and no working links. The
+   browser's own print pipeline gives vector text and honest pagination, and it
+   is what "Save as PDF" in the print dialog has always been.
+
+   ── The tokens are redefined rather than the components overridden
+
+   Everything below the first block comes free from that. The app is almost
+   entirely tokenised, so flipping the eleven variables that carry the dark
+   theme flips every panel, border and label with them — instead of a hundred
+   `print:` overrides that would each need to be remembered again by whoever
+   adds the next component.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+@media print {
+  :root {
+    /* Ink on paper. The screen design is #ffffff text on #0A0B10: printed as-is
+       it is unreadable on most printers, and on the ones that do render it, it
+       lays down a full page of toner for a document a client is meant to keep. */
+    --bg-base: #ffffff;
+    --bg-canvas: #ffffff;
+    --bg-panel: #ffffff;
+    --bg-elevated: #ffffff;
+    --bg-raised: #f4f4f5;
+    --bg-input: #ffffff;
+    --bg-inverse: #000000;
+    --bg-viewport: #ffffff;
+
+    /* Darker than the screen equivalents on purpose. A hairline that reads as a
+       division on a backlit panel disappears at 300dpi, and the tables on the
+       report are held together entirely by their borders. */
+    --border-hairline: #d4d4d8;
+    --border-subtle: #a1a1aa;
+    --border-strong: #71717a;
+    --border-bright: #52525b;
+
+    --text-primary: #000000;
+    --text-secondary: #3f3f46;
+    /* Muted and faint converge upward: #6e6e74 on black is a deliberate
+       de-emphasis, and the same grey on white is close to illegible in 9px
+       print. A caption nobody can read is not de-emphasised, it is missing. */
+    --text-muted: #52525b;
+    --text-faint: #71717a;
+    --text-inverse: #ffffff;
+
+    /* The accents keep their hue and lose their brightness. Keeping the hue is
+       deliberate — the scorecard encodes meaning in colour, and a greyscale
+       report would silently drop that encoding — but the screen values are
+       tuned for a near-black background and are close to invisible on paper.
+       WCAG wants 4.5:1 for body text and 3:1 for large.
+
+       This is where the brand palette is at its most dangerous, and the repo
+       has already been caught by it once: the mint this replaced measured
+       1.36:1 against white and was what the headline ROI figure printed in,
+       found by looking at a page rather than by reasoning about one.
+
+       The brand's own two accents are no better untreated. Measured against
+       white: **Data teal #00D4AA is 1.91:1** and **Action orange #FF5C00 is
+       3.10:1** — the first invisible, the second passing only for large text
+       and failing for anything a client actually reads.
+
+       Below, each is walked down in lightness with hue and saturation held, to
+       the first value clearing 4.5:1 with the same margin the rest of this
+       block already has (the family sits between 4.9 and 7.1). Screen values
+       are untouched: on #0A0B10 the bright ones are correct and these would be
+       the unreadable pair.
+
+         teal   #00D4AA → #007e65   5.03:1 on white
+         orange #FF5C00 → #c44700   4.94:1 on white
+
+       `--accent-action` is listed here as well as on screen. A token defined in
+       only one of the two blocks is exactly how the black-rectangle bug below
+       happened. */
+    --accent: #007e65;
+    --accent-bright: #006b56;
+    --accent-action: #c44700;
+    --accent-action-bright: #a83d00;
+    --accent-action-soft: rgba(0, 0, 0, 0.06);
+    --accent-cyan: #0e7490;
+    --accent-amber: #a16207;
+    --accent-blue: #1d4ed8;
+    --accent-violet: #6d28d9;
+    --accent-red: #b91c1c;
+    --accent-soft: rgba(0, 0, 0, 0.06);
+    --shadow-sm: none;
+    --shadow-md: none;
+    --shadow-lg: none;
+    --glow-green: none;
+    --glow-action: none;
+  }
+
+  /* Three surfaces paint with a literal gradient rather than a token, so the
+     block above cannot reach them and they printed as black rectangles on a
+     white page — the scorecard tiles and the ROI figure among them, which is
+     most of the first page of a client's report. Found by looking at it.
+
+     Flattened rather than re-gradiented: the gradient is a screen affordance
+     for depth, and on paper a panel is distinguished by its border. */
+  .panel-elevated {
+    background: var(--bg-panel) !important;
+    border-color: var(--border-subtle) !important;
+  }
+
+  .canvas-vignette,
+  .map-grid {
+    background-image: none !important;
+  }
+
+  /* Backgrounds and colours are dropped by browsers by default when printing.
+     For a report whose scorecard *means* something by colour, that is a silent
+     loss of information rather than a saving. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  html,
+  body {
+    background: #ffffff;
+  }
+
+  /* The app chrome. A client's copy of their own report should not include the
+     operator's navigation, connection pill, or the buttons that produced it. */
+  nav,
+  header[data-app-chrome],
+  .canvas-vignette,
+  .scanline,
+  .ghost-text::before {
+    background: none !important;
+    animation: none !important;
+  }
+
+  nav,
+  [data-print-hide] {
+    display: none !important;
+  }
+
+  /* Anything that scrolls on screen has to unroll on paper, or it prints clipped
+     at the viewport edge with no indication that a column is missing — which on
+     the zone table would silently drop zones from a client's report. */
+  .overflow-x-auto,
+  .overflow-y-auto,
+  .overflow-auto,
+  .overflow-hidden {
+    overflow: visible !important;
+  }
+
+  main {
+    overflow: visible !important;
+  }
+
+  /* Panels are the report's sections, so they are also its page units. Breaking
+     through the middle of a scorecard layer puts the number on one page and what
+     it means on the next. */
+  .panel,
+  .panel-elevated,
+  section,
+  table {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* Margins belong to the page, not to the container: the on-screen padding is
+     tuned for a viewport with chrome around it and wastes an inch of every
+     printed sheet. */
+  @page {
+    margin: 14mm;
+  }
 }

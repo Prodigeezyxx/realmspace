@@ -22,6 +22,26 @@ const STORAGE_PREFIX = "rs:eventlog:";
 const CURSOR_PREFIX = "rs:cursor:";
 const MAX_PERSISTED = 5000; // ring cap for the browser log
 
+/**
+ * The cursor `remote.ts` uses for what it has posted to the backend.
+ *
+ * It lives here rather than there because the format sweep below has to know
+ * which partitions still hold unsent events, and the log is the lower layer of
+ * the two — the alternative is an import cycle or a second copy of the string.
+ */
+export const OUTBOUND_CURSOR = "remote-bus";
+
+/**
+ * Bumped when a change makes previously-stored events unsafe to read.
+ *
+ * v2: events are validated on the way in (`contracts/validate.ts`). Anything
+ * stored before that could be a payload no reader can use — a phantom visitor
+ * in Reach, `NaN` through every dwell figure — and it will never be re-checked,
+ * because a re-mirror dedupes on `eventId`.
+ */
+const FORMAT_VERSION = "2";
+const FORMAT_KEY = "rs:eventlog:format";
+
 type Subscriber = (e: RealmEvent) => void;
 
 interface Partition {
@@ -44,7 +64,72 @@ function hasWindow() {
   return typeof window !== "undefined";
 }
 
+/**
+ * Drop mirrored partitions written under an older format, once per page load.
+ *
+ * The local log is a **mirror** of the server's, so a cleared partition costs
+ * nothing: `backfillSession()` pages it back from seq 0, this time through the
+ * validation. That is the whole argument for clearing rather than migrating —
+ * there is a canonical copy elsewhere.
+ *
+ * **Except where there is not.** `remote.ts`'s header says it plainly: there is
+ * no second outbox, the local log *is* the buffer, so an event this browser
+ * emitted and has not yet posted exists nowhere else. A partition whose
+ * outbound cursor is behind its head is left exactly as it was — data loss
+ * dressed as a cleanup is worse than the stale events this is sweeping. Such a
+ * partition is swept on a later load, once its backlog has been sent.
+ */
+function ensureFormat() {
+  if (!hasWindow()) return;
+  try {
+    // The whole cost in the settled case: one read of one key. There is
+    // deliberately no in-memory "already checked" flag, because a partition
+    // skipped below leaves the version unstamped and has to be reconsidered —
+    // a flag would mean the first load of a page decided that forever.
+    if (window.localStorage.getItem(FORMAT_KEY) === FORMAT_VERSION) return;
+
+    const keys: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith(STORAGE_PREFIX) && k !== FORMAT_KEY) keys.push(k);
+    }
+
+    let swept = 0;
+    for (const k of keys) {
+      const [tenantId, sessionId] = k.slice(STORAGE_PREFIX.length).split("::");
+      if (!tenantId || !sessionId) continue;
+
+      const raw = window.localStorage.getItem(k);
+      let head = 0;
+      try {
+        head = (JSON.parse(raw ?? "[]") as RealmEvent[]).reduce(
+          (m, e) => Math.max(m, e.seq),
+          0
+        );
+      } catch {
+        head = 0; // unparseable is exactly what this sweep is for
+      }
+
+      const sent = Number(
+        window.localStorage.getItem(cursorKey(OUTBOUND_CURSOR, tenantId, sessionId))
+      );
+      if ((sent || 0) < head) continue; // unsent events live only here
+
+      window.localStorage.removeItem(k);
+      partitions.delete(key(tenantId, sessionId));
+      swept++;
+    }
+
+    // Only stamped once every partition that could be swept has been, so a
+    // partition skipped for a pending backlog is reconsidered on a later load.
+    if (swept === keys.length) window.localStorage.setItem(FORMAT_KEY, FORMAT_VERSION);
+  } catch {
+    /* storage unavailable — the sweep is a cleanup, never a precondition */
+  }
+}
+
 function loadPartition(tenantId: string, sessionId: string): Partition {
+  ensureFormat();
   const k = key(tenantId, sessionId);
   const cached = partitions.get(k);
   if (cached) return cached;
@@ -92,18 +177,18 @@ function genId(): string {
 }
 
 /**
- * Append an event to the log. Idempotent: if `eventId` was already appended to
- * this partition, this is a no-op and returns the existing event.
+ * The append itself, without writing to storage.
+ *
+ * Split out so a batch can be written once rather than once per event — see
+ * `appendMany`. Returns null when the event was a duplicate and nothing new was
+ * added, so the caller knows whether there is anything to persist or fan out.
  */
-export function append<P = RealmEventPayload>(
-  input: RealmEventInput<P>
-): RealmEvent<P> {
-  const part = loadPartition(input.tenantId, input.sessionId);
-  const eventId = input.eventId ?? genId();
-
-  if (part.seenIds.has(eventId)) {
-    return part.events.find((e) => e.eventId === eventId) as RealmEvent<P>;
-  }
+function appendOne<P = RealmEventPayload>(
+  part: Partition,
+  input: RealmEventInput<P>,
+  eventId: string
+): RealmEvent<P> | null {
+  if (part.seenIds.has(eventId)) return null;
 
   const now = Date.now();
   const event: RealmEvent<P> = {
@@ -119,18 +204,85 @@ export function append<P = RealmEventPayload>(
 
   part.events.push(event as RealmEvent);
   part.seenIds.add(eventId);
-  persist(input.tenantId, input.sessionId, part);
+  return event;
+}
 
-  // fan out to live subscribers (idempotent-safe: only fires on real append)
+/** fan out to live subscribers (idempotent-safe: only fires on a real append) */
+function announce(event: RealmEvent) {
   subscribers.forEach((s) => {
     try {
-      s(event as RealmEvent);
+      s(event);
     } catch {
       /* subscriber errors never break the producer */
     }
   });
+}
 
+/**
+ * Append an event to the log. Idempotent: if `eventId` was already appended to
+ * this partition, this is a no-op and returns the existing event.
+ */
+export function append<P = RealmEventPayload>(
+  input: RealmEventInput<P>
+): RealmEvent<P> {
+  const part = loadPartition(input.tenantId, input.sessionId);
+  const eventId = input.eventId ?? genId();
+  const event = appendOne<P>(part, input, eventId);
+  if (!event) {
+    return part.events.find((e) => e.eventId === eventId) as RealmEvent<P>;
+  }
+
+  persist(input.tenantId, input.sessionId, part);
+  announce(event as RealmEvent);
   return event;
+}
+
+/**
+ * Append a run of events, writing to storage **once**.
+ *
+ * `persist()` serialises the whole partition, so appending N events one at a
+ * time is N stringifications of an array growing to N — quadratic, and it is
+ * not theoretical. `seedDemoSession` writes ~1,200 events in a loop, which is
+ * on the order of 180MB of transient strings per seed; `seed-demo.test.ts`
+ * seeds fifteen times, and the vitest worker died of it on every CI run from
+ * the day CI was added. `backfillSession` is the same shape on a real load
+ * path: up to 200 pages of 500 events, in a customer's browser, on `/report`.
+ *
+ * Same dedupe, same seq assignment and the same per-event fan-out as `append`.
+ * Only the write is batched, and duplicates within the batch are dropped
+ * exactly as duplicates against the stored log are.
+ *
+ * Returns the events that were genuinely new, in order.
+ */
+export function appendMany<P = RealmEventPayload>(
+  inputs: RealmEventInput<P>[]
+): RealmEvent<P>[] {
+  if (!inputs.length) return [];
+
+  const written: RealmEvent<P>[] = [];
+  // Partitioned, because a batch may legitimately span sessions and each
+  // partition has its own storage key, seq and dedupe set.
+  const touched = new Map<string, { tenantId: string; sessionId: string; part: Partition }>();
+
+  for (const input of inputs) {
+    const part = loadPartition(input.tenantId, input.sessionId);
+    touched.set(key(input.tenantId, input.sessionId), {
+      tenantId: input.tenantId,
+      sessionId: input.sessionId,
+      part,
+    });
+    const event = appendOne<P>(part, input, input.eventId ?? genId());
+    if (event) written.push(event);
+  }
+
+  // Persist before announcing, so a subscriber that reads the log sees exactly
+  // what a reload would — the same order `append` has always had.
+  for (const { tenantId, sessionId, part } of touched.values()) {
+    persist(tenantId, sessionId, part);
+  }
+  for (const event of written) announce(event as RealmEvent);
+
+  return written;
 }
 
 /** Read events after a seq cursor (0 = from the beginning), optionally filtered. */

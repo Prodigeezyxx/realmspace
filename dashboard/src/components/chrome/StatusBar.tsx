@@ -16,7 +16,10 @@ import { useEffect, useRef, useState } from "react";
 
 import { SignOutButton } from "@/components/auth/LoginForm";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useNow } from "@/lib/hooks/useNow";
 import { Pill } from "@/components/ui/Pill";
+import { BusPill } from "@/components/chrome/BusPill";
+import { emit } from "@/lib/bus";
 import {
   getTypeMeta,
   STATUS_META,
@@ -27,6 +30,7 @@ import {
   useSessions,
 } from "@/lib/session/store";
 import { useLiveSession } from "@/lib/live-session/store";
+import { useFirstRun } from "@/lib/session/useFirstRun";
 import { cn } from "@/lib/utils";
 
 export function StatusBar() {
@@ -34,19 +38,22 @@ export function StatusBar() {
   const pathname = usePathname();
   const active = useActiveSession();
   const sessions = useSessions();
+  // An organisation with nothing of its own is looking at the seeded demo, and
+  // the header is the one place its name and venue sit above every screen. It
+  // says what it is rather than reading as this client's activation — see
+  // `components/chrome/FirstRunGate.tsx`.
+  const showingSample = useFirstRun() === "first-run" && active.isDemo;
 
-  const [now, setNow] = useState<Date | null>(null);
+  // From the shared clock. This used to be `useState<Date | null>(null)` seeded
+  // by a setState inside an effect — the null start was there so the server
+  // render had no time on it, and the effect filled it in on mount. The store
+  // gives both properties without the state write, and without the extra render
+  // pass every subscriber paid for it.
+  const nowMs = useNow(1000);
+  const now = nowMs ? new Date(nowMs) : null;
   const [open, setOpen] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const switcherRef = useRef<HTMLDivElement>(null);
-
-  // Clock (effect that registers an interval is allowed by lint rule because
-  // it's syncing an external system — the wall clock — into React state).
-  useEffect(() => {
-    setNow(new Date());
-    const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
-  }, []);
 
   // Click-outside for the switcher dropdown
   useEffect(() => {
@@ -75,7 +82,13 @@ export function StatusBar() {
 
   return (
     <>
-      <header className="h-16 flex items-center justify-between px-5 sticky top-0 z-30 bg-bg-base/85 backdrop-blur-xl border-b border-border-hairline">
+      {/* `data-print-hide`: /report becomes a PDF through window.print(), and a
+          client's copy of their own report should not carry the operator's
+          session switcher and connection pill. See globals.css → @media print. */}
+      <header
+        data-print-hide
+        className="h-16 flex items-center justify-between px-5 sticky top-0 z-30 bg-bg-base/85 backdrop-blur-xl border-b border-border-hairline"
+      >
         {/* Left — logo + session switcher */}
         <div className="flex items-center gap-3 min-w-0">
           <Link
@@ -87,7 +100,7 @@ export function StatusBar() {
               <div className="absolute inset-[3px] rounded-full bg-bg-base" />
               <div className="absolute inset-[5px] rounded-full bg-accent" />
             </div>
-            <span className="text-sm font-semibold tracking-tight">RealmSpace</span>
+            <span className="font-head text-sm font-semibold tracking-tight">realmspace</span>
           </Link>
 
           {/* Session switcher — clickable pill that drops a list */}
@@ -115,11 +128,11 @@ export function StatusBar() {
                   className="text-text-muted shrink-0"
                 />
                 <span className="text-sm font-medium truncate">
-                  {active.name}
+                  {showingSample ? "Sample activation" : active.name}
                 </span>
               </span>
               <span className="hidden md:inline text-xs text-text-muted truncate">
-                · {active.venue}
+                · {showingSample ? "invented figures, not yours" : active.venue}
               </span>
               <ChevronDown
                 size={14}
@@ -244,6 +257,8 @@ export function StatusBar() {
             </div>
           )}
 
+          <BusPill />
+
           <div className="hidden md:inline-flex pill-group h-10 px-4 font-mono text-xs tabular text-text-primary tracking-wider">
             {now
               ? now.toLocaleTimeString("en-US", {
@@ -266,7 +281,7 @@ export function StatusBar() {
           ) : active.isDemo ? (
             <Link
               href="/sessions/new"
-              className="inline-flex items-center gap-2 bg-accent text-text-inverse h-10 pl-4 pr-2.5 rounded-full font-semibold text-xs tracking-tight hover:bg-accent-bright transition-colors shadow-[var(--glow-green)]"
+              className="inline-flex items-center gap-2 bg-accent-action text-text-inverse h-10 pl-4 pr-2.5 rounded-full font-semibold text-xs tracking-tight hover:bg-accent-action-bright transition-colors shadow-[var(--glow-action)]"
             >
               <Sparkles size={12} />
               New session
@@ -312,6 +327,19 @@ export function StatusBar() {
               </button>
               <button
                 onClick={() => {
+                  // Tell the bus before the store, so the tracker can close
+                  // out everyone still being tracked. Without this the last
+                  // visitors of the activation are never finalised — no
+                  // closing dwell, no pass-by — because the dropout sweep
+                  // needs a later event to run on and no more detections are
+                  // coming. On a short session that is a large share of the
+                  // audience, and the report would simply be smaller than the
+                  // day was, with nothing to show the gap.
+                  emit(
+                    "session.ended",
+                    { sessionId: active.id, endedBy: "operator" },
+                    { sessionId: active.id }
+                  );
                   sessionActions.endSession(active.id);
                   setConfirmEnd(false);
                   router.push("/report");

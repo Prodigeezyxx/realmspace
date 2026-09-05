@@ -1,0 +1,41 @@
+# Everything not needed to build the backend image.
+#
+# This file is not housekeeping. `backend/.venv` alone is 88MB of an 89MB
+# directory — without excluding it, every build copies a macOS-built virtualenv
+# into a Linux image where it is both useless and enormous.
+
+# virtualenvs — the image builds its own
+**/.venv/
+**/venv/
+
+# secrets. The image gets its configuration from the environment, never from a
+# baked-in file; a .env in an image is a credential you cannot rotate.
+.env
+**/.env
+!**/.env.example
+
+# the dashboard and its dependencies are not part of the backend image
+dashboard/
+node_modules/
+**/node_modules/
+
+# ML weights — downloaded on first run, and the backend doesn't do inference
+*.pt
+
+# perception's producer buffer: unsent events, machine-specific
+*.bus-buffer.jsonl
+
+# build and tool noise
+**/__pycache__/
+*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+.git/
+.github/
+**/.DS_Store
+
+# docs don't change behaviour and invalidate the build cache when edited
+docs/
+*.md
+!backend/README.md

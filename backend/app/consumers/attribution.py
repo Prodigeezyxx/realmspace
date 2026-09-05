@@ -1,0 +1,399 @@
+"""
+The attribution consumer — a consented visitor becomes a lead somebody can act on.
+
+`event-bus-spec.md` §4: *"build LeadHandoff, apply model+window"*. The shape is
+pinned in `integrations.md` §2 and most of this is assembly; the parts worth
+reading are the two triggers and what happens to a withdrawn contact.
+
+  identity.resolved → handoff.lead (stage `identified`, the path so far)
+  session.ended     → handoff.lead (stage `final`, the complete path) × contacts
+
+## Why a lead is emitted twice
+
+A trade-show lead is worth most while the visitor is still on the floor, and a
+handoff sent at that moment carries an incomplete path — they have not finished
+walking it. Sending only at `session.ended` gives a complete lead that arrives
+after everyone has gone home; sending only at capture gives a fast lead that
+says almost nothing.
+
+So both, and the pairing that makes it safe:
+
+- **the same `dedupe_key`** on each (`tenant:email|anon_id`, per
+  `integrations.md` §2), because every adapter's upsert is keyed on it — the
+  final handoff *updates* the lead the early one created rather than adding a
+  second;
+- **different derived `event_id`s**, keyed on the stage as well as the contact,
+  because the bus dedupes on `event_id` and an id derived from the contact alone
+  would make the second handoff vanish silently.
+
+Get that backwards in either direction and the failure is quiet: identical ids
+lose the complete path, identical-but-random ids duplicate the lead in the
+client's CRM.
+
+## A withdrawn contact produces nothing
+
+Both triggers read the live `IDENTIFIED_AS` edge — `contact_for_anon` for one
+person, `contacts_in_session` for the fan-out — and the re-anonymiser deletes
+that edge on withdrawal. So somebody who consented and then changed their mind
+is simply absent, including on a **replay**: re-reading their old
+`identity.resolved` builds no handoff, for the same reason re-reading their
+capture re-identifies nobody.
+
+`crm.retract` handles anything already pushed. This consumer's job is only to
+stop adding to it.
+
+## Anonymous handoffs, and why they are opt-in
+
+`integrations.md` §2 allows a handoff with no `contact`, "still valid … carrying
+spatial_intent for aggregate ROI". It needed the different trigger this file
+used to say it needed: every person, not every contact. That is
+`unidentified_in_session` at `session.ended`, and it is the third trigger below.
+
+It is off unless the operator turned it on, which is the opposite of every other
+setting in a session config. A busy day is several hundred of these, each a lead
+object with nobody in it, and a tenant who has not asked for aggregate reach
+should not discover several hundred of them on their log.
+
+**Where they go**, which is narrower than "the same destinations an identified
+lead does" — the sentence that stood here and was wrong. They reach the log, the
+deployment's own handoff webhook (`consumers/handoff_delivery.py`, the raw
+contract, which takes every handoff), the pull API, and **the bring-your-own
+hooks a tenant has connected** — but no CRM.
+
+The destinations decide, through `capabilities()["anonymous"]`. A CRM answers no,
+and not as a limitation: there is no record to create for somebody who was never
+named, and its `map` would decline one anyway. A Zapier or Make hook answers yes,
+because its receiver is counting reach rather than keeping contacts, and a client
+who turned this flag on and connected one asked for exactly that.
+
+The first version of this skipped every destination, which read as consistent and
+delivered the flag's whole output to nothing the tenant had configured. See
+`consumers/crm_delivery.py` for the claim-volume problem that produced it and how
+the capability answers both.
+
+The different consent story turns out to be no consent at all, and that is the
+point rather than a gap. There is no `contact`, no `consent` block and nothing
+in the payload that names anybody — it carries the same zones and dwells the
+report has always carried about that person, which `privacy.md` has running with
+no consent from the beginning. What would need a consent story is attaching a
+name to one later, and nothing here does that.
+
+Only `session.ended` emits them. At the moment somebody walks past a zone we do
+not know whether they are about to scan a badge, and a handoff built then would
+be an anonymous lead for a person who is identified ten seconds later — two
+records for one visitor, keyed differently, which is the duplication the whole
+`dedupe_key` argument above exists to prevent.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import logging
+from typing import Any
+
+from app import db, repository
+from app.attribution import score as scoring
+from app.attribution import spatial_intent
+from app.config import get_settings
+from app.consumers.base import Consumer
+from app.consumers.ids import derive_event_id
+from app.graph import repository as graph_repo
+from app.graph.driver import get_driver
+from app.models import EventLog
+from app.schemas import EventIn
+
+log = logging.getLogger(__name__)
+
+RESOLVED = "identity.resolved"
+SESSION_ENDED = "session.ended"
+HANDOFF = "handoff.lead"
+
+SCHEMA = "realmspace.lead_handoff/v1"
+
+#: The two moments a handoff is built. See the module docstring — they share a
+#: dedupe_key and differ in their event id.
+IDENTIFIED = "identified"
+FINAL = "final"
+#: The third: one per person nobody ever named. See the module docstring.
+ANONYMOUS = "anonymous"
+
+
+class AttributionConsumer(Consumer):
+    name = "attribution"
+    handles = (RESOLVED, SESSION_ENDED)
+
+    #: Retryable. Every read is of current graph state and the emitted ids are
+    #: derived, so re-running one parked event in isolation produces what the
+    #: original attempt would have — including producing *nothing* if the
+    #: contact has withdrawn in the meantime, which is the correct answer rather
+    #: than a stale one.
+    retryable = True
+
+    async def handle(self, event: EventLog) -> None:
+        if event.type == RESOLVED:
+            await self._on_identified(event)
+        elif event.type == SESSION_ENDED:
+            await self._on_session_ended(event)
+
+    # ── the two triggers ──────────────────────────────────────────────────────
+
+    async def _on_identified(self, event: EventLog) -> None:
+        anon_id = event.payload.get("anon_id")
+        if not anon_id:
+            raise ValueError(f"identity.resolved seq={event.seq} has no anon_id")
+
+        settings = get_settings()
+        async with get_driver().session(database=settings.neo4j_database) as gs:
+            contact = await graph_repo.contact_for_anon(
+                gs, tenant_id=event.tenant_id, session_id=event.session_id, anon_id=anon_id
+            )
+            if contact is None:
+                # Withdrawn between the identification and now, or on a replay of
+                # an identification that has since been undone. Not an error.
+                log.info(
+                    "attribution: %s is no longer identified; no handoff", anon_id
+                )
+                return
+
+            handoff = await self._build(
+                gs, event=event, anon_id=anon_id, contact=contact, stage=IDENTIFIED
+            )
+
+        await self._emit(event, [handoff])
+
+    async def _on_session_ended(self, event: EventLog) -> None:
+        """Fan out over everyone still identified when the doors shut.
+
+        Driven off the graph rather than by replaying the session's
+        `identity.resolved` events, because the graph is where a withdrawal has
+        already taken effect. Reading the log would rebuild handoffs for people
+        who have since been re-anonymised.
+        """
+        settings = get_settings()
+        handoffs: list[dict[str, Any]] = []
+
+        async with get_driver().session(database=settings.neo4j_database) as gs:
+            identified = await graph_repo.contacts_in_session(
+                gs, tenant_id=event.tenant_id, session_id=event.session_id
+            )
+            for row in identified:
+                contact = await graph_repo.contact_for_anon(
+                    gs,
+                    tenant_id=event.tenant_id,
+                    session_id=event.session_id,
+                    anon_id=row["anon_id"],
+                )
+                if contact is None:
+                    continue
+                handoffs.append(
+                    await self._build(
+                        gs,
+                        event=event,
+                        anon_id=row["anon_id"],
+                        contact=contact,
+                        stage=FINAL,
+                        lead_count=len(identified),
+                    )
+                )
+
+            config = (
+                await graph_repo.session_config(
+                    gs, tenant_id=event.tenant_id, session_id=event.session_id
+                )
+                or {}
+            )
+            if config.get("anonymous_handoffs"):
+                for anon_id in await graph_repo.unidentified_in_session(
+                    gs, tenant_id=event.tenant_id, session_id=event.session_id
+                ):
+                    handoffs.append(
+                        await self._build(
+                            gs,
+                            event=event,
+                            anon_id=anon_id,
+                            contact=None,
+                            stage=ANONYMOUS,
+                            # Deliberately not `len(identified)`: an anonymous
+                            # handoff carries no cost share at all. Dividing the
+                            # activation's cost by the people who consented and
+                            # then handing a slice of it to somebody who did not
+                            # would double-count the same money.
+                            lead_count=None,
+                        )
+                    )
+
+        await self._emit(event, handoffs)
+
+    # ── assembly ──────────────────────────────────────────────────────────────
+
+    async def _build(
+        self,
+        gs,
+        *,
+        event: EventLog,
+        anon_id: str,
+        contact: dict[str, Any] | None,
+        stage: str,
+        lead_count: int | None = None,
+    ) -> dict[str, Any]:
+        config = (
+            await graph_repo.session_config(
+                gs, tenant_id=event.tenant_id, session_id=event.session_id
+            )
+            or {}
+        )
+        path = await graph_repo.spatial_intent_for(
+            gs, tenant_id=event.tenant_id, session_id=event.session_id, anon_id=anon_id
+        )
+        zones = await graph_repo.zones_for_session(
+            gs, tenant_id=event.tenant_id, session_id=event.session_id
+        )
+        surfaces = await graph_repo.surfaces_for_session(
+            gs, tenant_id=event.tenant_id, session_id=event.session_id
+        )
+        consent = (
+            await graph_repo.consent_for_contact(
+                gs, tenant_id=event.tenant_id, contact_id=contact["id"]
+            )
+            if contact
+            else None
+        )
+
+        intent = spatial_intent.build(
+            path["dwells"],
+            path["surfaces"],
+            surfaces_available=len(surfaces) or None,
+            max_funnel_order=max(
+                (z["funnel_order"] for z in zones if z.get("funnel_order") is not None),
+                default=None,
+            ),
+        )
+        value, basis, components = scoring.lead_score(
+            intent,
+            engaged_threshold_seconds=config.get("engaged_threshold_seconds") or 60.0,
+        )
+        intent["lead_score"] = value
+        intent["lead_score_basis"] = basis
+        intent["lead_score_components"] = components
+
+        email = contact.get("email") if contact else None
+        dedupe_key = f"{event.tenant_id}:{email or anon_id}"
+
+        if contact:
+            # Recorded on the Contact so an outcome arriving later — from an
+            # operator or, eventually, a CRM adapter — can find the person it
+            # belongs to. Without it the mapping exists only inside handoff
+            # payloads on the log, and the graph cannot answer "which deals came
+            # from this visitor".
+            await graph_repo.set_contact_dedupe_key(
+                gs,
+                tenant_id=event.tenant_id,
+                contact_id=contact["id"],
+                dedupe_key=dedupe_key,
+            )
+
+        handoff: dict[str, Any] = {
+            "schema": SCHEMA,
+            "stage": stage,
+            "tenant_id": event.tenant_id,
+            "activation": {
+                "id": event.session_id,
+                "name": config.get("campaign") or config.get("client"),
+                "venue": config.get("venue"),
+                "city": config.get("city"),
+                "started_at": config.get("started_at"),
+                "ends_at": config.get("ends_at"),
+            },
+            "spatial_intent": intent,
+            "roi_context": {
+                "attribution_model": config.get("attribution_model") or "influenced",
+                "attribution_window_days": config.get("attribution_window_days") or 90,
+                "activation_cost_share": self._cost_share(config, lead_count),
+            },
+            "dedupe_key": dedupe_key,
+            "anon_id": anon_id,
+            "emitted_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            "event_seq": event.seq,
+        }
+
+        if contact:
+            # Present only because a live consent was found above. A contact
+            # whose consent has been withdrawn never reaches here, and one whose
+            # PII was redacted carries nothing to send.
+            #
+            # Both keys are **omitted** on an anonymous handoff rather than set
+            # to an object of nulls — the argument `routers/consent.py` makes
+            # about a capture with no details. "Nobody was named here" and
+            # "these details are blank" are different statements, and a
+            # destination reading the second would create an empty contact.
+            handoff["contact"] = {
+                "id": contact["id"],
+                "email": email,
+                "name": contact.get("name"),
+                "company": contact.get("company"),
+                "title": contact.get("title"),
+                "source": contact.get("source"),
+            }
+            handoff["consent"] = {
+                "tier": consent.get("tier") if consent else None,
+                "basis": consent.get("basis") if consent else None,
+                "copy_version": consent.get("copy_version") if consent else None,
+                "captured_at": consent.get("captured_at") if consent else None,
+            }
+
+        return handoff
+
+    @staticmethod
+    def _cost_share(config: dict[str, Any], lead_count: int | None) -> float | None:
+        """What this lead cost, or None while that is unknowable.
+
+        The denominator is how many leads the activation produced, and that is
+        not known while the doors are open — a share computed against a partial
+        count changes every time somebody else scans a badge, so an early handoff
+        would carry a figure that is wrong by the end of the day.
+
+        None until the session ends, then `activation_cost / leads`. Blank rather
+        than estimated is the same rule the report follows for every other figure
+        it cannot yet compute.
+        """
+        cost = config.get("activation_cost")
+        if cost is None or not lead_count:
+            return None
+        return round(float(cost) / lead_count, 2)
+
+    # ── emission ──────────────────────────────────────────────────────────────
+
+    async def _emit(self, event: EventLog, handoffs: list[dict[str, Any]]) -> None:
+        if not handoffs:
+            return
+
+        async with db.SessionLocal() as session:
+            await db.scope_to_tenant(session, event.tenant_id)
+            for handoff in handoffs:
+                await repository.append_event(
+                    session,
+                    EventIn(
+                        # Stage is in the key. Without it the final handoff would
+                        # derive the same id as the early one and the bus would
+                        # swallow it as a duplicate — the complete path would
+                        # never leave the log, and nothing would fail.
+                        event_id=derive_event_id(
+                            "handoff",
+                            event.tenant_id,
+                            event.session_id,
+                            # The contact where there is one, the track where
+                            # there is not — an anonymous handoff has no contact
+                            # id to key on, and `anon_id` is what identifies the
+                            # person it is about within this session.
+                            (handoff.get("contact") or {}).get("id")
+                            or handoff["anon_id"],
+                            handoff["stage"],
+                        ),
+                        tenant_id=event.tenant_id,
+                        session_id=event.session_id,
+                        type=HANDOFF,
+                        payload=handoff,
+                        occurred_at=event.occurred_at,
+                    ),
+                )
+            await session.commit()

@@ -53,11 +53,14 @@ export function ZoneEditor({ zones, onChange }: Props) {
   return (
     <div className="space-y-3">
       {/* Header row (column labels) */}
-      <div className="hidden md:grid grid-cols-[16px_2fr_1.4fr_120px_120px_44px] gap-3 px-4 text-[10px] uppercase tracking-[0.16em] text-text-muted font-medium">
+      <div className="hidden md:grid grid-cols-[16px_2fr_1.4fr_100px_90px_110px_44px] gap-3 px-4 text-[10px] uppercase tracking-[0.16em] text-text-muted font-medium">
         <span />
         <span>Zone name</span>
         <span>Type</span>
         <span className="tabular">Capacity</span>
+        <span className="tabular" title="ROI weight — a minute here vs a minute anywhere else">
+          Weight
+        </span>
         <span>Privacy</span>
         <span />
       </div>
@@ -67,7 +70,7 @@ export function ZoneEditor({ zones, onChange }: Props) {
           <li
             key={z.id}
             className={cn(
-              "panel grid grid-cols-1 md:grid-cols-[16px_2fr_1.4fr_120px_120px_44px] gap-3 items-center p-4",
+              "panel grid grid-cols-1 md:grid-cols-[16px_2fr_1.4fr_100px_90px_110px_44px] gap-3 items-center p-4",
               z.privacyMasked && "ring-1 ring-border-strong"
             )}
           >
@@ -103,6 +106,24 @@ export function ZoneEditor({ zones, onChange }: Props) {
                 })
               }
               placeholder="—"
+              className="h-10 px-3 rounded-lg bg-bg-canvas border border-border-subtle text-sm tabular focus:border-accent focus:outline-none transition-colors"
+            />
+            {/*
+              Dwell-weighted attention is Σ(dwell × weight) — docs/roi-framework.md
+              §2. Left at 1 every zone counts equally, which is the honest default;
+              raising it says a minute here is worth more than a minute elsewhere.
+            */}
+            <input
+              type="number"
+              min={0}
+              step={0.5}
+              value={z.weight ?? 1}
+              onChange={(e) =>
+                update(z.id, {
+                  weight: e.target.value ? parseFloat(e.target.value) : 1,
+                })
+              }
+              title="ROI weight for dwell-weighted attention. 1 = counts like any other zone."
               className="h-10 px-3 rounded-lg bg-bg-canvas border border-border-subtle text-sm tabular focus:border-accent focus:outline-none transition-colors"
             />
             <button

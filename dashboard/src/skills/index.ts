@@ -1,5 +1,4 @@
 import { heatmapSkill } from "./heatmap";
-import { nlqSkill } from "./nlq";
 import { notifySkill } from "./notify";
 import { reportGenSkill } from "./report-gen";
 import { trackSkill } from "./track";
@@ -11,7 +10,6 @@ export const skillRegistry: Record<string, SkillModule> = {
   [trackSkill.id]: trackSkill,
   [zoneDetectSkill.id]: zoneDetectSkill,
   [heatmapSkill.id]: heatmapSkill,
-  [nlqSkill.id]: nlqSkill,
   [notifySkill.id]: notifySkill,
   [reportGenSkill.id]: reportGenSkill,
   [twinSyncSkill.id]: twinSyncSkill,
@@ -25,7 +23,6 @@ export {
   trackSkill,
   zoneDetectSkill,
   heatmapSkill,
-  nlqSkill,
   notifySkill,
   reportGenSkill,
   twinSyncSkill,

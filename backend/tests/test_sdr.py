@@ -1,0 +1,707 @@
+"""
+The contextual SDR — a follow-up that names where somebody actually stood.
+
+Phase 5's acceptance: *"post-session, a consented lead receives a draft follow-up
+referencing the exact zones/surfaces they engaged"*.
+
+Four properties carry this file, and three of them are about restraint.
+
+**The draft references the real path**, not a template with a name slotted in.
+The zones in it are the zones that visitor entered.
+
+**T1 drafts nothing.** `consent-and-identity.md` §2 puts "personalised follow-up
+(SDR)" in T2's column. T1 is "take my details", which is a different sentence a
+visitor chose instead.
+
+**A withdrawal stops it, checked against the graph and not the event.** The
+handoff on the log keeps their name forever; whether they still consent is
+current state.
+
+**It never sends.** There is no endpoint that would, and the read side says so on
+every response.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import datetime as dt
+import json
+import uuid
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+from neo4j import AsyncSession as GraphSession
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app import repository
+from app.consumers.attribution import AttributionConsumer
+from app.consumers.erasure import ErasureConsumer
+from app.consumers.identity import IdentityConsumer
+from app.consumers.reanonymise import ReAnonymiseConsumer
+from app.consumers.sdr import SdrConsumer
+from app.schemas import EventIn
+from tests.test_handoff import (
+    BASE,
+    S,
+    T,
+    consent,
+    end_the_session,
+    seed_activation,
+    seed_person_with_a_path,
+)
+
+
+@pytest.fixture(autouse=True)
+async def _scope_to_test_tenant(db_session: AsyncSession):
+    from tests.conftest import as_tenant
+
+    await as_tenant(db_session, T)
+    yield
+
+
+async def run_chain() -> None:
+    await IdentityConsumer().run_once()
+    await ReAnonymiseConsumer().run_once()
+    await AttributionConsumer().run_once()
+    await SdrConsumer().run_once()
+    await ErasureConsumer().run_once()
+
+
+async def drafts(db_session: AsyncSession) -> list[dict]:
+    rows = await repository.read_events(
+        db_session, tenant_id=T, session_id=S, type="followup.drafted", limit=20
+    )
+    return [row.payload for row in rows]
+
+
+# `multi-tenant.md` §3 gives "own follow-up sequences" to Analyst — the person
+# whose job the drafts are — rather than to the operator running the room.
+async def _client(db_session: AsyncSession, role: str = "analyst") -> AsyncClient:
+    from collections.abc import AsyncIterator
+
+    from app.auth.models import AuthUser
+    from app.auth.tokens import issue_token
+    from app.db import get_session
+    from app.main import app
+
+    user_id = f"u_{role}_{T}"
+    db_session.add(
+        AuthUser(
+            user_id=user_id,
+            email=f"{user_id}@floats.demo",
+            display_name=user_id,
+            tenant_id=T,
+            role=role,
+        )
+    )
+    await db_session.commit()
+
+    async def override() -> AsyncIterator[AsyncSession]:
+        yield db_session
+        await db_session.commit()
+
+    app.dependency_overrides[get_session] = override
+    return AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={
+            "Authorization": f"Bearer {issue_token(subject=user_id, tenant_id=T, role=role)}"
+        },
+    )
+
+
+async def a_consented_visitor(
+    db_session: AsyncSession, graph_session: GraphSession, *, tier: str = "T2"
+) -> None:
+    await seed_activation(graph_session)
+    await seed_person_with_a_path(graph_session)
+    await consent(db_session, tier=tier)
+    await end_the_session(db_session)
+
+
+# ── the draft ─────────────────────────────────────────────────────────────────
+
+
+async def test_the_draft_names_the_zones_that_visitor_actually_entered(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """The acceptance sentence, in one assertion: "referencing the exact
+    zones/surfaces they engaged"."""
+    await a_consented_visitor(db_session, graph_session)
+    await run_chain()
+
+    built = await drafts(db_session)
+    assert len(built) == 1
+    draft = built[0]
+
+    assert draft["contact"]["email"] == "sam@example.com"
+    assert "Sam" in draft["body"]
+    # Pod is where this visitor spent longest — `seed_person_with_a_path` dwells
+    # 40s at Entry and 120s at Pod.
+    assert "Pod" in draft["body"]
+    assert draft["grounded_in"]["zones_visited"] == ["Entry", "Pod"]
+    assert draft["grounded_in"]["top_dwell_zone"] == "Pod"
+    assert draft["basis"] == "deterministic"
+    assert draft["sent"] is False
+
+
+async def test_the_draft_is_built_from_the_complete_path_not_the_first_touch(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """A draft whose one specific detail is "you came in through the door" is
+    worse than a generic one, so it waits for `session.ended`."""
+    await seed_activation(graph_session)
+    await seed_person_with_a_path(graph_session)
+    await consent(db_session)
+
+    # The `identified` stage exists and is deliberately ignored.
+    await IdentityConsumer().run_once()
+    await AttributionConsumer().run_once()
+    await SdrConsumer().run_once()
+    assert await drafts(db_session) == []
+
+    await end_the_session(db_session)
+    await run_chain()
+    assert len(await drafts(db_session)) == 1
+
+
+async def test_a_replay_does_not_fill_the_queue_with_copies(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    await a_consented_visitor(db_session, graph_session)
+    await run_chain()
+
+    await repository.reset_cursor(db_session, tenant_id=T, consumer="sdr")
+    await db_session.commit()
+    await SdrConsumer().run_once()
+
+    assert len(await drafts(db_session)) == 1
+
+
+async def test_the_draft_invents_nothing_when_there_is_nothing_to_say(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """A visitor with no surfaces engaged gets a draft that does not mention any.
+
+    The failure this guards against is a template with "you tried our {surface}"
+    in it, filled with something plausible.
+    """
+    await a_consented_visitor(db_session, graph_session)
+    await run_chain()
+
+    draft = (await drafts(db_session))[0]
+    assert draft["grounded_in"]["surfaces_engaged"] == []
+    assert "tried" not in draft["body"]
+
+
+# ── the gate ──────────────────────────────────────────────────────────────────
+
+
+async def test_a_t1_visitor_gets_no_follow_up(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """`consent-and-identity.md` §2 puts "personalised follow-up (SDR)" in T2's
+    own column. T1 is "take my details" — a different sentence, chosen instead."""
+    await a_consented_visitor(db_session, graph_session, tier="T1")
+    await run_chain()
+
+    assert await drafts(db_session) == []
+
+
+async def test_an_anonymous_handoff_gets_no_follow_up(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    from app.graph import repository as graph_repo
+
+    await seed_activation(graph_session)
+    await graph_repo.upsert_session(
+        graph_session,
+        tenant_id=T,
+        session_id=S,
+        client="Acme",
+        anonymous_handoffs=True,
+    )
+    await seed_person_with_a_path(graph_session, anon_id="P-777")
+    await end_the_session(db_session)
+    await run_chain()
+
+    assert await drafts(db_session) == []
+
+
+async def test_a_visitor_who_withdrew_before_the_draft_gets_none(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """Checked against the graph, not the handoff. The handoff keeps their name
+    forever; whether they still consent is current state."""
+    await seed_activation(graph_session)
+    await seed_person_with_a_path(graph_session)
+    await consent(db_session)
+    await end_the_session(db_session)
+
+    # The handoff is built, and then they change their mind before the SDR runs.
+    await IdentityConsumer().run_once()
+    await AttributionConsumer().run_once()
+    await repository.append_event(
+        db_session,
+        EventIn(
+            event_id=uuid.uuid4(),
+            tenant_id=T,
+            session_id=S,
+            type="consent.withdrawn",
+            payload={"consent_id": "c_0001", "anon_id": "P-012"},
+            occurred_at=BASE + dt.timedelta(minutes=10),
+        ),
+    )
+    await db_session.commit()
+    await ReAnonymiseConsumer().run_once()
+    await SdrConsumer().run_once()
+
+    assert await drafts(db_session) == []
+
+
+# ── the review surface ────────────────────────────────────────────────────────
+
+
+async def test_the_drafts_are_readable_and_nothing_can_send_them(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    await a_consented_visitor(db_session, graph_session)
+    await run_chain()
+
+    client = await _client(db_session)
+    async with client:
+        body = (await client.get("/v1/followups")).json()
+
+    assert body["count"] == 1
+    assert body["sendingSupported"] is False
+    assert body["followups"][0]["sent"] is False
+    assert "Pod" in body["followups"][0]["draft"]["body"]
+
+
+@pytest.mark.parametrize("role", ["viewer", "operator"])
+async def test_the_wrong_role_cannot_see_somebody_elses_letter(
+    role: str, db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """These are a name beside a letter written about that person.
+
+    A **viewer** is the client's own stakeholder, who reads the report about an
+    activation rather than the list of people who attended it. An **operator**
+    runs the room; `multi-tenant.md` §3 gives follow-up sequences to Analyst, and
+    this codebase reads that table as a deny-list. Both refusals are deliberate,
+    so a future change to either has to be one too.
+    """
+    client = await _client(db_session, role=role)
+    async with client:
+        response = await client.get("/v1/followups")
+    assert response.status_code == 403
+    assert "leads" in response.json()["detail"]
+
+
+async def test_a_withdrawal_strips_the_letter_and_not_just_the_envelope(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """The body says "Hi Sam". Redacting the contact and leaving it is not
+    redaction."""
+    await a_consented_visitor(db_session, graph_session)
+    await run_chain()
+
+    await repository.append_event(
+        db_session,
+        EventIn(
+            event_id=uuid.uuid4(),
+            tenant_id=T,
+            session_id=S,
+            type="consent.withdrawn",
+            payload={"consent_id": "c_0001", "anon_id": "P-012"},
+            occurred_at=BASE + dt.timedelta(minutes=30),
+        ),
+    )
+    await db_session.commit()
+    await run_chain()
+
+    client = await _client(db_session)
+    async with client:
+        body = (await client.get("/v1/followups")).json()
+
+    shown = body["followups"][0]
+    assert shown["withdrawn"] is True
+    assert "Sam" not in json.dumps(shown)
+    assert shown["draft"]["body"] == "[withdrawn]"
+    assert shown["draft"]["subject"] == "[withdrawn]"
+
+
+async def test_an_erasure_takes_the_body_out_of_the_log(
+    db_session: AsyncSession, graph_session: GraphSession
+) -> None:
+    """Read-time redaction hides it; an erasure has to remove it."""
+    from sqlalchemy import select
+
+    from app.models import EventLog
+    from tests.test_erasure import request_erasure
+
+    await a_consented_visitor(db_session, graph_session)
+    await run_chain()
+    assert "Sam" in json.dumps(await drafts(db_session))
+
+    await request_erasure(db_session, consent_id="c_0001")
+    await run_chain()
+
+    rows = (
+        (await db_session.execute(select(EventLog).order_by(EventLog.seq)))
+        .scalars()
+        .all()
+    )
+    assert "Sam" not in json.dumps([row.payload for row in rows])
+
+    draft_row = next(row for row in rows if row.type == "followup.drafted")
+    assert draft_row.redacted_at is not None
+    assert draft_row.payload["body"] == "[erased]"
+    # The measurements survive: they were never consent-gated, and they are what
+    # makes the row still evidence that a draft existed and was never sent.
+    assert draft_row.payload["grounded_in"]["zones_visited"] == ["Entry", "Pod"]
+
+
+# ── what the draft costs ──────────────────────────────────────────────────────
+
+
+async def test_a_model_written_draft_is_metered(
+    db_session: AsyncSession, graph_session: GraphSession, monkeypatch
+) -> None:
+    """**This consumer spent tokens and metered none of them until 2026-08-31.**
+
+    With no provider, `tokens` was always zero and the absence looked like
+    nothing to record. A real provider bills for drafts, and `roi-framework.md`'s
+    unit economics cannot be short a spender — a cost tile that reads zero for
+    the SDR is a wrong number, not a missing feature.
+    """
+    from app import llm, secrets
+    from app.config import get_settings
+    from tests.llm_transport import completion, stub_transport
+
+    settings = get_settings()
+    before = settings.credential_encryption_key
+    settings.credential_encryption_key = secrets.generate_key()
+    try:
+        key = "sk-or-v1-" + "0" * 8
+        await repository.upsert_integration(
+            db_session,
+            tenant_id=T,
+            provider="openrouter",
+            secret_ct=secrets.encrypt(key, tenant_id=T, provider="openrouter"),
+            secret_hint=secrets.hint(key),
+            field_map={},
+            kind=llm.KIND,
+        )
+        await db_session.commit()
+
+        stub_transport(
+            monkeypatch,
+            lambda request: __import__("httpx").Response(
+                200,
+                json=completion(
+                    "Subject: Thanks for stopping by\n\nYou spent most of your "
+                    "time at the Pod.",
+                    prompt_tokens=300,
+                    completion_tokens=90,
+                ),
+            ),
+        )
+
+        await a_consented_visitor(db_session, graph_session)
+        await run_chain()
+    finally:
+        settings.credential_encryption_key = before
+
+    built = await drafts(db_session)
+    assert len(built) == 1
+    assert built[0]["basis"] == "openrouter"
+
+    metered = [
+        row.payload
+        for row in await repository.read_events(
+            db_session, tenant_id=T, session_id=S, type="cost.metered", limit=20
+        )
+        if row.payload.get("kind") == "llm_tokens"
+    ]
+    assert len(metered) == 1, "one draft, one spend"
+    assert metered[0]["amount"] == 390.0
+    assert metered[0]["detail"]["spender"] == "sdr"
+
+
+async def test_a_replayed_draft_is_not_billed_twice(
+    db_session: AsyncSession, graph_session: GraphSession, monkeypatch
+) -> None:
+    """Keyed on the contact, like the draft itself. A rewound cursor re-derives
+    the same spend id and the log dedupes it."""
+    from app import llm, secrets
+    from app.config import get_settings
+    from tests.llm_transport import completion, stub_transport
+
+    settings = get_settings()
+    before = settings.credential_encryption_key
+    settings.credential_encryption_key = secrets.generate_key()
+    try:
+        key = "sk-or-v1-" + "0" * 8
+        await repository.upsert_integration(
+            db_session,
+            tenant_id=T,
+            provider="openrouter",
+            secret_ct=secrets.encrypt(key, tenant_id=T, provider="openrouter"),
+            secret_hint=secrets.hint(key),
+            field_map={},
+            kind=llm.KIND,
+        )
+        await db_session.commit()
+        stub_transport(
+            monkeypatch,
+            lambda request: __import__("httpx").Response(
+                200,
+                json=completion(
+                    "Subject: Thanks\n\nYou spent longest at the Pod.",
+                    prompt_tokens=300,
+                    completion_tokens=90,
+                ),
+            ),
+        )
+
+        await a_consented_visitor(db_session, graph_session)
+        await run_chain()
+        await SdrConsumer().run_once()
+        await SdrConsumer().run_once()
+    finally:
+        settings.credential_encryption_key = before
+
+    metered = [
+        row
+        for row in await repository.read_events(
+            db_session, tenant_id=T, session_id=S, type="cost.metered", limit=20
+        )
+        if row.payload.get("kind") == "llm_tokens"
+    ]
+    assert len(metered) == 1
+
+
+# ── how a model renders a subject line ────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("reply", "subject"),
+    [
+        ("Subject: Plain\n\nBody.", "Plain"),
+        # DeepSeek writes this some of the time and a bare label the rest, on
+        # identical input — found by the live walk on 2026-08-31.
+        ("**Subject:** Your visit\n\nBody.", "Your visit"),
+        ("**Subject:** **Your visit**\n\nBody.", "Your visit"),
+        ("__Subject__: Underscored\n\nBody.", "Underscored"),
+        ("# Subject: Hashed\n\nBody.", "Hashed"),
+        ("SUBJECT:  Loud\n\nBody.", "Loud"),
+        ("Subject - Dashed\n\nBody.", "Dashed"),
+    ],
+)
+def test_a_subject_line_is_taken_however_it_is_decorated(reply, subject) -> None:
+    """The same lesson as the JSON fence in `routers/ask.py`.
+
+    A model asked for a subject line gives one *with the formatting a chat model
+    uses*. Rejecting a bolded label threw away a perfectly good draft, and the
+    failure was the quiet kind: the composed draft stood in and `basis` still
+    read `deterministic`, so the feature looked switched off rather than broken.
+    """
+    from app.consumers.sdr import _split
+
+    assert _split(reply) == (subject, "Body.")
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "No subject offered\n\nBody.",
+        "Subjective thoughts about the visit\n\nBody.",
+        "Subject: a subject and no body at all",
+        "",
+    ],
+)
+def test_a_reply_without_a_subject_line_keeps_the_composed_draft(reply) -> None:
+    """Still refused, and deliberately. Promoting the first sentence of a body
+    into a subject line produces a mangled email; ours is merely a plainer one.
+
+    `Subjective` is here because widening the label pattern is exactly the change
+    that would start matching it.
+    """
+    from app.consumers.sdr import _split
+
+    assert _split(reply) is None
+
+
+# ── who the model is told this is about ───────────────────────────────────────
+#
+# Open decision 5, closed 2026-08-31. `privacy.md` promises AI reasoning calls
+# "receive only structured event summaries"; this prompt used to carry a
+# consented visitor's name and company, because it is writing an email to them.
+# Now it carries `[FIRST_NAME]` and `[COMPANY]` and the person is spliced in on
+# our side. See `app/llm/prompts.splice_identity`.
+
+
+@contextlib.asynccontextmanager
+async def a_model_replying(db_session: AsyncSession, monkeypatch, reply: str):
+    """A connected OpenRouter integration answering with `reply`."""
+    from app import llm, secrets
+    from app.config import get_settings
+    from tests.llm_transport import completion, stub_transport
+
+    settings = get_settings()
+    before = settings.credential_encryption_key
+    settings.credential_encryption_key = secrets.generate_key()
+    try:
+        key = "sk-or-v1-" + "0" * 8
+        await repository.upsert_integration(
+            db_session,
+            tenant_id=T,
+            provider="openrouter",
+            secret_ct=secrets.encrypt(key, tenant_id=T, provider="openrouter"),
+            secret_hint=secrets.hint(key),
+            field_map={},
+            kind=llm.KIND,
+        )
+        await db_session.commit()
+
+        sent: list[str] = []
+
+        def _respond(request):
+            import httpx
+
+            sent.append(
+                json.loads(request.content)["messages"][-1]["content"]
+            )
+            return httpx.Response(200, json=completion(reply))
+
+        stub_transport(monkeypatch, _respond)
+        yield sent
+    finally:
+        settings.credential_encryption_key = before
+
+
+def test_the_prompt_carries_a_placeholder_and_not_a_person() -> None:
+    """The assertion is on the assembled prompt, because that is the exact text
+    the adapter posts to the vendor. Anything checked one layer earlier proves
+    something about our intentions rather than about what left the building."""
+    from app.llm import prompts
+
+    built = prompts.sdr_prompt(
+        contact={"id": "c1", "name": "Jordan Reeve", "company": "Acme Labs"},
+        intent={"zones_visited": ["Entry", "Pod"], "top_dwell_zone": "Pod"},
+        activation="Pavilion No. 7",
+    )
+
+    assert "Jordan" not in built
+    assert "Reeve" not in built
+    assert "Acme" not in built
+    assert prompts.NAME_TOKEN in built
+    assert prompts.COMPANY_TOKEN in built
+
+    # What it still carries, and should: the measurements a consent covers, and
+    # the client's own event name — which is not the visitor's identity and is
+    # what makes a subject line specific.
+    assert "Pod" in built and "Pavilion No. 7" in built
+
+
+def test_a_contact_with_no_company_gets_no_token_to_fill() -> None:
+    """`unknown` is what the rest of this prompt already does with a missing
+    field, and there would be nothing to splice in afterwards."""
+    from app.llm import prompts
+
+    built = prompts.sdr_prompt(
+        contact={"id": "c1", "name": "Jordan Reeve"},
+        intent={},
+        activation="Pavilion No. 7",
+    )
+
+    # Asserted on the field line rather than on the whole prompt: the rule that
+    # tells the model what to write with the tokens names them both, so a bare
+    # `not in built` would fail on the instruction and prove nothing.
+    assert f"Their name:        {prompts.NAME_TOKEN}" in built
+    assert "Their company:     unknown" in built
+
+
+async def test_the_person_is_spliced_back_in_before_a_reviewer_sees_it(
+    db_session: AsyncSession, graph_session: GraphSession, monkeypatch
+) -> None:
+    """The vendor saw a placeholder; the reviewer sees the letter they would
+    have seen either way."""
+    async with a_model_replying(
+        db_session,
+        monkeypatch,
+        "Subject: Thanks for stopping by, [FIRST_NAME]\n\n"
+        "Hi [FIRST_NAME], you spent most of your time at the Pod.",
+    ) as sent:
+        await a_consented_visitor(db_session, graph_session)
+        await run_chain()
+
+    assert sent, "the model was never called"
+    assert "Sam" not in sent[0], "the visitor's name reached the vendor"
+
+    built = await drafts(db_session)
+    assert len(built) == 1
+    assert built[0]["basis"] == "openrouter"
+    # The first name only. "Hi Sam Rivera," is a mail-merge announcing itself.
+    assert built[0]["body"].startswith("Hi Sam,")
+    assert "Rivera" not in built[0]["body"]
+    assert built[0]["subject"] == "Thanks for stopping by, Sam"
+    assert "[" not in built[0]["subject"] + built[0]["body"]
+
+
+async def test_a_placeholder_we_cannot_fill_keeps_the_composed_draft(
+    db_session: AsyncSession, graph_session: GraphSession, monkeypatch
+) -> None:
+    """The prompt forbids inventing a field and a model does it anyway.
+
+    Refused for the reason `_split` refuses a mangled reply: a letter reaching a
+    reviewer with `[LAST_NAME]` in it reads as a broken mail-merge, and a
+    reviewer's job is to check what the draft claims about somebody's visit, not
+    to find our bugs. The composed draft is plainer and finished.
+    """
+    async with a_model_replying(
+        db_session,
+        monkeypatch,
+        "Subject: Thanks\n\nHi [FIRST_NAME] [LAST_NAME], see you at [PRODUCT].",
+    ):
+        await a_consented_visitor(db_session, graph_session)
+        await run_chain()
+
+    built = await drafts(db_session)
+    assert len(built) == 1
+    assert built[0]["basis"] == "deterministic"
+    assert "[" not in built[0]["body"]
+    assert "LAST_NAME" not in built[0]["body"]
+
+
+async def test_a_draft_that_names_nobody_is_kept_as_it_is(
+    db_session: AsyncSession, graph_session: GraphSession, monkeypatch
+) -> None:
+    """"Hello," is a legal opening. The prompt asks for the placeholder; it does
+    not require the model to address anybody by name."""
+    async with a_model_replying(
+        db_session,
+        monkeypatch,
+        "Subject: Thanks for stopping by\n\nHello, you spent time at the Pod.",
+    ):
+        await a_consented_visitor(db_session, graph_session)
+        await run_chain()
+
+    built = await drafts(db_session)
+    assert built[0]["basis"] == "openrouter"
+    assert built[0]["body"] == "Hello, you spent time at the Pod."
+
+
+@pytest.mark.parametrize(
+    ("subject", "body"),
+    [
+        ("Following up, [LAST_NAME]", "Hi [FIRST_NAME], thanks."),
+        ("Following up, [FIRST_NAME]", "Hi Sam, see you at [PRODUCT]."),
+    ],
+)
+def test_both_halves_or_neither(subject, body) -> None:
+    """A subject line reading "Following up, [FIRST_NAME]" beside a correctly
+    addressed body is the same broken mail-merge, one line higher up."""
+    from app.consumers.sdr import _with_identity
+
+    assert _with_identity((subject, body), contact={"name": "Sam Rivera"}) is None

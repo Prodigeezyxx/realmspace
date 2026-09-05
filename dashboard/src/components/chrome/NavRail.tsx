@@ -1,8 +1,11 @@
 "use client";
 
 import {
+  AlertTriangle,
   Box,
+  Camera,
   FileBarChart,
+  FileSpreadsheet,
   Gauge,
   Layers,
   MessageSquareText,
@@ -21,6 +24,16 @@ const items = [
   { href: "/ask",      label: "Ask",      icon: MessageSquareText },
   { href: "/agents",   label: "Agents",   icon: Zap },
   { href: "/report",   label: "Report",   icon: FileBarChart },
+  { href: "/ledger",   label: "Ledger",   icon: FileSpreadsheet },
+  // `/ops` has existed since the HITL queue shipped and was never reachable
+  // from here — a review queue nobody can navigate to is a review queue nobody
+  // reads, which is the whole failure that screen was built to avoid.
+  { href: "/ops",      label: "Ops",      icon: AlertTriangle },
+  // The calibration step `privacy.md` has described since Phase 0 and that
+  // nothing implemented until Phase 6. Nested under /sessions because it
+  // calibrates one, which is why `active` below can no longer be a plain
+  // prefix test.
+  { href: "/sessions/calibration", label: "Cameras", icon: Camera },
 ];
 
 export function NavRail() {
@@ -31,7 +44,12 @@ export function NavRail() {
         className="bg-bg-raised border border-border-subtle rounded-full flex flex-col items-center gap-1 p-1.5 shadow-[var(--shadow-sm)]"
       >
         {items.map(({ href, label, icon: Icon }) => {
-          const active = pathname.startsWith(href);
+          // Longest match wins. A plain `startsWith` lit Sessions *and* Cameras
+          // on /sessions/calibration, and two highlighted tabs tell a reader
+          // nothing about where they are.
+          const active =
+            pathname.startsWith(href) &&
+            !items.some((o) => o.href.length > href.length && pathname.startsWith(o.href));
           return (
             <Link
               key={href}
@@ -53,8 +71,15 @@ export function NavRail() {
         })}
       </div>
       <div className="flex-1" />
+      {/*
+        A cog labelled Settings that went to the landing page. Now it goes to
+        the activation's settings, which is what somebody clicking it is looking
+        for — and which was write-once until that screen existed: the client's
+        own influenced-revenue figure arrives after the activation and is the
+        numerator of the ratio on the front of the report.
+      */}
       <Link
-        href="/"
+        href="/sessions/settings"
         className="w-12 h-12 rounded-full flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors"
         title="Settings"
       >

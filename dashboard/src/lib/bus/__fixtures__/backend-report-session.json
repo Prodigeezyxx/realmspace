@@ -1,0 +1,1339 @@
+[
+  {
+    "eventId": "aa119604-f328-486b-9a41-42ef822dc676",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "session.zones_updated",
+    "payload": {
+      "by": "u_8dead42b60e3",
+      "zone_ids": [
+        "z_entry",
+        "z_mirror"
+      ],
+      "zone_count": 2
+    },
+    "occurredAt": 1785820811086,
+    "seq": 2,
+    "recordedAt": 1785820810907
+  },
+  {
+    "eventId": "0431c562-5f5a-4410-8f15-cc7841c27cfe",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837600000,
+    "seq": 3,
+    "recordedAt": 1785820811092
+  },
+  {
+    "eventId": "f3d900a0-c37e-4a9d-aaea-e273aac012fb",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837605000,
+    "seq": 4,
+    "recordedAt": 1785820811098
+  },
+  {
+    "eventId": "1e9acfc9-b77f-4881-a63f-087d3c463136",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837610000,
+    "seq": 5,
+    "recordedAt": 1785820811102
+  },
+  {
+    "eventId": "d7fa2c58-63c5-46d2-aa6a-dbf3d31e8711",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837615000,
+    "seq": 6,
+    "recordedAt": 1785820811104
+  },
+  {
+    "eventId": "72bf7ba7-4882-4bf1-a2c6-d4834fd690d6",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837620000,
+    "seq": 7,
+    "recordedAt": 1785820811106
+  },
+  {
+    "eventId": "aabee180-8fc9-4d37-ae38-7ce6d5fd3150",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837625000,
+    "seq": 8,
+    "recordedAt": 1785820811108
+  },
+  {
+    "eventId": "81672af2-730b-4db6-a029-374253da5c69",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837630000,
+    "seq": 9,
+    "recordedAt": 1785820811110
+  },
+  {
+    "eventId": "7cdd65a4-66f0-41af-b34b-c08c353888e6",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837635000,
+    "seq": 10,
+    "recordedAt": 1785820811112
+  },
+  {
+    "eventId": "5627a83d-1cc6-455d-991f-c32bff64bae9",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837640000,
+    "seq": 11,
+    "recordedAt": 1785820811115
+  },
+  {
+    "eventId": "3dcd93e7-c8e0-4291-bb2f-6d8228e00d39",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837645000,
+    "seq": 12,
+    "recordedAt": 1785820811120
+  },
+  {
+    "eventId": "29991669-f8fa-4f06-a8a6-60a942f2df58",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837650000,
+    "seq": 13,
+    "recordedAt": 1785820811123
+  },
+  {
+    "eventId": "06d322fb-1358-41e9-9900-5d60c4e94289",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837655000,
+    "seq": 14,
+    "recordedAt": 1785820811125
+  },
+  {
+    "eventId": "eb440dcb-a5a6-406d-bf04-4046cda90e29",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837660000,
+    "seq": 15,
+    "recordedAt": 1785820811128
+  },
+  {
+    "eventId": "304acb7e-6b11-48c6-9d99-52938da8ee0e",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837660000,
+    "seq": 16,
+    "recordedAt": 1785820811130
+  },
+  {
+    "eventId": "efae0fc7-cc42-4b89-85f8-1f3b35154376",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837665000,
+    "seq": 17,
+    "recordedAt": 1785820811133
+  },
+  {
+    "eventId": "1d0ae4d3-b59e-44e8-9b08-29683a109faf",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837670000,
+    "seq": 18,
+    "recordedAt": 1785820811136
+  },
+  {
+    "eventId": "6f97a6a9-20f7-4279-8c67-7f6e7f35895b",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837675000,
+    "seq": 19,
+    "recordedAt": 1785820811138
+  },
+  {
+    "eventId": "94300aba-e969-47fd-b2f5-282b9877f6e6",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837680000,
+    "seq": 20,
+    "recordedAt": 1785820811141
+  },
+  {
+    "eventId": "78e0c3fe-f05d-4f39-b94b-01fd530f6d34",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837685000,
+    "seq": 21,
+    "recordedAt": 1785820811145
+  },
+  {
+    "eventId": "24a33895-38dc-4079-bed3-ea92901f89ce",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837690000,
+    "seq": 22,
+    "recordedAt": 1785820811147
+  },
+  {
+    "eventId": "e1fdc50a-2427-402c-af85-eefb14046b7e",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837695000,
+    "seq": 23,
+    "recordedAt": 1785820811150
+  },
+  {
+    "eventId": "9d4217ae-cfce-40de-92d3-a1d1960f207e",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837700000,
+    "seq": 24,
+    "recordedAt": 1785820811153
+  },
+  {
+    "eventId": "94585c2a-e073-434c-8b54-4fbf29923270",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837705000,
+    "seq": 25,
+    "recordedAt": 1785820811155
+  },
+  {
+    "eventId": "f0209d35-19db-417d-bb8b-b52e5a1b8090",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837710000,
+    "seq": 26,
+    "recordedAt": 1785820811158
+  },
+  {
+    "eventId": "d618f626-e023-4ca5-94f3-030555d2d17f",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837715000,
+    "seq": 27,
+    "recordedAt": 1785820811161
+  },
+  {
+    "eventId": "6d91f604-082f-4ddb-9854-f5194e54e9b7",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837720000,
+    "seq": 28,
+    "recordedAt": 1785820811163
+  },
+  {
+    "eventId": "9a437f1d-3eee-4a9f-b6e9-ff21761b3c48",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837725000,
+    "seq": 29,
+    "recordedAt": 1785820811166
+  },
+  {
+    "eventId": "c2a14e73-06a8-4a6a-8dd0-f051f1a296c7",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837730000,
+    "seq": 30,
+    "recordedAt": 1785820811169
+  },
+  {
+    "eventId": "63fad914-a5ee-43f2-ab55-aa7917559c8b",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837735000,
+    "seq": 31,
+    "recordedAt": 1785820811172
+  },
+  {
+    "eventId": "707b0e40-485f-4665-a133-71aec4d8ff7b",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837740000,
+    "seq": 32,
+    "recordedAt": 1785820811176
+  },
+  {
+    "eventId": "f9a0f1b7-84c0-4603-bf54-7f7e2eab36ab",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837745000,
+    "seq": 33,
+    "recordedAt": 1785820811178
+  },
+  {
+    "eventId": "6e26d54f-e2dd-443f-bd3f-fa8ed0c50a91",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837750000,
+    "seq": 34,
+    "recordedAt": 1785820811180
+  },
+  {
+    "eventId": "51fca6aa-e07d-494f-8f86-05b714de4065",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837755000,
+    "seq": 35,
+    "recordedAt": 1785820811183
+  },
+  {
+    "eventId": "aa577352-daa7-4ac4-8dec-159b0ceca997",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837760000,
+    "seq": 36,
+    "recordedAt": 1785820811185
+  },
+  {
+    "eventId": "ec03b970-11f5-45a3-bd8f-3c29ed27478b",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837765000,
+    "seq": 37,
+    "recordedAt": 1785820811188
+  },
+  {
+    "eventId": "c9938c9f-5c0b-473d-9c43-b907bc3c2eb5",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837770000,
+    "seq": 38,
+    "recordedAt": 1785820811190
+  },
+  {
+    "eventId": "e2c2eb7b-e1f6-4049-a8ad-d4fd8c4b3792",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837775000,
+    "seq": 39,
+    "recordedAt": 1785820811193
+  },
+  {
+    "eventId": "b55f8fda-6fe8-450e-ab8b-e298cded8180",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        470,
+        400,
+        530,
+        500
+      ],
+      "person_id": "P1",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837780000,
+    "seq": 40,
+    "recordedAt": 1785820811196
+  },
+  {
+    "eventId": "cf15331e-aadb-4b88-9ca4-dd25e1f3516e",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "surface.interaction",
+    "payload": {
+      "kind": "ar",
+      "anon_id": "P1",
+      "surface_id": "sf_mirror"
+    },
+    "occurredAt": 1785837690000,
+    "seq": 41,
+    "recordedAt": 1785820811199
+  },
+  {
+    "eventId": "2056ea1a-3774-4307-a0e4-c5fd79909d11",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837630000,
+    "seq": 42,
+    "recordedAt": 1785820811203
+  },
+  {
+    "eventId": "0b802340-d9d2-4e7d-ad41-61ce393177f4",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837635000,
+    "seq": 43,
+    "recordedAt": 1785820811206
+  },
+  {
+    "eventId": "97313e7f-4ef1-4312-8ceb-81e34201918f",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837640000,
+    "seq": 44,
+    "recordedAt": 1785820811208
+  },
+  {
+    "eventId": "b87e9078-00ab-49ca-8184-7611fdca322a",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837645000,
+    "seq": 45,
+    "recordedAt": 1785820811210
+  },
+  {
+    "eventId": "bb768334-ad19-4274-9e01-fb46cff82d3f",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837650000,
+    "seq": 46,
+    "recordedAt": 1785820811212
+  },
+  {
+    "eventId": "04304e9c-bbf5-4fce-a892-e403732d57ee",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837655000,
+    "seq": 47,
+    "recordedAt": 1785820811215
+  },
+  {
+    "eventId": "17b8324b-44b9-4eb5-8735-8fb8f2219a69",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837660000,
+    "seq": 48,
+    "recordedAt": 1785820811217
+  },
+  {
+    "eventId": "7c6572b4-d82a-4604-910c-ad3aed05e55c",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837665000,
+    "seq": 49,
+    "recordedAt": 1785820811220
+  },
+  {
+    "eventId": "3d5e197c-74e9-4ea9-aa84-9b423f9bdefa",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        100,
+        400,
+        200,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837670000,
+    "seq": 50,
+    "recordedAt": 1785820811222
+  },
+  {
+    "eventId": "eebb97a5-a367-4737-8d53-7ec36107185f",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        300,
+        400,
+        360,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837670000,
+    "seq": 51,
+    "recordedAt": 1785820811223
+  },
+  {
+    "eventId": "be10ae0b-5b13-4b5c-bfae-9f9134a2da95",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        300,
+        400,
+        360,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837675000,
+    "seq": 52,
+    "recordedAt": 1785820811226
+  },
+  {
+    "eventId": "3a9fecbc-0867-4889-a562-07204e55f61e",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        300,
+        400,
+        360,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837680000,
+    "seq": 53,
+    "recordedAt": 1785820811228
+  },
+  {
+    "eventId": "a5f66002-6e65-477a-96c0-540796f4c9c1",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        300,
+        400,
+        360,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837685000,
+    "seq": 54,
+    "recordedAt": 1785820811231
+  },
+  {
+    "eventId": "529008be-bcc2-4982-baa3-fd262ab9f568",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        300,
+        400,
+        360,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837690000,
+    "seq": 55,
+    "recordedAt": 1785820811233
+  },
+  {
+    "eventId": "068d0c3f-e1c2-4bb8-8390-518dbf78accf",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        300,
+        400,
+        360,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837695000,
+    "seq": 56,
+    "recordedAt": 1785820811235
+  },
+  {
+    "eventId": "552e5f30-394b-4c7f-9101-542497606ce1",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "perception.detection",
+    "payload": {
+      "bbox": [
+        300,
+        400,
+        360,
+        500
+      ],
+      "person_id": "P2",
+      "confidence": 0.9,
+      "frame_width": 900,
+      "frame_height": 900
+    },
+    "occurredAt": 1785837700000,
+    "seq": 57,
+    "recordedAt": 1785820811237
+  },
+  {
+    "eventId": "f8de7701-298e-4d89-b45d-5722347b3a90",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "session.ended",
+    "payload": {
+      "endedBy": "operator"
+    },
+    "occurredAt": 1785837800000,
+    "seq": 58,
+    "recordedAt": 1785820811239
+  },
+  {
+    "eventId": "335ab766-5eb3-5242-8855-2a44ae2c85c1",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_enter",
+    "payload": {
+      "at": "2026-08-04T10:00:00+00:00",
+      "anon_id": "P1",
+      "zone_id": "z_entry"
+    },
+    "occurredAt": 1785837605000,
+    "seq": 59,
+    "recordedAt": 1785820811379
+  },
+  {
+    "eventId": "aa8833b3-490f-5916-9d8d-64b0a26652f9",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_exit",
+    "payload": {
+      "at": "2026-08-04T10:01:00+00:00",
+      "reason": "move",
+      "anon_id": "P1",
+      "zone_id": "z_entry",
+      "entered_at": "2026-08-04T10:00:00+00:00"
+    },
+    "occurredAt": 1785837665000,
+    "seq": 60,
+    "recordedAt": 1785820811386
+  },
+  {
+    "eventId": "35dffd7c-9996-5a33-b386-a4efeae7a5d0",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.dwell",
+    "payload": {
+      "reason": "move",
+      "anon_id": "P1",
+      "zone_id": "z_entry",
+      "duration": 60.0,
+      "ended_at": "2026-08-04T10:01:00+00:00",
+      "started_at": "2026-08-04T10:00:00+00:00",
+      "exceeded_threshold": true
+    },
+    "occurredAt": 1785837665000,
+    "seq": 61,
+    "recordedAt": 1785820811386
+  },
+  {
+    "eventId": "fc9efe6b-f5cc-5a5e-9afa-51e3188b401a",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_enter",
+    "payload": {
+      "at": "2026-08-04T10:01:00+00:00",
+      "anon_id": "P1",
+      "zone_id": "z_mirror"
+    },
+    "occurredAt": 1785837665000,
+    "seq": 62,
+    "recordedAt": 1785820811386
+  },
+  {
+    "eventId": "3369c69e-e5df-5179-94a1-75df6e56d0ab",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_enter",
+    "payload": {
+      "at": "2026-08-04T10:00:30+00:00",
+      "anon_id": "P2",
+      "zone_id": "z_entry"
+    },
+    "occurredAt": 1785837635000,
+    "seq": 63,
+    "recordedAt": 1785820811393
+  },
+  {
+    "eventId": "7084dd54-5b31-54c1-acc5-1ec7392ebaa4",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_exit",
+    "payload": {
+      "at": "2026-08-04T10:01:10+00:00",
+      "reason": "move",
+      "anon_id": "P2",
+      "zone_id": "z_entry",
+      "entered_at": "2026-08-04T10:00:30+00:00"
+    },
+    "occurredAt": 1785837675000,
+    "seq": 64,
+    "recordedAt": 1785820811398
+  },
+  {
+    "eventId": "36e11fb8-d9cb-547f-87aa-4c2af2b6fb53",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.dwell",
+    "payload": {
+      "reason": "move",
+      "anon_id": "P2",
+      "zone_id": "z_entry",
+      "duration": 40.0,
+      "ended_at": "2026-08-04T10:01:10+00:00",
+      "started_at": "2026-08-04T10:00:30+00:00",
+      "exceeded_threshold": true
+    },
+    "occurredAt": 1785837675000,
+    "seq": 65,
+    "recordedAt": 1785820811398
+  },
+  {
+    "eventId": "1dd3321c-878b-5279-85f0-b5f234579874",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.zone_exit",
+    "payload": {
+      "at": "2026-08-04T10:03:00+00:00",
+      "reason": "session_end",
+      "anon_id": "P1",
+      "zone_id": "z_mirror",
+      "entered_at": "2026-08-04T10:01:00+00:00"
+    },
+    "occurredAt": 1785837800000,
+    "seq": 66,
+    "recordedAt": 1785820811402
+  },
+  {
+    "eventId": "8debcf18-eb5c-50ca-92b1-24a34eab3f23",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.dwell",
+    "payload": {
+      "reason": "session_end",
+      "anon_id": "P1",
+      "zone_id": "z_mirror",
+      "duration": 120.0,
+      "ended_at": "2026-08-04T10:03:00+00:00",
+      "started_at": "2026-08-04T10:01:00+00:00",
+      "exceeded_threshold": true
+    },
+    "occurredAt": 1785837800000,
+    "seq": 67,
+    "recordedAt": 1785820811402
+  },
+  {
+    "eventId": "c2ed07b1-7621-59d4-887e-3334d2c74dc9",
+    "tenantId": "t_test",
+    "sessionId": "s_report",
+    "type": "spatial.passby",
+    "payload": {
+      "at": "2026-08-04T10:01:40+00:00",
+      "reason": "session_end",
+      "anon_id": "P2",
+      "closest_dist": 0.033,
+      "adjacent_zone_id": "z_mirror"
+    },
+    "occurredAt": 1785837800000,
+    "seq": 68,
+    "recordedAt": 1785820811402
+  }
+]

@@ -1,7 +1,6 @@
 "use client";
 
 import { Activity } from "lucide-react";
-import { useEffect, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -13,8 +12,10 @@ import {
 } from "recharts";
 
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useIsHydrated } from "@/lib/hooks/useIsHydrated";
 import { peopleSeries } from "@/lib/mock/session";
 import { useActiveSession } from "@/lib/session/store";
+import { BRAND_DATA } from "@/lib/brand";
 
 export function TrafficChart() {
   const active = useActiveSession();
@@ -24,8 +25,10 @@ export function TrafficChart() {
   }));
   // Recharts cannot measure the container during SSR — only render after mount
   // to avoid the "width(-1) height(-1)" warning and the related hydration noise.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // The guard itself used to be a setState inside an effect, which is a second
+  // render pass for a boolean React already knows; `useIsHydrated` is the same
+  // guard read from a store.
+  const mounted = useIsHydrated();
   if (!mounted) {
     return <div className="h-44 -mx-2 -mb-2" aria-hidden />;
   }
@@ -46,8 +49,8 @@ export function TrafficChart() {
         <AreaChart data={data} margin={{ top: 6, right: 10, left: 0, bottom: 0 }}>
           <defs>
             <linearGradient id="trafficFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#42faa1" stopOpacity={0.28} />
-              <stop offset="100%" stopColor="#42faa1" stopOpacity={0} />
+              <stop offset="0%" stopColor={BRAND_DATA} stopOpacity={0.28} />
+              <stop offset="100%" stopColor={BRAND_DATA} stopOpacity={0} />
             </linearGradient>
           </defs>
           <CartesianGrid stroke="#1c1c1c" vertical={false} />
@@ -69,7 +72,7 @@ export function TrafficChart() {
           />
           <Tooltip
             cursor={{
-              stroke: "#42faa1",
+              stroke: BRAND_DATA,
               strokeWidth: 1,
               strokeDasharray: "2 2",
             }}
@@ -89,7 +92,7 @@ export function TrafficChart() {
           <Area
             type="monotone"
             dataKey="people"
-            stroke="#42faa1"
+            stroke={BRAND_DATA}
             strokeWidth={1.75}
             fill="url(#trafficFill)"
           />

@@ -13,9 +13,11 @@ This repository ships:
   fully functional with mocked data (`dashboard/`)
 - A **Phase-0 Python perception stub** that opens any webcam, runs YOLO
   person detection, and emits structured JSON events (`perception/`)
+- A **FastAPI backend** — the durable append-only event bus, the Neo4j spatial
+  graph, the consumers that connect them, and a live WebSocket feed (`backend/`)
 - The **product spec and supporting documents** (`docs/`)
 
-. The live `/live` view performs **real, on-device
+The live `/live` view performs **real, on-device
 person detection** from your webcam using TensorFlow.js + COCO-SSD with a
 custom centroid tracker — no backend, no cloud, no frames stored. Walk in
 front of your laptop and watch yourself get tracked with a persistent
@@ -73,15 +75,98 @@ python realmspace.py --headless    # JSON events only, no preview window
 Output is one JSON event per detection per frame on stdout. See
 `perception/README.md` for the full schema.
 
+To feed the backend instead, add `--bus-url` and a device key:
+
+```bash
+python realmspace.py --headless --bus-url http://127.0.0.1:8000 \
+  --session-id s_demo --api-key "$REALMSPACE_API_KEY"
+```
+
+Events buffer to a local file when the bus is unreachable and replay in order
+when it returns — each one keeps the id it was born with, so a reconnect stores
+them once rather than twice.
+
+---
+
+## Running the backend
+
+The event bus, the graph, the consumers and the live socket. See
+[`docs/event-bus-spec.md`](docs/event-bus-spec.md) for the design and
+[`backend/README.md`](backend/README.md) for detail.
+
+### One command, nothing installed
+
+```bash
+cp .env.example .env       # set JWT_SECRET and NEO4J_PASSWORD
+docker compose up --build
+docker compose exec app python -m app.auth.seed    # prints a device key
+```
+
+Brings up Postgres, Neo4j and the backend, runs both migration systems, and
+serves on `http://localhost:8000`. **Cold boot to all-healthy: ~13s.** Use this
+if you want a backend to talk to rather than a Python environment to maintain.
+
+Databases are published on non-default host ports (`55432`, `7475`/`7688`) so
+this coexists with a brew-installed Postgres and Neo4j rather than fighting them
+for a port.
+
+### Or run it directly, for backend development
+
+Faster edit-reload loop, no image rebuilds:
+
+```bash
+brew install postgresql@17 neo4j
+brew services start postgresql@17 && brew services start neo4j
+export PATH="/opt/homebrew/opt/postgresql@17/bin:$PATH"
+createdb realmspace && createdb realmspace_test
+
+cd backend
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cp .env.example .env               # Postgres role, NEO4J_PASSWORD, JWT_SECRET
+.venv/bin/alembic upgrade head
+.venv/bin/python -m app.auth.seed
+.venv/bin/uvicorn app.main:app --reload
+```
+
+Open `http://localhost:8000/docs` for a clickable API console generated from
+the code.
+
+| Endpoint | Auth | Does |
+|---|---|---|
+| `POST /v1/auth/token` | none | `{"email": …}` → a signed token |
+| `POST /events` | key or token | Append one event. `201` if created, `200` if that `event_id` was already in the log. |
+| `GET /events?since_seq=…` | token | Read your tenant's log forward from a cursor. |
+| `WS /v1/ws/{tenant}/{session}?token=…` | token | Live feed, `<60ms` typical. |
+| `GET /health` | none | Liveness for both stores and the consumers. |
+
+Writes are **idempotent on a producer-assigned `event_id`**, so a producer that
+retries after a timeout cannot create a duplicate.
+
+**`tenant_id` is never something the caller supplies** — it comes from the
+credential. People use `Authorization: Bearer`, devices (cameras, RFID readers,
+kiosks) use `X-API-Key` and can only write. Both are verified locally with no
+network call, so the edge box still authenticates when the venue wifi drops.
+
+Run `.venv/bin/pytest` — 57 tests against a real Postgres and a real Neo4j.
+
+Stack: FastAPI · SQLAlchemy 2.0 (async) · asyncpg · Alembic · Neo4j · PyJWT · pytest
+
 ---
 
 ## Documentation
 
+Full index: [`docs/README.md`](docs/README.md). The ones you'll reach for first:
+
 | Doc | What it covers |
 |---|---|
+| [`docs/VISION.md`](docs/VISION.md) | The single-pipeline thesis — start here |
+| [`docs/roadmap.md`](docs/roadmap.md) | Phased build order + acceptance criteria |
 | [`docs/PRD.md`](docs/PRD.md) | Product spec v2 — positioning, ICP, MVP scope, real vs. mocked status |
 | [`docs/architecture.md`](docs/architecture.md) | End-to-end system architecture |
+| [`docs/event-bus-spec.md`](docs/event-bus-spec.md) | The append-only bus — schema, event taxonomy, replay semantics |
 | [`docs/data-model.md`](docs/data-model.md) | Graph schema + example Cypher queries |
+| [`docs/multi-tenant.md`](docs/multi-tenant.md) | Tenancy, isolation, RBAC, billing hooks |
 | [`docs/gtm.md`](docs/gtm.md) | Go-to-market plan, pricing, cold email template, revenue math |
 | [`docs/privacy.md`](docs/privacy.md) | Privacy posture sent to client compliance teams |
 
@@ -92,10 +177,23 @@ Output is one JSON event per detection per frame on stdout. See
 ```
 realmspace/
 ├── README.md                 ← you are here
-├── docs/                     ← PRD, architecture, data model, GTM, privacy
+├── docker-compose.yml        ← one-command boot: Postgres + Neo4j + backend
+├── Dockerfile                ← the backend image
+├── docker/entrypoint.sh      ← waits for the stores, migrates, serves
+├── docs/                     ← vision, roadmap, PRD, architecture, specs
 ├── perception/               ← Python · YOLO + ByteTrack + OpenCV
 │   ├── realmspace.py
 │   └── requirements.txt
+├── backend/                  ← FastAPI · event bus + graph + consumers
+│   ├── app/
+│   │   ├── models.py         ← event_log / consumer_cursor / dead_letter
+│   │   ├── repository.py     ← all SQL against the log
+│   │   ├── auth/             ← JWT + device keys; tenant derived, never supplied
+│   │   ├── graph/            ← Neo4j schema, migrations, all Cypher
+│   │   ├── consumers/        ← tracker, graph writer, broadcast
+│   │   └── routers/          ← events, live WebSocket, auth
+│   ├── alembic/versions/     ← schema migrations
+│   └── tests/
 └── dashboard/                ← Next.js · the demo artifact
     ├── src/
     │   ├── app/              ← routes (landing + the 5 app surfaces)
@@ -124,6 +222,14 @@ realmspace/
 | Agent rule engine | ✅ UI | 🟡 in-memory state |
 | Report numbers | | 🟡 static for the demo |
 | Server-side perception (Phase 0) | 🟡 Python stub in `perception/` | |
+| **Durable event bus (Postgres)** | ✅ append-only log, idempotent writes, cursor reads | |
+| **Graph store (Neo4j)** | ✅ schema from `data-model.md`, tenant-scoped | |
+| **Tracker consumer** | ✅ detections → `spatial.zone_enter` / `zone_exit` / `dwell` | |
+| **Graph writer consumer** | ✅ events → `Person` / `Zone` nodes and edges | |
+| **Replay safety** | ✅ rewind a cursor and nothing duplicates | |
+| **Perception → bus** | ✅ `--bus-url`, with offline buffer and idempotent replay | |
+| Gaze / group / pass-by events | | 🔲 gaze needs pose data; pass-by is Phase 2 |
+| **Auth on the backend API** | ✅ JWT for people, API keys for devices; tenant derived from the credential | 🔲 DB-level row security still to come |
 
 ### Live tab — how the camera actually works
 
@@ -137,9 +243,14 @@ realmspace/
 
 No data leaves the tab. The video element, the model, the canvas, the tracker — all live in your browser. Close the tab and everything is gone.
 
- The mocked pieces are wired against the exact
-contract the real backend will produce. When the Phase-1 perception engine
-lands, swapping is a wiring change, not a redesign.
+The mocked pieces are wired against the exact contract the real backend will
+produce. When the Phase-1 perception engine lands, swapping is a wiring change,
+not a redesign.
+
+The browser's in-memory bus (`dashboard/src/lib/event-bus.ts`) is **not** being
+replaced by the Postgres log — it stays as the client-side fan-out for live UI.
+The durable log sits behind it, and the dashboard will subscribe over WebSocket.
+Same event shapes either way (`docs/event-bus-spec.md` §7).
 
 ---
 
