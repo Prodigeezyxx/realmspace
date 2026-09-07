@@ -26,7 +26,9 @@ await page.addInitScript(() => {
 });
 for (const route of ["/sessions", "/live", "/twin", "/ask", "/agents", "/report"]) {
   problems.length = 0;
-  const response = await page.goto(`http://localhost:3100${route}`, { waitUntil:"networkidle", timeout:60000 });
+  // Twin keeps a 3D scene and bus socket active, so network-idle never settles.
+  const waitUntil = route === "/twin" ? "domcontentloaded" : "networkidle";
+  const response = await page.goto(`http://localhost:3100${route}`, { waitUntil, timeout: 60000 });
   await page.waitForTimeout(1000);
   const title = await page.locator("h1,h2").first().textContent().catch(() => "");
   console.log(`${route.padEnd(12)} HTTP ${response?.status()} title=${JSON.stringify(title?.trim().slice(0,70))} problems=${problems.length}`);

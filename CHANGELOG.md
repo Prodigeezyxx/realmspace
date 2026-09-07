@@ -8,6 +8,18 @@ Sections are dated (with time, local timezone +0100) so you can see when things 
 
 ## [Unreleased] — last updated 2026-09-07
 
+### Fixed — 2026-09-07 14:45 +0100 — local API access from fallback dev ports
+
+- **The live event bus works when the dashboard runs on a fallback local port.**
+  The backend only accepted requests from port 3000, so opening realmspace on
+  the documented 3001 fallback (or any other local port) left Live, Twin, Ask,
+  Rules and Report unable to read session data.
+  *Added the local dashboard origins to `CORS_ORIGINS` in `.env` and
+  `.env.example`. Verified preflight responses now return the requesting
+  origin for ports 3001 and 3100, and confirmed all product routes load with
+  zero console errors. Also made the hydration check wait on DOM readiness for
+  Twin, whose 3D scene and WebSocket keep the network active.*
+
 ### Changed — 2026-09-07 14:20 +0100 — launch UI refresh
 
 - **realmspace now looks and reads like a production product across desktop and mobile.** The public page, app shell, live dashboard, session list, Twin replay, Ask, Rules, Report, login, and setup wizard now share one responsive design system. The copy is plainer and removes internal phase names, model references, staged projections, and marketing language. Twin now makes its data source explicit, provides working Heatmap and Zones controls, and no longer substitutes sample tracks for an empty recorded session. Theme controls are available on both the public page and app shell.
