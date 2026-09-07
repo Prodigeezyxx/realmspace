@@ -159,22 +159,22 @@ export default function AskPage() {
   }
 
   return (
-    <div className="p-5 max-w-[1400px] mx-auto grid grid-cols-12 gap-5">
+    <div className="realm-page grid grid-cols-12 gap-5">
       {/* Main column */}
       <div className="col-span-12 lg:col-span-8 space-y-5">
         <div>
-          <Pill variant="info" className="mb-2">
+          <span className="page-kicker mb-2">Room intelligence</span>
+          <Pill variant="info" className="ml-3 mb-2">
             <Brain size={11} />
-            Ask the Room · NLQ engine
+            Session query
           </Pill>
-          <h1 className="text-3xl font-semibold tracking-tight">
-            Plain English. Real answers.
+          <h1 className="headline-large mt-1">
+            Ask about this session.
           </h1>
           <p className="text-sm text-text-secondary mt-1.5 max-w-xl">
-            Your question is matched to a constrained SQL template, executed
-            against the durable event bus, and returned with a chart-ready
-            answer. Powered by the Hermes LLM via OpenRouter for template
-            selection.
+            Questions map to approved SQL templates and run against the
+            selected session. Open the query on any answer to check how it was
+            calculated.
           </p>
         </div>
 
@@ -269,11 +269,11 @@ export default function AskPage() {
           </div>
         </Panel>
 
-        <Panel title="Stack" subtitle="What runs your question">
+        <Panel title="Query path" subtitle="How the result is prepared">
           <ul className="space-y-2 text-xs text-text-secondary">
             <StackRow
               icon={<MessageSquareText size={12} />}
-              label="LLM · laguna-xs-2.1 (free)"
+              label="Question classification"
               ms={320}
             />
             <StackRow
@@ -561,12 +561,11 @@ function AskEmptyState() {
       <EmptyState
         variant="page"
         icon={<Brain size={26} strokeWidth={1.8} />}
-        title="Ask the Room activates once there's data to ask."
+        title="No recorded data for this session."
         hint={
           <>
-            Plain-English questions are run against the durable event bus
-            using constrained SQL templates. Start the camera, let visitors
-            interact, then come back here.
+            Start the live detector and record some activity first. Questions run
+                        against stored session events using constrained SQL templates.
           </>
         }
         cta={{ href: "/live", label: "Open live & start recording" }}

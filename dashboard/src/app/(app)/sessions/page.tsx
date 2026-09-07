@@ -74,23 +74,15 @@ export default function SessionsPage() {
   }
 
   return (
-    <div className="p-6 md:p-8 max-w-[1400px] mx-auto">
+    <div className="realm-page">
       {/* ── Page header */}
       <div className="flex flex-wrap items-end justify-between gap-6 mb-10">
         <div>
-          <Pill variant="success" className="mb-4">
-            <Sparkles size={11} />
-            Sessions
-          </Pill>
-          <h1 className="display text-5xl md:text-6xl">
-            Every experience<span className="text-accent">,</span>
-            <br />
-            <span className="text-text-faint">one console.</span>
-          </h1>
-          <p className="mt-5 text-text-secondary text-base max-w-xl leading-relaxed">
-            Each session is a distinct event — its own zones, touchpoints,
-            privacy posture and report. Start a new one, switch between them,
-            or end a live session and lock the report.
+          <span className="page-kicker">Session control</span>
+          <h1 className="headline-large mt-2">Sessions</h1>
+          <p className="mt-3 text-text-secondary text-sm max-w-xl leading-relaxed">
+            Create, open and close sessions. Each session keeps its own venue,
+                        cameras, zones, touchpoints and retention settings.
           </p>
         </div>
         <Link
@@ -216,7 +208,7 @@ function SessionCard({
   return (
     <article
       className={cn(
-        "panel-elevated p-6 flex flex-col gap-5 transition-all",
+        "panel-elevated p-5 md:p-6 flex flex-col gap-5 transition-all",
         isActive && "ring-1 ring-accent/50 shadow-[var(--glow-green)]"
       )}
     >
@@ -322,8 +314,8 @@ function SessionCard({
       {session.isDemo && (
         <div className="text-[11px] text-text-muted leading-relaxed border-t border-border-hairline pt-3">
           <Building2 size={11} className="inline mr-1.5 align-text-bottom" />
-          Seeded demo experience. Lives in code, can&apos;t be edited or deleted —
-          use it to explore the dashboard without setting up a real session.
+          Sample workspace. It cannot be edited or deleted. Use it to check the
+                    dashboard before recording a session.
         </div>
       )}
     </article>

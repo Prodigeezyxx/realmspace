@@ -252,7 +252,7 @@ export default function NewSessionPage() {
   }
 
   return (
-    <div className="min-h-screen canvas-vignette">
+    <div className="min-h-screen canvas-vignette signal-grid">
       <WizardHeader total={TOTAL_STEPS} current={step} />
 
       {step === 1 && (

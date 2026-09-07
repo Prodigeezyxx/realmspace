@@ -100,14 +100,14 @@ function LoginFormInner() {
     <div className="panel-elevated p-8 md:p-10 w-full max-w-md">
       <Pill variant="success" className="mb-6">
         <Mail size={11} />
-        Sign in to RealmSpace
+        realmspace account
       </Pill>
 
       <h1 className="text-2xl font-semibold tracking-tight">
         {mode === "signin" ? "Welcome back" : "Create your account"}
       </h1>
       <p className="text-sm text-text-secondary mt-2">
-        Access live sensor, twin, sessions and reports for your activations.
+        Open your sessions, live view, replay and reports.
       </p>
 
       <div className="flex gap-2 mt-6 p-1 rounded-full bg-bg-elevated border border-border-subtle">

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -18,18 +18,14 @@ export function WizardHeader({
   cancelHref?: string;
 }) {
   return (
-    <header className="sticky top-0 z-30 px-5 py-4 bg-bg-base/85 backdrop-blur-xl">
+    <header className="sticky top-0 z-30 px-4 md:px-5 py-3 bg-bg-base/92 backdrop-blur-xl border-b border-border-hairline">
       <div className="max-w-[1400px] mx-auto flex items-center justify-between gap-4">
         <Link
           href="/"
-          className="bg-bg-raised border border-border-subtle h-11 rounded-full px-4 inline-flex items-center gap-2 hover:border-border-strong transition-colors"
+          className="h-12 rounded-[18px] px-2 md:px-3 inline-flex items-center gap-2 hover:bg-bg-elevated transition-colors"
         >
-          <div className="relative w-5 h-5">
-            <div className="absolute inset-0 rounded-full bg-accent" />
-            <div className="absolute inset-[3px] rounded-full bg-bg-base" />
-            <div className="absolute inset-[5px] rounded-full bg-accent" />
-          </div>
-          <span className="text-sm font-semibold tracking-tight">RealmSpace</span>
+          <span className="brand-mark" aria-hidden="true" />
+          <span className="text-sm font-bold tracking-[-.02em]">realmspace</span>
         </Link>
 
         <div className="hidden md:flex items-center gap-2">
@@ -95,7 +91,7 @@ export function WizardStep({
   children: ReactNode;
 }) {
   return (
-    <section className="max-w-[1400px] mx-auto px-5 pt-10 pb-32">
+    <section className="max-w-[1400px] mx-auto px-4 md:px-8 pt-10 pb-32">
       <div className="flex items-center gap-3 text-text-muted text-xs uppercase tracking-[0.18em] font-medium">
         <span>
           Step {String(step).padStart(2, "0")} / {String(total).padStart(2, "0")}
@@ -104,7 +100,7 @@ export function WizardStep({
         <span>{eyebrow}</span>
       </div>
 
-      <h1 className="display mt-5 text-[64px] md:text-[88px] leading-[0.94]">
+      <h1 className="display-small mt-5 max-w-4xl">
         {ghost ? (
           <span className="block">
             <span className="ghost-text" data-text={ghost}>
@@ -165,9 +161,7 @@ export function WizardFooter({
               className="inline-flex items-center gap-2 bg-accent text-text-inverse h-12 pl-6 pr-2.5 rounded-full font-semibold text-sm hover:bg-accent-bright transition-colors shadow-[var(--glow-green)] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {finishLabel}
-              <span className="w-9 h-9 rounded-full bg-text-inverse text-accent inline-flex items-center justify-center">
-                <ArrowUpRight size={15} />
-              </span>
+              <span className="material-symbol material-symbol-sm">arrow_outward</span>
             </button>
           ) : (
             <button
@@ -176,9 +170,7 @@ export function WizardFooter({
               className="inline-flex items-center gap-2 bg-accent text-text-inverse h-12 pl-6 pr-2.5 rounded-full font-semibold text-sm hover:bg-accent-bright transition-colors shadow-[var(--glow-green)] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {nextLabel}
-              <span className="w-9 h-9 rounded-full bg-text-inverse text-accent inline-flex items-center justify-center">
-                <ArrowUpRight size={15} />
-              </span>
+              <span className="material-symbol material-symbol-sm">arrow_forward</span>
             </button>
           )}
         </div>

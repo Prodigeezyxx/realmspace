@@ -129,7 +129,7 @@ export function ReportLive({ outcome }: { outcome: SessionOutcome }) {
         `${fmt(outcome.funnel[0].shareOfVisitors, 1)}% of visitors' first stop was ${zoneName(outcome.funnel[0].zoneId)}`
       );
     }
-    return parts.length ? parts.join(" · ") : "No events recorded yet — start a live session to see the room think.";
+    return parts.length ? parts.join(" · ") : "No events have been recorded for this session.";
   }, [outcome]);
 
   return (
@@ -169,14 +169,14 @@ export function ReportLive({ outcome }: { outcome: SessionOutcome }) {
               })}
             </p>
             <h1 className="text-5xl md:text-6xl font-semibold tracking-tight leading-[0.95] mt-3">
-              The day the room
+              Session report
               <br />
-              <span className="text-text-muted">talked back.</span>
+              <span className="text-text-muted">{activeSession.name}</span>
             </h1>
             <p className="mt-4 text-text-secondary text-lg max-w-xl leading-relaxed">
-              {outcome.reach.uniqueVisitors} anonymous visitors moved through the
-              space — and every number below traces back to an event the system
-              recorded.
+              {outcome.reach.uniqueVisitors} anonymous visitors were recorded.
+              Figures below are calculated from {fmt(outcome.source.eventsRead)}
+              session events.
             </p>
           </div>
           <div className="panel-elevated p-5 min-w-[220px]">
@@ -236,15 +236,14 @@ export function ReportLive({ outcome }: { outcome: SessionOutcome }) {
         </div>
         <Pill variant="violet" className="mb-4">
           <Sparkles size={11} />
-          Headline insight
+          Session note
         </Pill>
         <h2 className="text-3xl md:text-4xl font-semibold tracking-tight leading-tight max-w-3xl">
           {headline}
         </h2>
         <p className="mt-4 text-text-secondary max-w-2xl text-sm">
-          Every figure in this report derives from the durable event stream
-          ({fmt(outcome.source.eventsRead)} events) — replayable, tenant-scoped,
-          and traceable to source sequences. No faces are stored.
+          This report uses {fmt(outcome.source.eventsRead)} tenant-scoped events.
+          Source sequences remain available for audit. No faces are stored.
         </p>
       </section>
 
@@ -329,7 +328,7 @@ export function ReportLive({ outcome }: { outcome: SessionOutcome }) {
       <section>
         <Panel
           title="Recommendations"
-          subtitle="Rule-generated from this session's figures — each cites its source"
+          subtitle="Calculated from this session; each item includes its source"
         >
           {recs.length ? (
             <ol className="space-y-3 text-sm">
@@ -339,7 +338,7 @@ export function ReportLive({ outcome }: { outcome: SessionOutcome }) {
             </ol>
           ) : (
             <div className="text-text-muted text-sm">
-              Not enough data for recommendations yet — keep recording.
+              There is not enough data to produce recommendations.
             </div>
           )}
         </Panel>

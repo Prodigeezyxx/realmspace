@@ -48,7 +48,7 @@ export default function ReportPage() {
     return <ReportEmptyState />;
   }
   return (
-    <div className="max-w-[1100px] mx-auto p-6 md:p-10 space-y-10">
+    <div className="realm-page !max-w-[1180px] space-y-10">
       <ReportGenerator />
 
       <RoiScorecard />
@@ -58,7 +58,7 @@ export default function ReportPage() {
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <Pill variant="info">
             <FileText size={11} />
-            Client report · Day 1
+            Sample report · Day 1
           </Pill>
           <div className="flex items-center gap-2">
             <Button variant="secondary" size="sm" icon={<Share2 size={14} />}>
@@ -75,15 +75,15 @@ export default function ReportPage() {
             <p className="text-text-muted text-sm tabular">
               MAISON VIVIENNE · PAVILION No. 7 · LAGOS · 18 MAY 2026
             </p>
-            <h1 className="text-5xl md:text-6xl font-semibold tracking-tight leading-[0.95] mt-3">
-              The day the room
+            <h1 className="display-small mt-3">
+              Session report
               <br />
-              <span className="text-text-muted">talked back.</span>
+              <span className="text-text-muted">Day 1</span>
             </h1>
             <p className="mt-4 text-text-secondary text-lg max-w-xl leading-relaxed">
-              Day 1 outperformed the brief on every benchmark — and the data
-              tells us why. The Mirror Room is the single most important asset
-              you have. The Scent Quiz is the closer.
+              1,287 visitors were recorded on Day 1. The Mirror Room drew the
+              longest visits, while the Scent Quiz was associated with the
+              strongest downstream capture rate.
             </p>
           </div>
           <div className="panel-elevated p-5 min-w-[220px]">
@@ -101,7 +101,7 @@ export default function ReportPage() {
       </header>
 
       {/* ── Hero numbers */}
-      <section className="grid md:grid-cols-4 gap-3">
+      <section className="metric-ribbon grid grid-cols-2 lg:grid-cols-4 gap-px">
         <BigNumber
           label="Visitors"
           value="1,287"
@@ -142,7 +142,7 @@ export default function ReportPage() {
         </div>
         <Pill variant="violet" className="mb-4">
           <Sparkles size={11} />
-          Headline insight
+          Session note
         </Pill>
         <h2 className="text-3xl md:text-4xl font-semibold tracking-tight leading-tight max-w-3xl">
           Visitors who tried the Scent Quiz dwelled <span className="text-accent">2.4×</span> longer in the Lounge,
@@ -269,13 +269,13 @@ export default function ReportPage() {
       {/* ── Recommendations */}
       <section>
         <Panel
-          title="Recommendations for Day 2"
-          subtitle="Generated from observed behaviour"
+          title="Checks for Day 2"
+          subtitle="Based on Day 1 observations"
         >
           <ol className="space-y-3 text-sm">
             <Rec
               n={1}
-              text="Move the Scent Quiz one bay earlier so visitors hit it before the Bottle Wall — projected +14% RFID conversion."
+              text="Test the Scent Quiz one bay earlier on Day 2, then compare the RFID capture rate with Day 1."
             />
             <Rec
               n={2}
@@ -475,13 +475,12 @@ function ReportEmptyState() {
       <EmptyState
         variant="page"
         icon={<FileBarChart size={26} strokeWidth={1.8} />}
-        title="The report writes itself when the session ends."
+        title="The report is available after session data is recorded."
         hint={
           <>
-            Once data starts streaming in, RealmSpace builds the narrative as
-            you go: hero numbers, funnel, attention map, sponsor exposure, and
-            a written executive summary. Drafted at the end of every shift,
-            locked when the session completes.
+            The report uses recorded visitor, dwell, zone and interaction data.
+            Finish the session to lock the reporting window, then review and
+            export the result.
           </>
         }
         cta={{ href: "/live", label: "Open live & start recording" }}
@@ -523,7 +522,7 @@ function ReportEmptyState() {
 
         <Panel
           title="Targets"
-          subtitle="The benchmarks the AI will write against"
+          subtitle="Targets used for comparison"
           action={<Target size={14} className="text-accent" />}
         >
           <dl className="space-y-3 text-sm">

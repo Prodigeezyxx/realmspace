@@ -32,6 +32,7 @@ function toWorld(
 export function TwinScene({
   time,
   showHeatmap,
+  showZones = true,
   selectedPerson,
   liveAvatars,
   liveHeatmap,
@@ -40,6 +41,7 @@ export function TwinScene({
 }: {
   time: number;
   showHeatmap: boolean;
+  showZones?: boolean;
   selectedPerson?: string | null;
   liveAvatars?: TwinAvatarDelta[];
   liveHeatmap?: HeatmapOutput | null;
@@ -100,7 +102,7 @@ export function TwinScene({
         liveHeatmap={liveHeatmap}
         fallbackTracks={tracks}
       />
-      <Zones zoneList={sceneZones} w={W} d={D} />
+      {showZones && <Zones zoneList={sceneZones} w={W} d={D} />}
       <Surfaces items={sceneSurfaces} w={W} d={D} />
       {liveMode ? (
         <LivePeople avatars={liveAvatars ?? []} />

@@ -73,7 +73,22 @@ export default function LivePage() {
       : 0;
 
   return (
-    <div className="p-5 space-y-5 max-w-[1600px] mx-auto">
+    <div className="realm-page space-y-5">
+      <header className="flex flex-wrap items-end justify-between gap-4 pb-1">
+        <div>
+          <span className="page-kicker">Live intelligence</span>
+          <h1 className="headline-large mt-2">Live session</h1>
+          <p className="text-sm text-text-muted mt-1 max-w-2xl">
+            Current occupancy, dwell, attention and the recorded event stream.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 text-[11px] text-text-muted font-mono">
+          <span className="inline-flex items-center gap-2 rounded-full border border-border-hairline bg-bg-panel px-3 py-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+            edge bus {busStats.hasData ? "recording" : "ready"}
+          </span>
+        </div>
+      </header>
       {alerts[0] && (
         <div className="rounded-lg border border-accent-amber/40 bg-accent-amber/10 px-4 py-2 text-sm text-accent-amber">
           <strong>{alerts[0].title}</strong> — {alerts[0].body}
@@ -81,7 +96,7 @@ export default function LivePage() {
       )}
       {/* ── Top KPI strip — go LIVE when the detector runs; otherwise reflect
          the demo's curated numbers OR a clean "no data yet" for fresh sessions. */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="metric-ribbon grid grid-cols-2 lg:grid-cols-4 gap-px">
         <KpiTile
           icon={<Users size={14} />}
           label="People now"
@@ -195,7 +210,7 @@ export default function LivePage() {
       {/* ── Main grid */}
       <div className="grid grid-cols-12 gap-5">
         {/* Live camera + heatmap */}
-        <div className="col-span-12 xl:col-span-8 space-y-5">
+        <div className="col-span-12 lg:col-span-8 space-y-5">
           <Panel
             title="Sensor 01 · this device"
             subtitle="On-device object detection · centroid tracker · no frames stored"
@@ -264,7 +279,7 @@ export default function LivePage() {
             subtitle={
               isDetectorRunning
                 ? "Generated from real detections"
-                : "Every detection becomes a graph node"
+                : "Timestamped events recorded during this session"
             }
             action={
               isDemo ? (
@@ -291,7 +306,7 @@ export default function LivePage() {
         </div>
 
         {/* Side column */}
-        <div className="col-span-12 xl:col-span-4 space-y-5">
+        <div className="col-span-12 lg:col-span-4 space-y-5">
           {!isDemo && <LiveRoiTile />}
 
           {isDetectorRunning && stats && stats.activeTracks.length > 0 && (
@@ -362,8 +377,8 @@ export default function LivePage() {
             title="Insights"
             subtitle={
               isDemo
-                ? "Generated every 10 minutes by the AI"
-                : "Insights generate after the first 50 detections"
+                ? "Updated from recorded session activity"
+                : "Available after the first 50 detections"
             }
             action={<Sparkles size={14} className="text-accent-violet" />}
           >
@@ -387,7 +402,7 @@ export default function LivePage() {
               <EmptyState
                 icon={<Sparkles size={18} />}
                 title="No insights yet."
-                hint="The AI surfaces a fresh round of insights every 10 minutes after detections begin."
+                hint="Session notes appear after enough detections have been recorded."
               />
             )}
           </Panel>
@@ -491,7 +506,7 @@ function KpiTile({
   };
   const stroke = strokeMap[accent ?? "brand"];
   return (
-    <div className="panel-elevated px-5 py-4 flex flex-col gap-3 group hover:border-border-subtle transition-colors">
+    <div className="panel-elevated px-4 md:px-5 py-4 flex flex-col gap-3 group hover:border-border-subtle transition-colors min-h-[146px]">
       <div className="flex items-center justify-between text-text-secondary">
         <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em]">
           <span className="text-text-muted">{icon}</span>
@@ -504,7 +519,7 @@ function KpiTile({
       </div>
       <div className="flex items-end justify-between gap-3">
         <div
-          className="text-4xl font-semibold tabular tracking-tight"
+          className="data-value text-3xl md:text-4xl tabular"
           style={{ color: accent ? stroke : undefined }}
         >
           {value}

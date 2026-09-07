@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { SignOutButton } from "@/components/auth/LoginForm";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Pill } from "@/components/ui/Pill";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import {
   getTypeMeta,
   STATUS_META,
@@ -30,6 +31,10 @@ import { useLiveSession } from "@/lib/live-session/store";
 import { useRemoteBusBridge } from "@/hooks/useRemoteBusBridge";
 import { cn } from "@/lib/utils";
 
+function RealmMark() {
+  return <span className="brand-mark" aria-hidden="true" />;
+}
+
 export function StatusBar() {
   const router = useRouter();
   const pathname = usePathname();
@@ -37,7 +42,7 @@ export function StatusBar() {
   const sessions = useSessions();
   const { state: busState, configured: busConfigured } = useRemoteBusBridge();
 
-  const [now, setNow] = useState<Date>(() => new Date());
+  const [now, setNow] = useState<Date | null>(null);
   const [open, setOpen] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const switcherRef = useRef<HTMLDivElement>(null);
@@ -46,8 +51,12 @@ export function StatusBar() {
   // interval and updates state from its callback (never synchronously in the
   // effect body), which is what syncs an external system — the wall clock.
   useEffect(() => {
+    const first = window.setTimeout(() => setNow(new Date()), 0);
     const id = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(id);
+    return () => {
+      window.clearTimeout(first);
+      clearInterval(id);
+    };
   }, []);
 
   // Click-outside for the switcher dropdown
@@ -77,26 +86,22 @@ export function StatusBar() {
 
   return (
     <>
-      <header className="h-16 flex items-center justify-between px-4 sticky top-0 z-30 surface border-b border-outline-variant">
+      <header role="banner" className="h-[72px] flex items-center justify-between px-3 md:px-4 sticky top-0 z-40 surface border-b border-border-hairline">
         {/* Left — logo + session switcher */}
         <div className="flex items-center gap-3 min-w-0">
           <Link
             href="/"
-            className="bg-bg-raised border border-border-subtle h-11 rounded-full px-4 inline-flex items-center gap-2.5 hover:border-border-strong transition-colors shadow-[var(--shadow-sm)]"
+            className="h-12 rounded-[18px] px-2 md:px-3 inline-flex items-center gap-2.5 hover:bg-bg-elevated transition-colors"
           >
-            <div className="relative w-5 h-5">
-              <div className="absolute inset-0 rounded-full bg-accent shadow-[var(--glow-green)]" />
-              <div className="absolute inset-[3px] rounded-full bg-bg-base" />
-              <div className="absolute inset-[5px] rounded-full bg-accent" />
-            </div>
-            <span className="text-sm font-semibold tracking-tight">RealmSpace</span>
+            <RealmMark />
+            <span className="hidden sm:inline text-sm font-bold tracking-[-.02em]">realmspace</span>
           </Link>
 
           {/* Session switcher — clickable pill that drops a list */}
           <div ref={switcherRef} className="relative min-w-0">
             <button
               onClick={() => setOpen((v) => !v)}
-              className="flex items-center gap-2.5 h-11 pl-3 pr-3 rounded-full bg-bg-raised border border-border-subtle hover:border-border-strong transition-colors max-w-[420px]"
+              className="flex items-center gap-2.5 h-12 pl-3 pr-3 rounded-[18px] bg-bg-panel border border-border-hairline hover:border-border-strong transition-colors max-w-[min(420px,50vw)]"
               aria-haspopup="listbox"
               aria-expanded={open}
             >
@@ -266,26 +271,17 @@ export function StatusBar() {
           )}
 
           <div className="hidden md:inline-flex pill-group h-10 px-4 font-mono text-xs tabular text-text-primary tracking-wider">
-            {now.toLocaleTimeString("en-US", {
-              hour: "2-digit",
-              minute: "2-digit",
-              second: "2-digit",
-              hour12: false,
-            })}
+            {now
+              ? now.toLocaleTimeString("en-US", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                  hour12: false,
+                })
+              : "--:--:--"}
           </div>
 
-          {/* Theme toggle */}
-          <button
-            onClick={() => {
-              const html = document.documentElement;
-              const current = html.getAttribute("data-theme");
-              html.setAttribute("data-theme", current === "light" ? "dark" : "light");
-            }}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-colors"
-            title="Toggle theme"
-          >
-            <span className="material-symbol">dark_mode</span>
-          </button>
+          <ThemeToggle className="w-11 px-0" />
 
           {active.status === "live" && !active.isDemo ? (
             <button
@@ -327,10 +323,12 @@ export function StatusBar() {
             <p className="mt-3 text-sm text-text-secondary leading-relaxed">
               The session moves to Completed at{" "}
               <span className="text-text-primary tabular">
-                {now.toLocaleTimeString("en-GB", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+                {now
+                  ? now.toLocaleTimeString("en-GB", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : "--:--"}
               </span>
               . The report locks at this moment and live updates stop. The
               graph remains for {active.privacy.retentionDays} days.

@@ -6,7 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Each entry explains what changed **in plain words** first, then the technical detail.
 Sections are dated (with time, local timezone +0100) so you can see when things landed.
 
-## [Unreleased] — last updated 2026-08-11
+## [Unreleased] — last updated 2026-09-07
+
+### Changed — 2026-09-07 14:20 +0100 — launch UI refresh
+
+- **realmspace now looks and reads like a production product across desktop and mobile.** The public page, app shell, live dashboard, session list, Twin replay, Ask, Rules, Report, login, and setup wizard now share one responsive design system. The copy is plainer and removes internal phase names, model references, staged projections, and marketing language. Twin now makes its data source explicit, provides working Heatmap and Zones controls, and no longer substitutes sample tracks for an empty recorded session. Theme controls are available on both the public page and app shell.
+  *Rebuilt the global surface/type/shape tokens, responsive desktop rail and mobile bottom navigation; added a persistent theme control; rebuilt the Twin as a full-height replay workspace with inspectors and functional layers; delayed local session hydration until after React's initial commit to remove server/client text mismatches. Added static UI/copy assertions and a Playwright hydration regression check.*
 
 ### Added — 2026-08-11 — Phase 4: Attribute (Consent, Identity, Intent, Handoff, CRM)
 

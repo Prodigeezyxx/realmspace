@@ -2,10 +2,8 @@
 
 import {
   Bell,
-  CircleAlert,
   Clock,
   Plus,
-  Settings2,
   Sparkles,
   Trash2,
   Webhook,
@@ -149,10 +147,9 @@ export default function AgentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch rules on mount and when demo mode changes
+  // Fetch rules for the sample workspace. User sessions enable this after recording starts.
   useEffect(() => {
-    if (!isDemo) { setAgents([]); setLoading(false); return; }
-    setLoading(true);
+    if (!isDemo) return;
     fetchRules(tenantId)
       .then((rules) => setAgents(rules.map(backendToUI)))
       .catch(() => setError("Could not reach backend"))
@@ -203,8 +200,8 @@ export default function AgentsPage() {
         <EmptyState
           variant="page"
           icon={<Zap size={26} strokeWidth={1.8} />}
-          title="Agents activate once a session is recording."
-          hint="Create spatial rules that fire actions in real time — ping Slack, hit webhooks, swap screens. Start recording a session to begin."
+          title="Rules are unavailable until recording starts."
+          hint="Start the live detector first. You can then create conditions that log an event, call a webhook or notify an approved channel."
           cta={{ href: "/live", label: "Open live & start recording" }}
         />
       </div>
@@ -212,21 +209,20 @@ export default function AgentsPage() {
   }
 
   return (
-    <div className="p-5 max-w-[1400px] mx-auto space-y-5">
+    <div className="realm-page space-y-5">
       <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <Pill variant="warn" className="mb-2">
+          <span className="page-kicker mb-2">Edge automation</span>
+          <Pill variant="warn" className="ml-3 mb-2">
             <Zap size={11} />
-            Rules Engine · Phase 3
+            Rules
           </Pill>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Turn observations into actions.
+          <h1 className="headline-large mt-1">
+            Run actions from session events.
           </h1>
           <p className="text-sm text-text-secondary mt-1 max-w-xl">
-            Every spatial event is evaluated against your rules. When a condition
-            is met, RealmSpace dispatches the action — Slack, webhook, screen
-            swap, staff prompt, or logged insight. Rules run on the edge kit
-            with sub-3 second latency.
+            Set a condition, choose an action and keep the rule on or off. Rules
+            run on the edge service while the session is recording.
           </p>
         </div>
         <Button variant="primary" icon={<Plus size={14} />} onClick={handleCreate}>
@@ -235,7 +231,7 @@ export default function AgentsPage() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="metric-ribbon grid grid-cols-2 lg:grid-cols-4 gap-px">
         <Summary label="Active rules" value={agents.filter((a) => a.enabled).length} />
         <Summary label="Total rules" value={agents.length} accent="cyan" />
         <Summary label="Rule types" value={[...new Set(agents.map((a) => a.triggerType))].length} accent="green" />

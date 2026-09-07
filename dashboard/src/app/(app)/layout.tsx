@@ -9,11 +9,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <EventSessionProvider>
     <LiveSessionProvider>
-      <div className="min-h-screen flex flex-col surface">
+      <div className="realm-app-shell surface">
         <StatusBar />
-        <div className="flex flex-1 min-h-0">
+        <div className="realm-workspace">
           <NavRail />
-          <main className="flex-1 min-w-0 overflow-x-hidden surface-container-lowest">
+          <main className="realm-main surface-container-lowest">
             {children}
           </main>
         </div>

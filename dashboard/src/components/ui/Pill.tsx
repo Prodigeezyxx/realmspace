@@ -31,7 +31,7 @@ export function Pill({ children, variant = "neutral", className }: PillProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[11px] uppercase tracking-[0.14em] font-medium",
+        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] uppercase tracking-[0.12em] font-bold",
         variants[variant],
         className
       )}

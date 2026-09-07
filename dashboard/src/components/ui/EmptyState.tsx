@@ -11,7 +11,6 @@
  * fallback.
  */
 
-import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -56,12 +55,10 @@ export function EmptyState({
         {cta && (
           <Link
             href={cta.href}
-            className="mt-8 inline-flex items-center gap-2 bg-accent text-text-inverse h-12 pl-5 pr-2.5 rounded-full font-semibold text-sm hover:bg-accent-bright transition-colors shadow-[var(--glow-green)]"
+            className="mt-8 inline-flex items-center gap-2 bg-accent text-[var(--md-sys-color-on-primary)] h-12 pl-5 pr-3 rounded-full font-semibold text-sm hover:bg-accent-bright transition-colors shadow-[var(--glow-green)]"
           >
             {cta.label}
-            <span className="w-9 h-9 rounded-full bg-text-inverse text-accent inline-flex items-center justify-center">
-              <ArrowUpRight size={15} />
-            </span>
+            <span className="material-symbol material-symbol-sm">arrow_outward</span>
           </Link>
         )}
       </div>
@@ -94,7 +91,7 @@ export function EmptyState({
           className="mt-1 text-xs text-accent inline-flex items-center gap-1.5 hover:gap-2.5 transition-all font-medium"
         >
           {cta.label}
-          <ArrowUpRight size={12} />
+          <span className="material-symbol material-symbol-sm">arrow_outward</span>
         </Link>
       )}
     </div>

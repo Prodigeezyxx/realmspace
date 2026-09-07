@@ -10,7 +10,7 @@
  * active session on first load.
  */
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import { DEMO_SESSION } from "@/lib/mock/session";
 
@@ -105,11 +105,6 @@ function hydrate() {
   emit();
 }
 
-// Hydrate as soon as this module is imported on the client.
-if (typeof window !== "undefined") {
-  hydrate();
-}
-
 // ── Actions ───────────────────────────────────────────────────────────────
 
 function uid(prefix = "ses") {
@@ -188,6 +183,12 @@ export const sessionActions = {
 // ── Hooks ────────────────────────────────────────────────────────────────
 
 function useStore<T>(selector: (s: State) => T): T {
+  useEffect(() => {
+    // Keep the server snapshot for the first client render. Apply persisted
+    // sessions after React has committed hydration to avoid a text mismatch.
+    const id = window.setTimeout(hydrate, 0);
+    return () => window.clearTimeout(id);
+  }, []);
   return useSyncExternalStore(
     subscribe,
     useCallback(() => selector(getSnapshot()), [selector]),

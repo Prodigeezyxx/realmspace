@@ -14,12 +14,10 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantStyles: Record<Variant, string> = {
-  // Brand-green primary, black text — the Intellias green pill
   primary:
-    "bg-accent text-text-inverse hover:bg-accent-bright shadow-[var(--glow-green)]",
-  // Subtle dark outlined pill
+    "bg-accent text-[var(--md-sys-color-on-primary)] hover:bg-accent-bright shadow-[var(--glow-green)]",
   secondary:
-    "bg-bg-raised border border-border-subtle text-text-primary hover:border-border-strong hover:bg-bg-elevated",
+    "bg-bg-raised border border-border-hairline text-text-primary hover:border-border-strong hover:bg-bg-elevated",
   ghost:
     "bg-transparent text-text-secondary hover:bg-bg-elevated hover:text-text-primary",
   danger:
@@ -54,7 +52,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       ref={ref}
       className={cn(
         "inline-flex items-center justify-center font-medium transition-all duration-150 select-none disabled:opacity-40 disabled:cursor-not-allowed",
-        pill ? "rounded-full" : "rounded-xl",
+        pill ? "rounded-full" : "rounded-[16px]",
         variantStyles[variant],
         sizeStyles[size],
         fullWidth && "w-full",
